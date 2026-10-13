@@ -15,6 +15,7 @@ select = ["E", "F", "I", "B", "S", "UP", "N", "SIM", "RUF", "ASYNC", "PT"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]
+"app/fixtures.py" = ["E501"]  # long literal demo passages
 
 [tool.mypy]
 python_version = "3.12"
@@ -22,7 +23,7 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["firebase_admin", "firebase_admin.*"]
+module = ["firebase_admin", "firebase_admin.*", "google.cloud.storage", "google.cloud.storage.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]

@@ -61,7 +61,11 @@ def test_prebunk_creates_owned_session(client: TestClient, store: InMemoryStore)
     assert r.status_code == 201
     sid = r.json()["session_id"]
     assert store.sessions[sid].owner_uid == "admin-1"
-    assert store.sessions[sid].status == "prebunking"
+    # SyncQueue runs the prebunk job inline: offline fixtures give 6 proved cards.
+    assert store.sessions[sid].status == "ready"
+    claims = store.list_claims(sid)
+    assert len(claims) == 6
+    assert all(c.card_id for _, c in claims)
 
 
 @pytest.mark.parametrize(

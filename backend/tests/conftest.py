@@ -6,7 +6,11 @@ from pydantic import SecretStr
 
 from app.config import Settings
 from app.main import create_app
+from app.model import StubModel
+from app.pipeline import Deps
+from app.proof import FixtureFetcher, InMemorySnapshots
 from app.store import InMemoryStore
+from app.tasks import SyncQueue
 
 WEBHOOK_SECRET = "test-webhook-secret-value"
 
@@ -39,4 +43,21 @@ def settings() -> Settings:
 
 @pytest.fixture
 def client(settings: Settings, store: InMemoryStore) -> TestClient:
-    return TestClient(create_app(settings=settings, verifier=fake_verifier, store=store))
+    deps = Deps(
+        store=store, model=StubModel(), fetcher=FixtureFetcher(), snapshots=InMemorySnapshots()
+    )
+    app = create_app(
+        settings=settings,
+        verifier=fake_verifier,
+        store=store,
+        deps=deps,
+        queue=SyncQueue(),
+        oidc_verifier=fake_oidc,
+    )
+    return TestClient(app)
+
+
+def fake_oidc(token: str) -> dict[str, Any]:
+    if token != "task-token":
+        raise ValueError("bad oidc")
+    return {"email": "api-sa@test.iam.gserviceaccount.com", "email_verified": True}

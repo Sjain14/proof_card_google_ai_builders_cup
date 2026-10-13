@@ -1,21 +1,23 @@
 # SNAPSHOT (where the build is right now)
 
-Updated by every PR. Newest state only; history lives in CHANGELOG.md.
+Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versions/`.
 
-**As of:** 14 Oct 2026, 03:30 IST · **Phase:** P1 Spine (09_Dev_Plan_Phases.md)
+**As of:** 14 Oct 2026 IST · **Version:** v0.2.0 · **Phase:** P2 Before (prebunk pipeline)
 
 ## Done
-- Context docs 00 to 12 in `context/` (scope locked: Before + After hero, live = thin bridge).
-- Phase 1 backend skeleton (PR p1-backend-skeleton): FastAPI service, Firebase ID token auth, Pydantic schemas for every request + Firestore doc, Firestore rules (deny by default), Telegram webhook secret check, SSRF guard, JSON logging with redaction, Dockerfile (non root), GitHub Actions CI.
-- Local gates: ruff + format + mypy strict green, 38 pytest passing (97% coverage), 6/6 Firestore rules tests on emulator, pip-audit clean.
+- v0.1.0 (PR #1, merged): backend spine, auth, schemas, rules, webhook + SSRF guards, CI.
+- v0.2.0 (PR p2-prebunk-pipeline): Gemini claim prediction + grounded assessment, our own fetch + passage match + sha256 snapshots, faithfulness gate, prebunk job via Cloud Tasks with OIDC, owner only session view, offline stub mode, `sql/` BigQuery views.
+- Gates: ruff, format, mypy strict, pytest (64 tests, 98% coverage), pip-audit clean.
 
-## In progress
-- none
+## Works without Team lead's setup
+Everything above, offline (`PC_MODEL_MODE=stub`, in memory store in tests).
+
+## Needs his externals to go live
+E03 to E10 (project, APIs, Firebase, service accounts, bot token, deploy, model check), E15 (BigQuery).
 
 ## Next
-- P1 rest: Gemini claim prediction (A2, A3), `verify_claim` Cloud Task, grounded check + proof snapshot (C1 to C3), local CLI exit test.
+P3 After: card PNG with QR id, ALTERED check (text diff + pHash), Telegram bot replies, inline share, `/v/:id` share page.
 
 ## Blockers (owner)
-- Team no students confirmed before team formation closes on 14 Oct (Team lead).
-- GCP project + APIs + Telegram bot token in Secret Manager (Team lead).
-- Repo must be public by submission (Team lead, any time before 18 Oct).
+- E01 team no students before 14 Oct close (Team lead).
+- Repo public before submission (Team lead).

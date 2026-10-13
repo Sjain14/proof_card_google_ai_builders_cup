@@ -1,4 +1,4 @@
-"""Proof Card main service (Cloud Run). Phase 1: skeleton, auth, schemas, webhook guard."""
+"""Proof Card main service (Cloud Run): API, prebunk jobs, public card reads, Telegram webhook."""
 
 import logging
 from collections.abc import Awaitable, Callable
@@ -11,9 +11,21 @@ from pydantic import ValidationError
 from app.auth import Principal, Verifier, admin_principal, firebase_verifier
 from app.config import Settings, get_settings
 from app.logging_setup import configure_logging, pseudonymize
-from app.schemas import CardDoc, CheckTextRequest, PrebunkRequest, SessionDoc, TgUpdate
+from app.model import ModelClient, StubModel, VertexModel
+from app.pipeline import Deps, run_prebunk
+from app.proof import FixtureFetcher, GcsSnapshots, HttpFetcher, InMemorySnapshots
+from app.schemas import (
+    CardDoc,
+    CheckTextRequest,
+    PrebunkRequest,
+    SessionDoc,
+    SessionView,
+    TaskPrebunk,
+    TgUpdate,
+)
 from app.security import TokenBucket, telegram_secret_ok
 from app.store import FirestoreStore, Store
+from app.tasks import CloudTasksQueue, InlineQueue, OidcVerifier, TaskQueue, google_oidc_verifier
 
 log = logging.getLogger("proofcard")
 
@@ -26,10 +38,44 @@ SECURITY_HEADERS = {
 }
 
 
+def default_deps(settings: Settings, store: Store) -> Deps:  # pragma: no cover - prod wiring
+    model: ModelClient
+    if settings.model_mode == "vertex":
+        model = VertexModel(
+            settings.gcp_project,
+            settings.gemini_region or settings.gcp_region,
+            settings.gemini_model,
+        )
+        fetcher: FixtureFetcher | HttpFetcher = HttpFetcher()
+    else:
+        model, fetcher = StubModel(), FixtureFetcher()
+    snaps = GcsSnapshots(settings.proof_bucket) if settings.proof_bucket else InMemorySnapshots()
+    return Deps(store=store, model=model, fetcher=fetcher, snapshots=snaps)
+
+
+def default_queue(settings: Settings) -> TaskQueue:  # pragma: no cover - prod wiring
+    if settings.tasks_mode == "cloudtasks":
+        return CloudTasksQueue(
+            settings.gcp_project,
+            settings.gcp_region,
+            settings.tasks_queue,
+            settings.service_url,
+            settings.tasks_sa_email,
+        )
+    return InlineQueue()
+
+
+def _valid_id(v: str) -> bool:
+    return 8 <= len(v) <= 64 and v.replace("-", "").replace("_", "").isalnum()
+
+
 def create_app(
     settings: Settings | None = None,
     verifier: Verifier | None = None,
     store: Store | None = None,
+    deps: Deps | None = None,
+    queue: TaskQueue | None = None,
+    oidc_verifier: OidcVerifier | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging()
@@ -43,6 +89,13 @@ def create_app(
     app.state.settings = settings
     app.state.verifier = verifier or firebase_verifier()
     app.state.store = store or FirestoreStore(settings.gcp_project)
+    app.state.deps = deps or default_deps(settings, app.state.store)
+    app.state.queue = queue or default_queue(settings)
+    app.state.oidc = oidc_verifier or (
+        google_oidc_verifier(settings.service_url, settings.tasks_sa_email)
+        if settings.tasks_mode == "cloudtasks"
+        else None
+    )
     app.state.limiter = TokenBucket(rate_per_min=settings.public_rate_per_min)
 
     @app.middleware("http")
@@ -82,12 +135,41 @@ def create_app(
         )
         sid = app.state.store.create_session(doc)
         log.info("session created", extra={"fields": {"session": sid}})
-        # Phase 2 enqueues Cloud Tasks verify_claim jobs here.
+        n = settings.prebunk_claims
+        app.state.queue.enqueue_prebunk(sid, lambda: run_prebunk(sid, app.state.deps, n))
         return {"session_id": sid}
+
+    @app.get("/api/sessions/{session_id}")
+    def get_session(
+        session_id: str, user: Annotated[Principal, Depends(admin_principal)]
+    ) -> SessionView:
+        s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
+        # 404 for "not yours" too: never confirm another user's session exists.
+        if s is None or s.owner_uid != user.uid:
+            raise HTTPException(status_code=404, detail="not found")
+        claims = app.state.store.list_claims(session_id)
+        return SessionView.build(session_id, s, claims)
+
+    @app.post("/tasks/prebunk", include_in_schema=False)
+    def task_prebunk(
+        body: TaskPrebunk, authorization: Annotated[str | None, Header()] = None
+    ) -> dict[str, int]:
+        verify = app.state.oidc
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        try:
+            if verify is None or not token:
+                raise ValueError("no task auth")
+            verify(token)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="not found") from exc
+        result: dict[str, int] = run_prebunk(
+            body.session_id, app.state.deps, settings.prebunk_claims
+        )
+        return result
 
     @app.get("/api/cards/{card_id}")
     def get_card(card_id: str) -> CardDoc:
-        if not (8 <= len(card_id) <= 64) or not card_id.replace("-", "").replace("_", "").isalnum():
+        if not _valid_id(card_id):
             raise HTTPException(status_code=404, detail="not found")
         card: CardDoc | None = app.state.store.get_card(card_id)
         if card is None:

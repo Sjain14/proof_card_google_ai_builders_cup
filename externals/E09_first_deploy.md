@@ -10,15 +10,24 @@ cd backend
 gcloud run deploy proofcard-api --source . --region $R \
   --service-account api-sa@$P.iam.gserviceaccount.com \
   --allow-unauthenticated --min-instances 1 --max-instances 5 \
-  --set-env-vars PC_ENV=prod,PC_GCP_PROJECT=$P,PC_GCP_REGION=$R,PC_MODEL_MODE=vertex,PC_PROOF_BUCKET=proofcard-<yourname>-proofs \
+  --set-env-vars PC_ENV=prod,PC_GCP_PROJECT=$P,PC_GCP_REGION=$R,PC_MODEL_MODE=vertex,PC_PROOF_BUCKET=proofcard-<yourname>-proofs,PC_TASKS_MODE=cloudtasks,PC_TASKS_SA_EMAIL=api-sa@$P.iam.gserviceaccount.com \
   --set-secrets PC_TELEGRAM_BOT_TOKEN=TG_BOT_TOKEN:1,PC_TELEGRAM_WEBHOOK_SECRET=TG_WEBHOOK_SECRET:1
 ```
 Secrets are pinned to version `1`, not `latest` (see `context/12_Engineering_Standards.md`). `--allow-unauthenticated` is required because the share link and Telegram webhook are public; every write endpoint checks a Firebase ID token itself.
 
-After it prints the URL, set it once more as `PC_PUBLIC_BASE_URL`:
+After it prints the service URL, set it as the task audience and the public base:
 ```bash
-gcloud run services update proofcard-api --region $R --update-env-vars PC_PUBLIC_BASE_URL=https://<your-hosting-domain>
+URL=$(gcloud run services describe proofcard-api --region $R --format='value(status.url)')
+gcloud run services update proofcard-api --region $R --update-env-vars PC_SERVICE_URL=$URL,PC_PUBLIC_BASE_URL=https://<your-hosting-domain>
 ```
+
+Create the job queue once (Cloud Tasks retries failed briefs with backoff) ✅ [Create queues](https://cloud.google.com/tasks/docs/creating-queues):
+```bash
+gcloud tasks queues create prebunk --location=$R --max-concurrent-dispatches=4 --max-attempts=3
+gcloud iam service-accounts add-iam-policy-binding api-sa@$P.iam.gserviceaccount.com \
+  --member=serviceAccount:api-sa@$P.iam.gserviceaccount.com --role=roles/iam.serviceAccountUser
+```
+(the second line lets the API mint the OIDC token for its own task calls ✅ [HTTP target tasks](https://cloud.google.com/tasks/docs/creating-http-target-tasks)).
 
 ## 2. Frontend + rules to Firebase
 ```bash

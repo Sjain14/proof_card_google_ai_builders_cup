@@ -96,6 +96,9 @@ class ClaimDoc(Strict):
     source: ClaimSource
     status: ClaimStatus = ClaimStatus.QUEUED
     card_id: str | None = None
+    verdict: Verdict | None = None  # copied from the card so list views need no join
+    matched_claim_id: str | None = None  # live claim answered instantly by a prebunked one
+    latency_ms: Annotated[int, Field(ge=0)] | None = None  # live: heard to card shown
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -116,6 +119,51 @@ def gate_verdict(verdict: Verdict, support_score: float, threshold: float = 0.6)
     if verdict in (Verdict.TRUE, Verdict.FALSE, Verdict.MISLEADING) and support_score < threshold:
         return Verdict.UNVERIFIABLE
     return verdict
+
+
+# ---------- API responses / internal task bodies ----------
+
+
+class TaskPrebunk(Strict):
+    session_id: DocId
+
+
+class ClaimView(BaseModel):
+    id: str
+    text: str
+    lang: str
+    source: ClaimSource
+    status: ClaimStatus
+    card_id: str | None
+    verdict: Verdict | None
+
+
+class SessionView(BaseModel):
+    id: str
+    topic: str
+    speaker: str
+    status: str
+    claims: list[ClaimView]
+    counts: dict[str, int]
+
+    @classmethod
+    def build(cls, sid: str, s: SessionDoc, claims: list[tuple[str, ClaimDoc]]) -> "SessionView":
+        views = [
+            ClaimView(
+                id=cid,
+                text=c.text,
+                lang=c.lang,
+                source=c.source,
+                status=c.status,
+                card_id=c.card_id,
+                verdict=c.verdict,
+            )
+            for cid, c in claims
+        ]
+        counts = {st.value: sum(1 for v in views if v.status == st) for st in ClaimStatus}
+        return cls(
+            id=sid, topic=s.topic, speaker=s.speaker, status=s.status, claims=views, counts=counts
+        )
 
 
 # ---------- Telegram (subset we actually read) ----------

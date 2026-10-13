@@ -23,6 +23,7 @@ Labels: ✅ verified against the linked official doc · 🟡 estimate or plan.
 | E11 | [E11_demo_dry_run_telegram_forward.md](E11_demo_dry_run_telegram_forward.md) | P3 exit test | 16 Oct | 20 min | ☐ |
 | E12 | [E12_demo_video.md](E12_demo_video.md) | P5 submission | 18 Oct | 2 to 3 h | ☐ |
 | E13 | [E13_deck_and_submission.md](E13_deck_and_submission.md) | P5 submission | **18 Oct, submit by 8 PM IST** | 2 h | ☐ |
+| E15 | [E15_bigquery_export.md](E15_bigquery_export.md) | analytics + benchmark numbers for deck | 17 Oct | 15 min | ☐ |
 | E14 | [E14_after_submit_keep_alive.md](E14_after_submit_keep_alive.md) | judging window | 19 Oct to 6 Nov | 5 min | ☐ |
 
 ## What works without you (so nothing is blocked)

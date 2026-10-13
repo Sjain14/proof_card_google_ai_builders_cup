@@ -1,7 +1,8 @@
 """Runtime settings.
 
 Secrets are NEVER read from files in the repo. On Cloud Run they are injected from
-Secret Manager as environment variables pinned to a version (see docs/STANDARDS.md).
+Secret Manager as environment variables pinned to a version
+(see context/12_Engineering_Standards.md).
 Locally they come from a gitignored .env that each developer fills with their own values.
 """
 
@@ -26,6 +27,20 @@ class Settings(BaseSettings):
     public_rate_per_min: int = Field(default=30, ge=1, le=600)
     max_body_bytes: int = Field(default=1_000_000, ge=1_024)
 
+    # Model + pipeline. stub = offline fixtures (tests, CI, local before GCP exists).
+    model_mode: str = Field(default="stub", pattern="^(stub|vertex)$")
+    gcp_region: str = "asia-south1"
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_region: str = ""  # empty = gcp_region
+    prebunk_claims: int = Field(default=12, ge=1, le=20)
+    proof_bucket: str = ""  # empty = in memory snapshots (local only)
+
+    # Background jobs. inline = thread pool in process; cloudtasks = durable queue (prod).
+    tasks_mode: str = Field(default="inline", pattern="^(inline|cloudtasks)$")
+    tasks_queue: str = "prebunk"
+    tasks_sa_email: str = ""  # api-sa email; also the only identity allowed to call /tasks/*
+    service_url: str = ""  # this Cloud Run service's own URL (OIDC audience)
+
     # Auth: tests swap the verifier, prod always verifies Firebase ID tokens.
     auth_disabled: bool = False
 
@@ -35,4 +50,6 @@ def get_settings() -> Settings:
     s = Settings()
     if s.env == "prod" and s.auth_disabled:
         raise RuntimeError("auth_disabled is forbidden in prod")
+    if s.env == "prod" and s.model_mode == "stub":
+        raise RuntimeError("stub model is forbidden in prod")
     return s
