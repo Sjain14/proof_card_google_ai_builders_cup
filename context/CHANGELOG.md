@@ -3,6 +3,7 @@
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
 ## 2026-10-14 · v0.4.0 · p4-frontend
+- Fix: landing example cards no longer overflow on mobile (390px).
 - Frontend app (landing, new brief, brief grid with share actions), Firebase Google sign in, Hosting rewrites, CI frontend job.
 - New deps (pinned): react, react-dom, firebase, @fontsource-variable/inter (OFL); dev: vite, @vitejs/plugin-react, typescript, vitest, @types/react(-dom).
 - Docs touched: SNAPSHOT, CHANGELOG, ARCHITECTURE, DECISIONS (D16), versions/v0.4.0, skills.md.

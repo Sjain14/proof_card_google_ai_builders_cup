@@ -151,7 +151,11 @@ a { color: var(--brand); }
 
 @media (max-width: 860px) {
   .hero { grid-template-columns: 1fr; padding-top: 32px; gap: 32px; }
-  .stack { height: 380px; }
+  .stack { height: 380px; overflow-x: clip; }
+  .mini { width: 84%; }
+  .mini-0 { left: 2%; }
+  .mini-1 { left: auto; right: 2%; }
+  .mini-2 { left: 4%; }
   .steps { grid-template-columns: 1fr; }
   .trust { padding: 32px; }
   .panel { padding: 24px; }
