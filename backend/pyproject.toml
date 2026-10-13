@@ -1,0 +1,33 @@
+[project]
+name = "proofcard-backend"
+version = "0.1.0"
+description = "Proof Card backend: prebunk pipeline, proof capsules, Telegram verify bot"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F pycodestyle+pyflakes, I isort, B bugbear, S bandit (security), UP pyupgrade,
+# N naming, SIM simplify, RUF ruff specific, ASYNC async pitfalls, PT pytest style
+select = ["E", "F", "I", "B", "S", "UP", "N", "SIM", "RUF", "ASYNC", "PT"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["firebase_admin", "firebase_admin.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+omit = ["app/asgi.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --cov=app --cov-report=term-missing --cov-fail-under=85"

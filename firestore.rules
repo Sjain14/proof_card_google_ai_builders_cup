@@ -1,0 +1,44 @@
+rules_version = '2';
+
+// Proof Card Firestore rules.
+// Model: the backend writes everything with the Admin SDK (which bypasses rules).
+// Browsers only READ, through realtime listeners. Default deny for everything else.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsSession(sessionId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/sessions/$(sessionId)).data.owner_uid
+           == request.auth.uid;
+    }
+
+    // Admin sees only their own sessions; can't list other people's.
+    match /sessions/{sessionId} {
+      allow get: if signedIn() && resource.data.owner_uid == request.auth.uid;
+      allow list: if signedIn() && resource.data.owner_uid == request.auth.uid;
+      allow write: if false;
+
+      match /claims/{claimId} {
+        allow read: if ownsSession(sessionId);
+        allow write: if false;
+      }
+    }
+
+    // Cards are public proof: anyone with the id can read ONE card.
+    // No listing, so nobody can enumerate or scrape the whole collection.
+    match /cards/{cardId} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Telegram check logs, jobs, anything else: server only.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

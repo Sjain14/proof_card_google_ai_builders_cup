@@ -17,9 +17,9 @@ context/            these docs
 ## Built so far
 | Piece | State |
 |---|---|
-| Main service skeleton (`/healthz`, `/api/prebunk`, `/api/cards/:id`, `/api/check`, `/tg/webhook`) | scaffold ready, PR pending |
-| Auth (Firebase ID tokens, admin vs anonymous) | scaffold ready, PR pending |
-| Firestore schema v1 (sessions, claims, cards, server only collections) + rules | scaffold ready, PR pending |
+| Main service skeleton (`/healthz`, `/api/prebunk`, `/api/cards/:id`, `/api/check`, `/tg/webhook`) | in PR p1-backend-skeleton |
+| Auth (Firebase ID tokens, admin vs anonymous) | in PR p1-backend-skeleton |
+| Firestore schema v1 (sessions, claims, cards, server only collections) + rules | in PR p1-backend-skeleton |
 | Gemini pipeline, Cloud Tasks, fetcher service, card PNG, Telegram replies | not started (P1 to P4) |
 
 ## Data flow (target)
