@@ -46,3 +46,6 @@ The card layout is fixed (`card_image.BANDS`, `LAYOUT_VERSION`), so the server r
 
 ## D15 · 14 Oct · Fonts subset, docs first, no bloat (Team lead, 13 Oct 22:11Z)
 `AGENTS.md` added: official docs before every integration (URL cited in code + PR), smallest complete change, deps pinned + recorded in `context/skills.md`, no third party installers. Noto fonts cut from 2.7 MB to 0.3 MB (subset to Latin + Devanagari, weight 400 to 700) with fontTools at dev time only.
+
+## D16 · 14 Oct · Frontend: Vite + React + TS, no router or UI library
+Three screens (Landing, New brief, Brief). A 15 line router and plain CSS with brand tokens beat two dependencies (AGENTS.md §2). The brief polls `GET /api/sessions/:id` every 1.5 s until done; a Firestore listener comes with live mode. `/v/:id` stays server rendered (v0.3.0) for link previews. Hosting rewrites `/api/**`, `/v/**`, `/tg/**` to Cloud Run, so everything is one origin (no CORS).

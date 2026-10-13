@@ -16,6 +16,18 @@ Rule (AGENTS.md §3): every dependency pinned, licence checked, reason given. No
 | numpy | pinned in requirements.txt | BSD-3-Clause | band diff math in the ALTERED check (already pulled by ImageHash) |
 | python-multipart | 0.0.32 | Apache-2.0 | FastAPI file upload on the share page check form |
 
+## Frontend dependencies (P4)
+| Package | Version | Licence | Why |
+|---|---|---|---|
+| react, react-dom | 19.3.0 | MIT | UI |
+| firebase | 13.0.0 | Apache-2.0 | Google sign in (modular SDK, only `app` + `auth` imported) |
+| @fontsource-variable/inter | 5.3.0 | OFL-1.1 | brand font, self hosted (no third party font requests) |
+| vite, @vitejs/plugin-react, typescript, vitest | 8.3.4, 6.1.2, 7.0.2, 5.0.4 | MIT / Apache-2.0 | build, typecheck, tests (dev only) |
+
+No router and no UI library: 3 screens don't need them (D16).
+
+Override: `@grpc/grpc-js` pinned to 1.14.6 via `overrides`. firebase 13 pulls 1.9.16 through Firestore's Node path (GHSA-m9gg-hp2v-232j, GHSA-f596-whhp-79r4, fixed in 1.13.6). We never import Firestore in the browser; the override keeps `npm audit` clean anyway.
+
 ## Assets
 | Asset | Licence | Why |
 |---|---|---|

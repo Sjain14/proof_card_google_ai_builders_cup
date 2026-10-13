@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.4.0 · p4-frontend
+- Frontend app (landing, new brief, brief grid with share actions), Firebase Google sign in, Hosting rewrites, CI frontend job.
+- New deps (pinned): react, react-dom, firebase, @fontsource-variable/inter (OFL); dev: vite, @vitejs/plugin-react, typescript, vitest, @types/react(-dom).
+- Docs touched: SNAPSHOT, CHANGELOG, ARCHITECTURE, DECISIONS (D16), versions/v0.4.0, skills.md.
+
 ## 2026-10-14 · v0.3.0 · p3-proof-capsule
 - Card image + QR, ALTERED check, `/v/:id` share page, image + text checks, Telegram bot replies + inline share, `checks` logging.
 - AGENTS.md + context/skills.md (Team lead: official docs first, no bloat). Fonts subset.

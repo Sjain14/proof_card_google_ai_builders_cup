@@ -22,7 +22,8 @@ backend/            Python FastAPI service for Cloud Run
     telegram.py     Bot API subset + update handler
     security.py     webhook secret, SSRF guard, canonical hashing, rate limit
   tests/            pytest (unit + API)
-frontend/           (P4) Vite + React + TS
+frontend/           Vite + React + TS (no router/UI lib): Landing, New brief, Brief grid
+  src/              api.ts (typed client), auth.ts (Firebase Google sign in), router.ts, pages/, components/
 rules-tests/        Firestore rules tests on the emulator
 sql/                BigQuery views + metrics (NN_name.sql)
 externals/          human setup tasks E01..E15
@@ -55,4 +56,4 @@ browser reads session via /api/sessions/:id (or Firestore listener, rules owner 
 ```
 
 ## Not built yet
-Frontend + Firebase Hosting rewrites for `/v/**` and `/api/**` (P4) · live bridge + instant match (P5).
+Live bridge + instant match (P5) · Firestore onSnapshot instead of polling (with live mode).
