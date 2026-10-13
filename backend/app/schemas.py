@@ -114,6 +114,33 @@ class CardDoc(Strict):
     created_at: datetime = Field(default_factory=_now)
 
 
+class CheckDoc(Strict):
+    """One ALTERED / VERIFIED check. Deliberately no chat id, user id or image stored."""
+
+    schema_version: int = SCHEMA_VERSION
+    card_id: str | None = None
+    channel: Annotated[str, Field(pattern="^(telegram|web)$")]
+    result: Annotated[str, Field(pattern="^(VERIFIED|ALTERED|UNKNOWN)$")]
+    changed: list[str] = []
+    text_similarity: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    phash_distance: int | None = None
+    created_at: datetime = Field(default_factory=_now)
+
+
+class CheckImageResponse(BaseModel):
+    result: str
+    reason: str
+    card_id: str | None
+    changed: list[str]
+
+
+class CheckTextResponse(BaseModel):
+    result: str
+    similarity: float
+    removed: list[str]
+    added: list[str]
+
+
 def gate_verdict(verdict: Verdict, support_score: float, threshold: float = 0.6) -> Verdict:
     """Never show a hard verdict the sources don't back (faithfulness gate)."""
     if verdict in (Verdict.TRUE, Verdict.FALSE, Verdict.MISLEADING) and support_score < threshold:
@@ -186,13 +213,34 @@ class TgPhotoSize(BaseModel):
     file_size: int | None = None
 
 
+class TgDocument(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    file_id: Annotated[str, Field(max_length=256)]
+    mime_type: str | None = None
+    file_size: int | None = None
+
+
 class TgMessage(BaseModel):
     model_config = ConfigDict(extra="ignore")
     message_id: int
     chat: TgChat
     from_: TgUser | None = Field(default=None, alias="from")
     text: Annotated[str, Field(max_length=4_096)] | None = None
+    caption: Annotated[str, Field(max_length=4_096)] | None = None
     photo: list[TgPhotoSize] | None = None
+    document: TgDocument | None = None
+
+
+class TgInlineQuery(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: Annotated[str, Field(max_length=128)]
+    query: Annotated[str, Field(max_length=256)] = ""
+
+
+class TgCallbackQuery(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: Annotated[str, Field(max_length=128)]
+    data: Annotated[str, Field(max_length=64)] | None = None
 
 
 class TgUpdate(BaseModel):
@@ -201,3 +249,5 @@ class TgUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
     update_id: int
     message: TgMessage | None = None
+    inline_query: TgInlineQuery | None = None
+    callback_query: TgCallbackQuery | None = None

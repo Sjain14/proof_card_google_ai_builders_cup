@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     # Injected from Secret Manager on Cloud Run. Empty locally = feature disabled.
     telegram_bot_token: SecretStr = SecretStr("")
     telegram_webhook_secret: SecretStr = SecretStr("")
+    telegram_bot_username: str = ""  # public, e.g. proofcard_bot (no @)
 
     # Abuse limits for public endpoints (per instance; see STANDARDS.md "what we skip").
     public_rate_per_min: int = Field(default=30, ge=1, le=600)

@@ -16,7 +16,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel
 
-from app.schemas import CardDoc, ClaimDoc, SessionDoc
+from app.schemas import CardDoc, CheckDoc, ClaimDoc, SessionDoc
 
 
 def new_id() -> str:
@@ -42,6 +42,7 @@ class Store(Protocol):
     def update_claim(self, session_id: str, claim_id: str, **changes: Any) -> None: ...
     def get_card(self, card_id: str) -> CardDoc | None: ...
     def put_card(self, card_id: str, doc: CardDoc) -> None: ...
+    def add_check(self, doc: CheckDoc) -> None: ...
 
 
 class InMemoryStore:
@@ -49,6 +50,7 @@ class InMemoryStore:
         self.sessions: dict[str, SessionDoc] = {}
         self.claims: dict[str, dict[str, ClaimDoc]] = {}
         self.cards: dict[str, CardDoc] = {}
+        self.checks: list[CheckDoc] = []
         self._lock = Lock()
 
     def create_session(self, doc: SessionDoc) -> str:
@@ -93,6 +95,10 @@ class InMemoryStore:
             if card_id in self.cards:
                 raise ValueError("card ids are immutable")
             self.cards[card_id] = doc
+
+    def add_check(self, doc: CheckDoc) -> None:
+        with self._lock:
+            self.checks.append(doc)
 
 
 class FirestoreStore:  # pragma: no cover - exercised against the emulator / prod
@@ -150,3 +156,6 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
     def put_card(self, card_id: str, doc: CardDoc) -> None:
         # create() fails if the id exists: cards are immutable once issued.
         self.db.collection("cards").document(card_id).create(doc.model_dump(mode="json"))
+
+    def add_check(self, doc: CheckDoc) -> None:
+        self.db.collection("checks").document(new_id()).create(doc.model_dump(mode="json"))

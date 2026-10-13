@@ -10,7 +10,7 @@ cd backend
 gcloud run deploy proofcard-api --source . --region $R \
   --service-account api-sa@$P.iam.gserviceaccount.com \
   --allow-unauthenticated --min-instances 1 --max-instances 5 \
-  --set-env-vars PC_ENV=prod,PC_GCP_PROJECT=$P,PC_GCP_REGION=$R,PC_MODEL_MODE=vertex,PC_PROOF_BUCKET=proofcard-<yourname>-proofs,PC_TASKS_MODE=cloudtasks,PC_TASKS_SA_EMAIL=api-sa@$P.iam.gserviceaccount.com \
+  --set-env-vars PC_ENV=prod,PC_GCP_PROJECT=$P,PC_GCP_REGION=$R,PC_MODEL_MODE=vertex,PC_PROOF_BUCKET=proofcard-<yourname>-proofs,PC_TASKS_MODE=cloudtasks,PC_TELEGRAM_BOT_USERNAME=<your_bot_username_without_@>,PC_TASKS_SA_EMAIL=api-sa@$P.iam.gserviceaccount.com \
   --set-secrets PC_TELEGRAM_BOT_TOKEN=TG_BOT_TOKEN:1,PC_TELEGRAM_WEBHOOK_SECRET=TG_WEBHOOK_SECRET:1
 ```
 Secrets are pinned to version `1`, not `latest` (see `context/12_Engineering_Standards.md`). `--allow-unauthenticated` is required because the share link and Telegram webhook are public; every write endpoint checks a Firebase ID token itself.

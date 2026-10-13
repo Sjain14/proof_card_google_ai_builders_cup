@@ -4,6 +4,7 @@ One file per version, newest at the top of this table. Each file is a frozen sna
 
 | Version | Date (IST) | Phase | What |
 |---|---|---|---|
+| [v0.3.0](v0.3.0.md) | 14 Oct | P3 | card image, ALTERED check, share page, Telegram bot |
 | [v0.2.0](v0.2.0.md) | 14 Oct | P2 | prebunk pipeline, proof snapshots, Cloud Tasks, sql/ (PR #5) |
 | [v0.1.0](v0.1.0.md) | 14 Oct | P1 | backend spine: auth, schemas, rules, guards, CI (PR #1) |
 | [v0.0.2](v0.0.2.md) | 14 Oct | P0 | externals/ human task list, version history |

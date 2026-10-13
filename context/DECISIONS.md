@@ -40,3 +40,9 @@ Firestore has no SQL. Team lead asked for a numbered `sql/` folder; it holds Big
 
 ## D13 · 14 Oct · Model never has the last word
 Every evidence URL is fetched by us, a passage is matched, the page bytes are hashed and stored. If matched support is below 0.6, a hard verdict is downgraded to UNVERIFIABLE (`gate_verdict`). Numbers in a claim that don't appear in the passage cap support at 0.5.
+
+## D14 · 14 Oct · ALTERED = QR id + deterministic re-render + per band tile diff
+The card layout is fixed (`card_image.BANDS`, `LAYOUT_VERSION`), so the server re-renders the original from the immutable card and compares each band (verdict, claim, explanation, sources) on blurred grayscale, taking the max over small tiles so a one word edit isn't diluted. Calibrated in `tests/test_capsule.py`: clean copies down to JPEG q30 at 50% scale score at most ~3, one word or number edits score 19+, threshold 8. Changing the layout means bumping `LAYOUT_VERSION` and keeping old renderers for old cards.
+
+## D15 · 14 Oct · Fonts subset, docs first, no bloat (Team lead, 13 Oct 22:11Z)
+`AGENTS.md` added: official docs before every integration (URL cited in code + PR), smallest complete change, deps pinned + recorded in `context/skills.md`, no third party installers. Noto fonts cut from 2.7 MB to 0.3 MB (subset to Latin + Devanagari, weight 400 to 700) with fontTools at dev time only.

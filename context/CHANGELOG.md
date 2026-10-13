@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.3.0 · p3-proof-capsule
+- Card image + QR, ALTERED check, `/v/:id` share page, image + text checks, Telegram bot replies + inline share, `checks` logging.
+- AGENTS.md + context/skills.md (Team lead: official docs first, no bloat). Fonts subset.
+- New deps (pinned): pillow, numpy, ImageHash, zxing-cpp, python-multipart.
+- Docs touched: SNAPSHOT, CHANGELOG, ARCHITECTURE, DECISIONS (D14, D15), versions/v0.3.0, E09.
+
 ## 2026-10-14 · v0.2.0 · PR #5 p2-prebunk-pipeline
 - Prebunk pipeline: Gemini prediction + grounded assessment, own fetch + passage match + sha256 snapshots, faithfulness gate, Cloud Tasks job with OIDC, owner only session view, offline stub mode.
 - `sql/` BigQuery views + metrics; `externals/E15`; E09 gets queue + task env.
