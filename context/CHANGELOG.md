@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.4.1 · criteria-gate
+- Judging gate: `context/judging-criteria.md` (official criteria + weights, road to Singapore dates, criterion to phase to demo moment, finalist bar), PR template with the criteria checklist.
+- `context/ASSETS.md` (source + licence per asset), design system + motion timings in `05_UI_UX.md` §7.
+- Rules tests deps bumped together (firebase 13, @firebase/rules-unit-testing 6, firebase-tools 15; peer coupled, so the three single bumps #2 to #4 could not pass alone); rules CI job on Node 24 (firebase 13 engine) + Java 21 (firebase-tools 15).
+- Criteria: C1 gates hold quality on every phase; C4 design system written down. No feature change.
+- Docs touched: judging-criteria, ASSETS, 05_UI_UX, SNAPSHOT, CHANGELOG, versions/v0.4.1, AGENTS.md.
+
 ## 2026-10-14 · v0.4.0 · p4-frontend
 - Fix: landing example cards no longer overflow on mobile (390px).
 - Frontend app (landing, new brief, brief grid with share actions), Firebase Google sign in, Hosting rewrites, CI frontend job.

@@ -4,14 +4,14 @@ This is the ONE instructions file (Team lead, 13 Oct). Follow all of it, always.
 
 ## 0. Team lead's standing instructions
 - Market gold standard best practice everywhere: backend, security, functionality, database structure, codebase. It must actually work, fully integrated, no shortcuts.
-- Every feature must serve the judging criteria (`context/10_Criteria_Map_Deck_Submission.md`). Target: high end, completely working, selected for Singapore.
+- Every feature must serve the judging criteria (gate: `context/judging-criteria.md`, every PR fills its checklist; deck map: `context/10_Criteria_Map_Deck_Submission.md`). Target: high end, completely working, selected for Singapore.
 - Don't wait for approval: one PR per phase, verify + validate, merge on green CI. Plan goes in the PR description.
 - Docs live in `context/` (SNAPSHOT, version history, ARCHITECTURE, DECISIONS, CHANGELOG), updated in every PR.
 - Human only work goes to `externals/` as step by step task files.
 - SQL lives in `sql/` as `01_name.sql`, `02_name.sql`, ... (run in number order).
 - Progress update to Team lead every 30 minutes while building; don't miss anything.
 - Research the market before building; use the strongest model for complex reasoning (backend), and a frontend approach that produces genuinely beautiful, non generic UI.
-- Assets may be collected from the internet (licence checked, credited); animations must be beautiful but light.
+- Assets may be collected from the internet (licence checked, logged in `context/ASSETS.md`); animations must be beautiful but light.
 - Before each task, look for an existing expert skill for it and use it (within §3 below: adopt the text and ideas, never run third party installers).
 - Verify everything. Read the official, latest docs for every integration (§1). No sloppy work, no bloat (§2).
 

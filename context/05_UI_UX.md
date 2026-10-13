@@ -59,4 +59,31 @@ Hindi strings: Team lead/native speaker to confirm wording 🟡.
 
 ## 6. What NOT to build
 
-3D hero, scroll animations, dark/light theme switcher, settings page, profile page, dashboards. Zero judge value in a 3 minute video 🟡.
+3D hero, scroll jacking, dark/light theme switcher, settings page, profile page, dashboards. Zero judge value in a 3 minute video 🟡. Light, purposeful motion IS wanted (Team lead, 13 Oct 22:02Z: "make the animations beautiful"), within §7.
+
+## 7. Design system (source of truth: `frontend/src/styles.css` `:root`)
+
+Reference feel: editorial fact check desks (paper background, ink type, one strong accent), not a SaaS template. Change a token here and in `styles.css` together.
+
+| Token | Value | Use |
+|---|---|---|
+| `--paper` / `--card` | #fafaf7 / #ffffff | page / card surfaces |
+| `--ink` / `--ink-2` / `--muted` | #111827 / #374151 / #6b7280 | text levels |
+| `--brand` | #1f4fff | links, primary action, progress |
+| `--true` / `--mislead` / `--false` / `--unknown` | #15803d / #b45309 / #b91c1c / #6b7280 | verdict colours, always paired with a word, never colour alone |
+| `--radius` | 18px | cards, panels |
+| `--line` | #e7e5df | hairlines |
+
+Type: Inter variable, self hosted. Spacing on a 4 px grid (8 / 16 / 24 / 32 / 48). One column under 860 px.
+
+Motion (all off under `prefers-reduced-motion`):
+
+| Moment | Timing | Why |
+|---|---|---|
+| Hover / press | 120 ms ease | feels instant |
+| Progress bar | 300 ms ease | reads as real progress |
+| Landing card deal in | staggered, translate 24 px + settle to rotation | the hero, shows the product before any word |
+| Verdict stamp | scale 0.985 to 1 | a verdict "lands" |
+| Skeleton | shimmer | loading never looks frozen |
+
+Only `transform` and `opacity` animate (no layout thrash). Every screen gets a separate design review on desktop and mobile before merge (judging-criteria §4).
