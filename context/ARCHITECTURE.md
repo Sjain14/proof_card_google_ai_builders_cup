@@ -43,6 +43,7 @@ context/            docs, dev memory, versions/
 | `GET /v/:id` · `/v/:id.png` · `/v/:id.jpg` | public | share page (OG tags, proof, check form) + card image |
 | `POST /v/:id/check` | public, rate limited | upload a forwarded copy, page shows VERIFIED / ALTERED |
 | `POST /tg/webhook` | Telegram secret_token header | photo check, card lookup, inline share |
+| `WS /api/live/:id` | first message `{"type":"auth","token"}`, owner only, Origin allowlist in prod (one close code 4401 for every auth failure, 4403 bad Origin) | tab audio (PCM16 16 kHz binary) or typed lines in; `ready` / `heard` / `match` / `checking` / `proved` / `failed` / `error` events out |
 
 ## Data flow (built)
 ```
@@ -53,7 +54,15 @@ run_prebunk: Gemini predict N claims ─▶ claims/{cid} queued
     ─▶ our fetch (SSRF check every hop) ─▶ passage match ─▶ sha256 ─▶ GCS snapshots/<sha>
     ─▶ gate_verdict ─▶ cards/{id} (create only) ─▶ claim proved + verdict
 browser reads session via /api/sessions/:id (or Firestore listener, rules owner only)
+
+LIVE (P5): browser tab audio ─getDisplayMedia─▶ AudioWorklet 16 kHz PCM16, 100 ms frames
+  ─WS direct to Cloud Run (Hosting rewrites cap requests at 60 s)─▶ /api/live/:id
+  ─▶ Gemini Live API transcription (auto language, Hinglish ok, reconnect at the 10 min cap)
+  ─▶ final sentence ─▶ claim spotting (number / superlative pre filter, then Gemini JSON)
+  ─▶ gemini-embedding-001 (SEMANTIC_SIMILARITY, 768) ─▶ cosine vs this session's proved
+     prebunked claims ─▶ ≥ 0.80: push the existing card at once (PREBUNKED, latency in ms)
+                     └▶ miss: claim LIVE `checking` ─▶ verify_claim() (same path as Before) ─▶ `proved`
 ```
 
 ## Not built yet
-Live bridge + instant match (P5) · Firestore onSnapshot instead of polling (with live mode).
+Clip upload fallback (B2) · Firestore onSnapshot instead of polling · benchmark runner (H2).

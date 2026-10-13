@@ -51,5 +51,6 @@ export async function signOut(): Promise<void> {
 }
 
 export async function idToken(): Promise<string | null> {
+  if (devMode) return "local-dev"; // backend runs with PC_AUTH_DISABLED=true locally
   return auth?.currentUser ? auth.currentUser.getIdToken() : null;
 }

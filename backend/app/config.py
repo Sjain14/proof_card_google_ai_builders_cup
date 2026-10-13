@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     gcp_region: str = "asia-south1"
     gemini_model: str = "gemini-2.5-flash"
     gemini_region: str = ""  # empty = gcp_region
+    live_model: str = "gemini-3.5-transcribe-live"  # Live API transcription
+    embed_model: str = "gemini-embedding-001"
+    live_origins: str = ""  # extra allowed websocket Origins, comma separated
+    live_threshold: float = Field(default=0.80, ge=0.5, le=0.99)  # cosine for a PREBUNKED hit
     prebunk_claims: int = Field(default=12, ge=1, le=20)
     proof_bucket: str = ""  # empty = in memory snapshots (local only)
 

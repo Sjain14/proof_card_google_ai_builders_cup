@@ -6,7 +6,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react()],
   server: {
-    proxy: { "/api": "http://127.0.0.1:8080", "/v": "http://127.0.0.1:8080" },
+    proxy: { "/api": { target: "http://127.0.0.1:8080", ws: true }, "/v": "http://127.0.0.1:8080" },
   },
   build: { sourcemap: false, target: "es2022" },
 });

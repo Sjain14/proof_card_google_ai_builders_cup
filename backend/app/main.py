@@ -1,5 +1,8 @@
 """Proof Card main service (Cloud Run): API, prebunk jobs, public card reads, Telegram webhook."""
 
+import asyncio
+import contextlib
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from functools import lru_cache
@@ -14,6 +17,8 @@ from fastapi import (
     Request,
     Response,
     UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
     status,
 )
 from fastapi.concurrency import run_in_threadpool
@@ -23,6 +28,16 @@ from pydantic import ValidationError
 from app import alter, card_image, share_page
 from app.auth import Principal, Verifier, admin_principal, firebase_verifier
 from app.config import Settings, get_settings
+from app.live import (
+    GeminiLiveTranscriber,
+    HashEmbedder,
+    HeuristicSpotter,
+    LiveDeps,
+    LiveEngine,
+    Transcriber,
+    VertexEmbedder,
+    VertexSpotter,
+)
 from app.logging_setup import configure_logging
 from app.model import ModelClient, StubModel, VertexModel
 from app.pipeline import Deps, run_prebunk
@@ -45,6 +60,10 @@ from app.tasks import CloudTasksQueue, InlineQueue, OidcVerifier, TaskQueue, goo
 from app.telegram import BotApi, BotDeps, HttpBotApi, handle_update
 
 log = logging.getLogger("proofcard")
+
+LIVE_AUTH_TIMEOUT_S = 5.0
+LIVE_MAX_FRAME = 64_000  # 2 s of PCM16 16 kHz mono; the client sends ~100 ms frames
+LIVE_AUDIO_QUEUE = 200
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -70,6 +89,21 @@ def default_deps(settings: Settings, store: Store) -> Deps:  # pragma: no cover 
     return Deps(store=store, model=model, fetcher=fetcher, snapshots=snaps)
 
 
+def default_live(
+    settings: Settings, deps: Deps
+) -> tuple[LiveDeps, Transcriber | None]:  # pragma: no cover - prod wiring
+    if settings.model_mode == "vertex":
+        loc = settings.gemini_region or settings.gcp_region
+        live = LiveDeps(
+            deps,
+            VertexEmbedder(settings.gcp_project, loc, settings.embed_model),
+            VertexSpotter(settings.gcp_project, loc, settings.gemini_model),
+            settings.live_threshold,
+        )
+        return live, GeminiLiveTranscriber(settings.gcp_project, loc, settings.live_model)
+    return LiveDeps(deps, HashEmbedder(), HeuristicSpotter(), settings.live_threshold), None
+
+
 def default_queue(settings: Settings) -> TaskQueue:  # pragma: no cover - prod wiring
     if settings.tasks_mode == "cloudtasks":
         return CloudTasksQueue(
@@ -80,6 +114,11 @@ def default_queue(settings: Settings) -> TaskQueue:  # pragma: no cover - prod w
             settings.tasks_sa_email,
         )
     return InlineQueue()
+
+
+def dev_verifier(token: str) -> dict[str, object]:
+    """PC_AUTH_DISABLED=true locally: every caller is one signed in dev user."""
+    return {"uid": "local-dev", "firebase": {"sign_in_provider": "google.com"}}
 
 
 def _valid_id(v: str) -> bool:
@@ -94,6 +133,8 @@ def create_app(
     queue: TaskQueue | None = None,
     oidc_verifier: OidcVerifier | None = None,
     bot_api: BotApi | None = None,
+    live: LiveDeps | None = None,
+    transcriber: Transcriber | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging()
@@ -105,10 +146,20 @@ def create_app(
         openapi_url="/openapi.json" if docs_on else None,
     )
     app.state.settings = settings
+    if verifier is None and settings.auth_disabled:  # local dev only (prod refuses, config.py)
+        verifier = dev_verifier
     app.state.verifier = verifier or firebase_verifier()
+    allowed_origins = {
+        o.strip().rstrip("/")
+        for o in [settings.public_base_url, *settings.live_origins.split(",")]
+        if o.strip()
+    }
     app.state.store = store or FirestoreStore(settings.gcp_project)
     app.state.deps = deps or default_deps(settings, app.state.store)
     app.state.queue = queue or default_queue(settings)
+    if live is None:
+        live, transcriber = default_live(settings, app.state.deps)
+    app.state.live, app.state.transcriber = live, transcriber
     token = settings.telegram_bot_token.get_secret_value()
     app.state.bot_api = bot_api or (HttpBotApi(token) if token else None)
     app.state.oidc = oidc_verifier or (
@@ -171,6 +222,92 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         claims = app.state.store.list_claims(session_id)
         return SessionView.build(session_id, s, claims)
+
+    @app.websocket("/api/live/{session_id}")
+    async def live_ws(ws: WebSocket, session_id: str) -> None:
+        """During: browser streams tab audio (PCM16 16 kHz binary frames) or transcript
+        lines ({"type": "text"}); we push heard / match / checking / proved events.
+
+        Auth is the FIRST message ({"type": "auth", "token": <Firebase ID token>}), never
+        the URL, so tokens stay out of access logs. Cloud Run websockets:
+        https://cloud.google.com/run/docs/triggering/websockets
+        """
+        origin = (ws.headers.get("origin") or "").rstrip("/")
+        if settings.env == "prod" and origin not in allowed_origins:
+            await ws.close(code=4403)  # cross site websocket hijacking guard
+            return
+        await ws.accept()
+        try:
+            first = await asyncio.wait_for(ws.receive_json(), timeout=LIVE_AUTH_TIMEOUT_S)
+            claims = (
+                app.state.verifier(str(first.get("token", "")))
+                if (isinstance(first, dict) and first.get("type") == "auth")
+                else {}
+            )
+        except Exception:
+            claims = {}
+        uid = claims.get("uid") or claims.get("sub")
+        anon = (claims.get("firebase") or {}).get("sign_in_provider") == "anonymous"
+        sess = app.state.store.get_session(session_id) if _valid_id(session_id) else None
+        if not uid or anon or sess is None or sess.owner_uid != uid:
+            await ws.close(code=4401)  # one code for every failure, like the HTTP 401/404
+            return
+        app.state.store.update_session(session_id, status="live")
+        lock = asyncio.Lock()
+
+        async def emit(ev: dict[str, object]) -> None:
+            try:
+                async with lock:
+                    await ws.send_json(ev)
+            except Exception:  # socket gone: the card is stored, the feed reloads it
+                log.debug("live emit dropped, socket closed")
+
+        engine = LiveEngine(session_id, app.state.live, emit)
+        audio: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=LIVE_AUDIO_QUEUE)
+        stt: asyncio.Task[None] | None = None
+        await emit({"type": "ready", "audio": app.state.transcriber is not None})
+        try:
+            while True:
+                msg = await ws.receive()
+                if msg["type"] == "websocket.disconnect":
+                    break
+                if (data := msg.get("bytes")) is not None:
+                    if app.state.transcriber is None or len(data) > LIVE_MAX_FRAME:
+                        await emit({"type": "error", "code": "audio_unavailable"})
+                        continue
+                    if stt is None:
+                        stt = asyncio.create_task(
+                            app.state.transcriber.run(audio, engine.on_sentence)
+                        )
+                    if audio.full():  # never let a slow upstream grow memory: drop oldest
+                        audio.get_nowait()
+                    audio.put_nowait(data)
+                    continue
+                try:
+                    body = json.loads(msg.get("text") or "")
+                except ValueError:
+                    body = None
+                if not isinstance(body, dict):
+                    continue
+                if body.get("type") == "text" and isinstance(body.get("text"), str):
+                    await engine.on_sentence(body["text"])
+                elif body.get("type") == "stop":
+                    break
+        except WebSocketDisconnect:
+            pass
+        finally:
+            if stt is not None:
+                if audio.full():
+                    audio.get_nowait()
+                audio.put_nowait(None)
+                try:
+                    await asyncio.wait_for(stt, timeout=15)
+                except Exception:
+                    stt.cancel()
+            await engine.drain()
+            app.state.store.update_session(session_id, status="ready")
+            with contextlib.suppress(Exception):  # already closed by the client
+                await ws.close()
 
     @app.post("/tasks/prebunk", include_in_schema=False)
     def task_prebunk(

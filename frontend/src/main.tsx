@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { devMode, signIn, signOut, watchUser, type SignedIn } from "./auth";
 import { Brief } from "./pages/Brief";
 import { Landing } from "./pages/Landing";
+import { Live } from "./pages/Live";
 import { NewBrief } from "./pages/NewBrief";
 import { navigate, usePath } from "./router";
 
@@ -14,8 +15,10 @@ function App() {
   useEffect(() => watchUser(setUser), []);
 
   const brief = path.match(/^\/s\/([A-Za-z0-9_-]{8,64})$/);
+  const live = path.match(/^\/s\/([A-Za-z0-9_-]{8,64})\/live$/);
   let page;
-  if (brief?.[1]) page = <Brief id={brief[1]} user={user} />;
+  if (live?.[1]) page = <Live id={live[1]} user={user} />;
+  else if (brief?.[1]) page = <Brief id={brief[1]} user={user} />;
   else if (path === "/new") page = <NewBrief user={user} />;
   else page = <Landing user={user} />;
 

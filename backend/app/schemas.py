@@ -170,6 +170,7 @@ class SessionView(BaseModel):
     topic: str
     speaker: str
     status: str
+    youtube_url: str | None = None
     claims: list[ClaimView]
     counts: dict[str, int]
 
@@ -189,7 +190,13 @@ class SessionView(BaseModel):
         ]
         counts = {st.value: sum(1 for v in views if v.status == st) for st in ClaimStatus}
         return cls(
-            id=sid, topic=s.topic, speaker=s.speaker, status=s.status, claims=views, counts=counts
+            id=sid,
+            topic=s.topic,
+            speaker=s.speaker,
+            status=s.status,
+            youtube_url=s.youtube_url,
+            claims=views,
+            counts=counts,
         )
 
 

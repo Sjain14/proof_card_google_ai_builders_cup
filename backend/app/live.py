@@ -1,0 +1,365 @@
+"""Live bridge (During): heard sentence -> claim spotting -> instant match or cold check.
+
+Flow per final transcript sentence (03_Architecture §2 steps 10 to 13):
+  1. spot_claims(): which spans are checkable factual claims (model; stub = heuristic).
+  2. embed each claim, cosine against this session's PROVED prebunked claims.
+  3. similarity >= threshold -> the existing Proof Card is pushed at once (PREBUNKED hit).
+  4. miss -> a LIVE claim is stored as `checking` and pipeline.verify_claim() runs cold,
+     the exact same path as Before, so the card is identical in shape and proof.
+
+Embeddings: gemini-embedding-001, task_type SEMANTIC_SIMILARITY, 768 dims.
+Docs: https://ai.google.dev/gemini-api/docs/embeddings
+Live transcription: Gemini Live API, raw PCM16 16 kHz mono, 10 minute session cap (we
+reconnect). Docs: https://ai.google.dev/gemini-api/docs/live-api/live-transcribe
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import logging
+import math
+import re
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+from app.pipeline import Deps, verify_claim
+from app.schemas import ClaimDoc, ClaimSource, ClaimStatus
+
+log = logging.getLogger("proofcard.live")
+
+MATCH_THRESHOLD = 0.80  # cosine; calibrated in tests/test_live.py, re-check on the demo clip
+MAX_SENTENCE_CHARS = 600
+EMBED_DIMS = 768
+
+
+# ---------- embeddings ----------
+
+
+class Embedder(Protocol):
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+def _unit(v: list[float]) -> list[float]:
+    n = math.sqrt(sum(x * x for x in v)) or 1.0
+    return [x / n for x in v]
+
+
+def cosine(a: list[float], b: list[float]) -> float:
+    return sum(x * y for x, y in zip(a, b, strict=True))  # inputs are unit vectors
+
+
+_WORD = re.compile(r"[\wऀ-ॿ]+")
+
+
+class HashEmbedder:
+    """Offline embedder for tests and local dev only: hashed word + character trigrams.
+
+    shortcut: lexical, not semantic; prod uses VertexEmbedder (model_mode=vertex).
+    """
+
+    dims = 512
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        out = []
+        for t in texts:
+            v = [0.0] * self.dims
+            words = _WORD.findall(t.lower())
+            grams = words + [w[i : i + 3] for w in words for i in range(max(1, len(w) - 2))]
+            for g in grams:
+                h = int.from_bytes(hashlib.blake2b(g.encode(), digest_size=4).digest(), "big")
+                v[h % self.dims] += 1.0
+            out.append(_unit(v))
+        return out
+
+
+class VertexEmbedder:  # pragma: no cover - needs a GCP project
+    def __init__(self, project: str, location: str, model: str = "gemini-embedding-001") -> None:
+        from google import genai
+
+        self.client = genai.Client(vertexai=True, project=project, location=location)
+        self.model = model
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        from google.genai import types
+
+        contents: list[Any] = list(texts)
+        resp = self.client.models.embed_content(
+            model=self.model,
+            contents=contents,
+            config=types.EmbedContentConfig(
+                task_type="SEMANTIC_SIMILARITY", output_dimensionality=EMBED_DIMS
+            ),
+        )
+        return [_unit(list(e.values or [])) for e in resp.embeddings or []]
+
+
+# ---------- claim spotting ----------
+
+_NUMBERISH = re.compile(
+    r"\d|percent|%|crore|lakh|million|billion|first|largest|highest|lowest|"
+    r"pratishat|karod|sabse|pehla|pehli|प्रतिशत|करोड़|लाख|सबसे",
+    re.IGNORECASE,
+)
+
+
+def heuristic_spot(sentence: str) -> list[str]:
+    """Cheap pre filter: a checkable claim almost always carries a number or a superlative."""
+    s = sentence.strip()
+    if len(_WORD.findall(s)) < 4 or s.endswith("?"):
+        return []
+    return [s] if _NUMBERISH.search(s) else []
+
+
+class Spotter(Protocol):
+    def spot_claims(self, sentence: str) -> list[str]: ...
+
+
+class HeuristicSpotter:
+    def spot_claims(self, sentence: str) -> list[str]:
+        return heuristic_spot(sentence)
+
+
+SPOT_PROMPT = """You are a live fact-check desk. From this sentence heard on air, return the
+factual claims a fact checker can verify against public records (numbers, dates, rankings,
+official statistics). Copy each claim as said, keep its language (English, Hindi or
+Hinglish). Return [] for opinions, questions, predictions or greetings.
+Sentence: "{sentence}"
+"""
+
+
+class VertexSpotter:  # pragma: no cover - needs a GCP project
+    """Model spotting behind the heuristic pre filter, so chit chat never costs a call."""
+
+    def __init__(self, project: str, location: str, model: str) -> None:
+        from google import genai
+
+        self.client = genai.Client(vertexai=True, project=project, location=location)
+        self.model = model
+
+    def spot_claims(self, sentence: str) -> list[str]:
+        import json
+
+        from google.genai import types
+
+        if not heuristic_spot(sentence):
+            return []
+        resp = self.client.models.generate_content(
+            model=self.model,
+            contents=SPOT_PROMPT.format(sentence=sentence),
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                response_mime_type="application/json",
+                response_schema={"type": "ARRAY", "items": {"type": "STRING"}},
+            ),
+        )
+        try:
+            items = json.loads(resp.text or "[]")
+        except ValueError:
+            return []
+        return [str(c).strip() for c in items if str(c).strip()][:3]
+
+
+# ---------- matching engine ----------
+
+
+@dataclass
+class _Index:
+    count: int = -1
+    ids: list[str] = field(default_factory=list)
+    vecs: list[list[float]] = field(default_factory=list)
+
+
+@dataclass
+class LiveDeps:
+    deps: Deps
+    embedder: Embedder
+    spotter: Spotter
+    threshold: float = MATCH_THRESHOLD
+
+
+Emit = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+class LiveEngine:
+    """One per websocket. Sync core (match) + async cold checks pushed via emit()."""
+
+    def __init__(self, session_id: str, live: LiveDeps, emit: Emit) -> None:
+        self.sid = session_id
+        self.live = live
+        self.emit = emit
+        self._index = _Index()
+        self._seen: set[str] = set()
+        self._tasks: set[asyncio.Task[None]] = set()
+
+    def _refresh(self) -> _Index:
+        """Index of prebunked claims that already have a card; rebuilt only when it grew.
+
+        shortcut: in process cosine over one session's claims (<= 20, sub millisecond);
+        switch to Firestore find_nearest if a session ever holds hundreds.
+        """
+        claims = [
+            (cid, c)
+            for cid, c in self.live.deps.store.list_claims(self.sid)
+            if c.source == ClaimSource.PREDICTED and c.status == ClaimStatus.PROVED and c.card_id
+        ]
+        if len(claims) != self._index.count:
+            vecs = self.live.embedder.embed([c.text for _, c in claims]) if claims else []
+            self._index = _Index(len(claims), [cid for cid, _ in claims], vecs)
+        return self._index
+
+    def match(self, text: str) -> tuple[str | None, float]:
+        idx = self._refresh()
+        if not idx.ids:
+            return None, 0.0
+        [q] = self.live.embedder.embed([text])
+        best, sim = max(
+            zip(idx.ids, (cosine(q, v) for v in idx.vecs), strict=True), key=lambda p: p[1]
+        )
+        return (best, sim) if sim >= self.live.threshold else (None, sim)
+
+    async def on_sentence(self, sentence: str, heard_at: float | None = None) -> None:
+        t0 = heard_at or time.monotonic()
+        sentence = sentence.strip()[:MAX_SENTENCE_CHARS]
+        if not sentence:
+            return
+        await self.emit({"type": "heard", "text": sentence})
+        claims = await asyncio.to_thread(self.live.spotter.spot_claims, sentence)
+        for text in claims:
+            key = text.lower()
+            if key in self._seen:  # the speaker repeated it: one card is enough
+                continue
+            self._seen.add(key)
+            await self._handle_claim(text, t0)
+
+    async def _handle_claim(self, text: str, t0: float) -> None:
+        store = self.live.deps.store
+        hit, sim = await asyncio.to_thread(self.match, text)
+        pre = store.get_claim(self.sid, hit) if hit else None
+        if hit and pre is not None and pre.card_id:
+            latency = int((time.monotonic() - t0) * 1000)
+            cid = store.add_claim(
+                self.sid,
+                ClaimDoc(
+                    text=text,
+                    source=ClaimSource.LIVE,
+                    status=ClaimStatus.PROVED,
+                    card_id=pre.card_id,
+                    verdict=pre.verdict,
+                    matched_claim_id=hit,
+                    latency_ms=latency,
+                ),
+            )
+            await self.emit(
+                {
+                    "type": "match",
+                    "claim_id": cid,
+                    "text": text,
+                    "card_id": pre.card_id,
+                    "verdict": pre.verdict,
+                    "similarity": round(sim, 3),
+                    "latency_ms": latency,
+                }
+            )
+            return
+        cid = store.add_claim(self.sid, ClaimDoc(text=text, source=ClaimSource.LIVE))
+        await self.emit({"type": "checking", "claim_id": cid, "text": text})
+        task = asyncio.create_task(self._cold(cid, text, t0))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _cold(self, cid: str, text: str, t0: float) -> None:
+        card_id = await asyncio.to_thread(verify_claim, self.sid, cid, self.live.deps)
+        latency = int((time.monotonic() - t0) * 1000)
+        if card_id is None:
+            await self.emit({"type": "failed", "claim_id": cid, "text": text})
+            return
+        claim = self.live.deps.store.get_claim(self.sid, cid)
+        self.live.deps.store.update_claim(self.sid, cid, latency_ms=latency)
+        await self.emit(
+            {
+                "type": "proved",
+                "claim_id": cid,
+                "text": text,
+                "card_id": card_id,
+                "verdict": claim.verdict if claim else None,
+                "latency_ms": latency,
+            }
+        )
+
+    async def drain(self) -> None:
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+
+
+# ---------- transcription ----------
+
+
+class Transcriber(Protocol):
+    async def run(
+        self, audio: asyncio.Queue[bytes | None], on_final: Callable[[str], Awaitable[None]]
+    ) -> None: ...
+
+
+class GeminiLiveTranscriber:  # pragma: no cover - needs a GCP project and live audio
+    """Relays PCM16 16 kHz chunks to the Gemini Live API; final transcripts -> on_final.
+
+    Keys never reach the browser: the websocket ends here and the service account talks
+    to Vertex. A Live session is capped at 10 minutes, so we reconnect transparently.
+    """
+
+    def __init__(self, project: str, location: str, model: str) -> None:
+        from google import genai
+
+        self.client = genai.Client(vertexai=True, project=project, location=location)
+        self.model = model
+
+    async def run(
+        self, audio: asyncio.Queue[bytes | None], on_final: Callable[[str], Awaitable[None]]
+    ) -> None:
+        from google.genai import types
+
+        config = types.LiveConnectConfig(
+            response_modalities=[types.Modality.TEXT],
+            input_audio_transcription=types.AudioTranscriptionConfig(language_codes=[]),
+        )
+        done = False
+        while not done:
+            async with self.client.aio.live.connect(model=self.model, config=config) as s:
+
+                async def pump() -> bool:
+                    while True:
+                        chunk = await audio.get()
+                        if chunk is None:
+                            await s.send_realtime_input(audio_stream_end=True)
+                            return True
+                        await s.send_realtime_input(
+                            audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
+                        )
+
+                async def recv() -> None:
+                    buf = ""
+                    async for r in s.receive():
+                        sc = r.server_content
+                        if sc and sc.input_transcription and sc.input_transcription.text:
+                            buf += sc.input_transcription.text
+                            if sc.input_transcription.finished:
+                                await on_final(buf)
+                                buf = ""
+                        if sc and sc.turn_complete and buf:
+                            await on_final(buf)
+                            buf = ""
+
+                pump_t = asyncio.create_task(pump())
+                recv_t = asyncio.create_task(recv())
+                finished, _ = await asyncio.wait(
+                    {pump_t, recv_t}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if pump_t in finished:
+                    done = pump_t.result()
+                    await asyncio.wait_for(recv_t, timeout=10)
+                else:  # server closed (10 min cap or error): reconnect, keep the queue
+                    pump_t.cancel()
+                    log.info("live session closed by server, reconnecting")

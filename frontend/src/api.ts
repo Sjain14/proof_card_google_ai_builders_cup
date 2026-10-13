@@ -20,6 +20,7 @@ export interface SessionView {
   topic: string;
   speaker: string;
   status: string;
+  youtube_url: string | null;
   claims: ClaimView[];
   counts: Record<ClaimStatus, number>;
 }

@@ -9,7 +9,7 @@ P=$(gcloud config get-value project); R=asia-south1
 cd backend
 gcloud run deploy proofcard-api --source . --region $R \
   --service-account api-sa@$P.iam.gserviceaccount.com \
-  --allow-unauthenticated --min-instances 1 --max-instances 5 \
+  --allow-unauthenticated --min-instances 1 --max-instances 5 --timeout 3600 \
   --set-env-vars PC_ENV=prod,PC_GCP_PROJECT=$P,PC_GCP_REGION=$R,PC_MODEL_MODE=vertex,PC_PROOF_BUCKET=proofcard-<yourname>-proofs,PC_TASKS_MODE=cloudtasks,PC_TELEGRAM_BOT_USERNAME=<your_bot_username_without_@>,PC_TASKS_SA_EMAIL=api-sa@$P.iam.gserviceaccount.com \
   --set-secrets PC_TELEGRAM_BOT_TOKEN=TG_BOT_TOKEN:1,PC_TELEGRAM_WEBHOOK_SECRET=TG_WEBHOOK_SECRET:1
 ```
@@ -18,8 +18,9 @@ Secrets are pinned to version `1`, not `latest` (see `context/12_Engineering_Sta
 After it prints the service URL, set it as the task audience and the public base:
 ```bash
 URL=$(gcloud run services describe proofcard-api --region $R --format='value(status.url)')
-gcloud run services update proofcard-api --region $R --update-env-vars PC_SERVICE_URL=$URL,PC_PUBLIC_BASE_URL=https://<your-hosting-domain>
+gcloud run services update proofcard-api --region $R --update-env-vars PC_SERVICE_URL=$URL,PC_PUBLIC_BASE_URL=https://<your-hosting-domain>,PC_LIVE_ORIGINS=https://$P.web.app,https://$P.firebaseapp.com
 ```
+`--timeout 3600` lets one live session run up to an hour (the socket ends at the request timeout ✅ [Cloud Run websockets](https://cloud.google.com/run/docs/triggering/websockets)). For the frontend build, also set `VITE_LIVE_ORIGIN=$URL` next to the `VITE_FIREBASE_*` values: the live socket connects to Cloud Run directly because Hosting rewrites stop at 60 s (DECISIONS D17).
 
 Create the job queue once (Cloud Tasks retries failed briefs with backoff) ✅ [Create queues](https://cloud.google.com/tasks/docs/creating-queues):
 ```bash

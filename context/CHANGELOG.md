@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.5.0 · p5-live-bridge
+- Live bridge: `WS /api/live/:id` (first message auth, owner only, Origin allowlist), Gemini Live transcription relay with reconnect, claim spotting (filter + model), instant match on embeddings vs prebunked cards, cold path through the same `verify_claim()`; live claims stored with `matched_claim_id` + `latency_ms`.
+- Frontend `/s/:id/live`: YouTube player, tab audio capture (AudioWorklet, PCM16 16 kHz), typed line fallback, live feed with PREBUNKED / LIVE badges and latency chips; "Go live" on a ready brief.
+- Fix: local dev mode now works end to end (`PC_AUTH_DISABLED` was never wired; dev token `local-dev`).
+- Criteria: C1 third GenAI job (live semantic match) + live transcription; C3 the Before + During moment; C4 latency visible on every card.
+- No new dependencies. Docs touched: ARCHITECTURE, DECISIONS (D17 to D19), SNAPSHOT, CHANGELOG, versions/v0.5.0, externals E09 + E10.
+
 ## 2026-10-14 · v0.4.1 · criteria-gate
 - Judging gate: `context/judging-criteria.md` (official criteria + weights, road to Singapore dates, criterion to phase to demo moment, finalist bar), PR template with the criteria checklist.
 - `context/ASSETS.md` (source + licence per asset), design system + motion timings in `05_UI_UX.md` §7.

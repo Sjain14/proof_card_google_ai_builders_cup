@@ -49,3 +49,13 @@ The card layout is fixed (`card_image.BANDS`, `LAYOUT_VERSION`), so the server r
 
 ## D16 · 14 Oct · Frontend: Vite + React + TS, no router or UI library
 Three screens (Landing, New brief, Brief). A 15 line router and plain CSS with brand tokens beat two dependencies (AGENTS.md §2). The brief polls `GET /api/sessions/:id` every 1.5 s until done; a Firestore listener comes with live mode. `/v/:id` stays server rendered (v0.3.0) for link previews. Hosting rewrites `/api/**`, `/v/**`, `/tg/**` to Cloud Run, so everything is one origin (no CORS).
+
+## D17 · 14 Oct · Live socket goes straight to Cloud Run
+Firebase Hosting rewrites have a 60 s request timeout ✅ [docs](https://firebase.google.com/docs/hosting/cloud-run), so a live stream cannot ride them. The browser opens the websocket on the Cloud Run URL (`VITE_LIVE_ORIGIN`); Cloud Run supports websockets up to the service request timeout ✅ [docs](https://cloud.google.com/run/docs/triggering/websockets), deployed with `--timeout 3600`. Auth is the first message, not the URL, so ID tokens stay out of access logs. In prod the Origin must be on the allowlist (`PC_PUBLIC_BASE_URL` + `PC_LIVE_ORIGINS`), against cross site websocket hijacking.
+
+## D18 · 14 Oct · Instant match in process, Vertex embeddings (supersedes the EmbeddingGemma + find_nearest line in 02/03)
+A session holds at most 20 prebunked claims. Cosine over 20 unit vectors in memory takes well under a millisecond; a Firestore `find_nearest` round trip costs a network hop on the one path where latency is the demo. EmbeddingGemma on CPU would add a large runtime and model weights to the image (AGENTS.md §2). So: `gemini-embedding-001`, `SEMANTIC_SIMILARITY`, 768 dims ✅ [docs](https://ai.google.dev/gemini-api/docs/embeddings), index rebuilt only when the claim count changes. Upgrade path (marked `shortcut:` in `live.py`): `find_nearest` if a session ever holds hundreds of claims.
+
+## D19 · 14 Oct · Claim spotting = cheap filter, then the model
+Every final sentence passes a number / superlative filter first (English, Hindi, Hinglish words); only survivors cost a Gemini call (JSON array of claim spans). Chit chat never spends quota, and a repeated claim in one session makes one card, not two. Threshold for a PREBUNKED hit is 0.80 (`PC_LIVE_THRESHOLD`), to be re-tuned on the demo clip in E11.
+

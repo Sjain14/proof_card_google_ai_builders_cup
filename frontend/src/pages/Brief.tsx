@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, type Card, type SessionView } from "../api";
 import type { SignedIn } from "../auth";
 import { CardTile } from "../components/CardTile";
+import { navigate } from "../router";
 import { progress } from "../verdict";
 
 const POLL_MS = 1500;
@@ -61,6 +62,11 @@ export function Brief({ id, user }: { id: string; user: SignedIn | null | undefi
           <span>
             {total === 0 ? "Predicting claims…" : done < total ? `${done} of ${total} checked` : `${total} claims ready`}
           </span>
+          {total > 0 && done === total && (
+            <button className="btn small" onClick={() => navigate(`/s/${id}/live`)}>
+              Go live
+            </button>
+          )}
           <div className="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
             <i style={{ width: `${total ? pct : 8}%` }} className={total === 0 ? "indeterminate" : ""} />
           </div>
