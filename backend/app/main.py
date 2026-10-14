@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -57,7 +58,7 @@ from app.schemas import (
     TaskPrebunk,
     TgUpdate,
 )
-from app.security import TokenBucket, telegram_secret_ok
+from app.security import TokenBucket, sha256_hex, telegram_secret_ok
 from app.store import FirestoreStore, InMemoryStore, Store
 from app.tasks import CloudTasksQueue, InlineQueue, OidcVerifier, TaskQueue, google_oidc_verifier
 from app.telegram import BotApi, BotDeps, HttpBotApi, handle_update
@@ -361,6 +362,25 @@ def create_app(
         if card is None:
             raise HTTPException(status_code=404, detail="not found")
         return card
+
+    @app.get("/api/snapshots/{digest}")
+    def get_snapshot(digest: str, request: Request) -> Response:
+        """The exact bytes behind a proof, so anyone can recompute the sha256 on a card.
+        Always a download: a stored third party page must never render on our origin."""
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise HTTPException(status_code=404, detail="not found")
+        rate_limited(request)
+        body = app.state.deps.snapshots.get(digest)
+        if body is None or sha256_hex(body) != digest:  # never serve bytes that don't match
+            raise HTTPException(status_code=404, detail="not found")
+        return Response(
+            body,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{digest}.snapshot"',
+                "Cache-Control": "public, max-age=31536000, immutable",  # content addressed
+            },
+        )
 
     def log_check(r: alter.CheckResult, channel: str, similarity: float | None = None) -> None:
         doc = CheckDoc(

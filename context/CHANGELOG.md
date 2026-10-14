@@ -2,6 +2,10 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.5.6 · fix/public-snapshots
+- `GET /api/snapshots/<sha256>` (audit #16): the exact stored bytes of any proof page, so anyone can run `sha256sum` and check the hash on a card. Always a download (`application/octet-stream`, attachment), never rendered on our origin; bytes re-hashed before serving; public rate limit; immutable cache. Share page links every page hash to it.
+- No new dependencies, no Hosting change (`/api/**` rewrite already covers it). Docs touched: CHANGELOG.
+
 ## 2026-10-14 · v0.5.5 · fix/local-run-limits
 - `/api/prebunk` limits (audit #14): per user burst (`PC_PREBUNK_PER_MIN`, default 3) + durable daily cap (`PC_PREBUNK_DAILY_CAP`, default 20) counted server side in Firestore (one aggregation read on the existing owner_uid + created_at index), so it holds across Cloud Run instances. Each brief is ~15 grounded calls on the bill.
 - Local run fixed (audit #15): stub mode without `PC_GCP_PROJECT` uses the in memory store instead of crashing on missing Google credentials.

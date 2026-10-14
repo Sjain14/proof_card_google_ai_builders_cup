@@ -91,11 +91,14 @@ def card_page(
         parts.append(
             f'<div class="src"><a href="{u}" rel="noopener nofollow">{u}</a>'
             f"<blockquote>{escape(s.snippet)}</blockquote><code>page sha256 "
-            f"{escape(s.snapshot_sha256)} · fetched {s.fetched_at:%d %b %Y %H:%M} UTC</code></div>"
+            f'<a href="/api/snapshots/{escape(s.snapshot_sha256)}" rel="nofollow">'
+            f"{escape(s.snapshot_sha256)}</a> · fetched {s.fetched_at:%d %b %Y %H:%M} UTC"
+            "</code></div>"
         )
     parts.append(
         f'<p class="meta">Card fingerprint <code>{escape(card.card_sha256)}</code>. We fetched '
-        "each page ourselves and stored its exact bytes under that hash.</p></section>"
+        "each page ourselves and stored its exact bytes under that hash: download any page "
+        "hash above and run <code>sha256sum</code> on it to check.</p></section>"
         "<section><h2>Got this card forwarded?</h2>"
         f'<form method="post" action="/v/{escape(card_id)}/check" enctype="multipart/form-data">'
         '<input type="file" name="file" accept="image/png,image/jpeg,image/webp" required '

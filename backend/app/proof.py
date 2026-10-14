@@ -309,6 +309,7 @@ def best_passage(query: str, text: str, window: int = 2) -> tuple[str, float]:
 
 class SnapshotStore(Protocol):
     def put(self, sha256: str, body: bytes, content_type: str) -> str: ...
+    def get(self, sha256: str) -> bytes | None: ...
 
 
 class InMemorySnapshots:
@@ -318,6 +319,9 @@ class InMemorySnapshots:
     def put(self, sha256: str, body: bytes, content_type: str) -> str:
         self.blobs[sha256] = body
         return f"mem://snapshots/{sha256}"
+
+    def get(self, sha256: str) -> bytes | None:
+        return self.blobs.get(sha256)
 
 
 class GcsSnapshots:  # pragma: no cover - needs GCP
@@ -335,6 +339,15 @@ class GcsSnapshots:  # pragma: no cover - needs GCP
         with contextlib.suppress(PreconditionFailed):  # same bytes already stored
             blob.upload_from_string(body, content_type=content_type, if_generation_match=0)
         return f"gs://{self.bucket.name}/snapshots/{sha256}"
+
+    def get(self, sha256: str) -> bytes | None:
+        from google.api_core.exceptions import NotFound
+
+        try:
+            data: bytes = self.bucket.blob(f"snapshots/{sha256}").download_as_bytes()
+        except NotFound:
+            return None
+        return data
 
 
 def snapshot(fetched: Fetched, store: SnapshotStore) -> str:

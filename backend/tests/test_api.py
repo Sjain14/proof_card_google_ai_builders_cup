@@ -192,3 +192,22 @@ def test_local_stub_mode_runs_without_gcp() -> None:
     c = TestClient(app)
     r = c.post("/api/prebunk", json={"topic": "India"}, headers={"Authorization": "Bearer x"})
     assert r.status_code == 201
+
+
+def test_snapshot_download_proves_the_hash(client: TestClient, store: InMemoryStore) -> None:
+    sid = client.post("/api/prebunk", json={"topic": "India"}, headers=ADMIN).json()["session_id"]
+    claim = next(c for _, c in store.list_claims(sid) if c.card_id)
+    digest = store.cards[str(claim.card_id)].sources[0].snapshot_sha256
+    r = client.get(f"/api/snapshots/{digest}")
+    assert r.status_code == 200
+    assert sha256_hex(r.content) == digest
+    assert r.headers["content-type"] == "application/octet-stream"  # never rendered here
+    assert r.headers["content-disposition"].startswith("attachment")
+    page = client.get(f"/v/{claim.card_id}").text
+    assert f'href="/api/snapshots/{digest}"' in page
+    snaps = client.app.state.deps.snapshots  # type: ignore[attr-defined]
+    assert client.get(f"/api/snapshots/{'0' * 64}").status_code == 404
+    snaps.blobs[digest] = b"tampered"
+    assert client.get(f"/api/snapshots/{digest}").status_code == 404
+    assert client.get("/api/snapshots/not-a-hash").status_code == 404
+    assert client.get(f"/api/snapshots/{digest}").status_code == 429  # public limit, 3/min here
