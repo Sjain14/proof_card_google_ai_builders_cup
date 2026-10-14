@@ -12,7 +12,7 @@ Working name in code is **Proof Card**. Changing it later is a one line config c
 5. Put the clip somewhere private (Drive) and share the link only with the team. Do **not** commit the video to the public repo.
 
 ## What to hand Agent
-One DM line: name, topic, clip link, and the 5 claims with timestamps (or add them to `externals/inputs/demo_claims.md`).
+One DM line: name, topic, clip link, and the 5 claims with timestamps (or fill the template `externals/inputs/demo_claims.md`).
 
 ## Done when
 Name, topic and clip locked. Until then Agent builds against a sample topic ("India fuel prices 2026") in `backend/app/fixtures/`.

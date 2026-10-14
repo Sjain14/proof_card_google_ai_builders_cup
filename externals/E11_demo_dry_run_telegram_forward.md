@@ -12,7 +12,7 @@ Telegram recompresses photos, so the byte hash of a forwarded card never matches
 5. Try inline: in any chat type `@<yourbot> ` and pick a card.
 
 ## What to hand Agent
-Pass count out of 10 and screenshots of any failures, in DM or `externals/inputs/e11_results.md`.
+Pass count out of 10 and screenshots of any failures, in DM or the template `externals/inputs/e11_results.md`.
 
 ## Done when
 10 of 10 correct, or failures reported so Agent can tune thresholds.

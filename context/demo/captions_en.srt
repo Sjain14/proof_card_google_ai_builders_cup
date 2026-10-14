@@ -1,0 +1,91 @@
+1
+00:00:00,000 --> 00:00:04,000
+You've probably seen this message in your family group.
+
+2
+00:00:04,000 --> 00:00:09,000
+A screenshot of a speech, one number, and a lie that looks true.
+
+3
+00:00:09,000 --> 00:00:15,000
+The fact check comes, but by then it has been forwarded. Proof Card works the other way round.
+
+4
+00:00:15,000 --> 00:00:20,000
+Before the speech, we just enter the topic and the speaker.
+
+5
+00:00:20,000 --> 00:00:27,000
+Gemini predicts the claims that are coming and checks each one with Google Search.
+
+6
+00:00:27,000 --> 00:00:35,000
+But the model never has the last word. We open every source page ourselves, find the exact line, and keep a hash of the page.
+
+7
+00:00:35,000 --> 00:00:42,000
+No line, and the card says it plainly: not enough proof. No forced true or false.
+
+8
+00:00:42,000 --> 00:00:50,000
+Before the speech starts, {{BRIEF_N}} claims are ready, with sources.
+
+9
+00:00:50,000 --> 00:00:56,000
+Now live. The video plays in this tab, and Proof Card listens to this tab only.
+
+10
+00:00:56,000 --> 00:01:04,000
+The speaker says a claim from the brief... and the card is already there. PREBUNKED, in {{MATCH_MS}} milliseconds.
+
+11
+00:01:04,000 --> 00:01:12,000
+Gemini transcribes, spots the claim and matches it to the brief with embeddings. Hindi, English and Hinglish.
+
+12
+00:01:12,000 --> 00:01:22,000
+And this new claim? It wasn't in the brief. It gets checked live: same path, same proof.
+
+13
+00:01:22,000 --> 00:01:30,000
+A verdict in {{COLD_S}} seconds, with the source line.
+
+14
+00:01:30,000 --> 00:01:37,000
+Now the real job. Every verdict is a Proof Card, with a QR and a fingerprint.
+
+15
+00:01:37,000 --> 00:01:44,000
+I share it on Telegram. My friend forwards it to our bot.
+
+16
+00:01:44,000 --> 00:01:52,000
+VERIFIED. Telegram compressed the image, and the card is still recognised. One tap opens the full proof.
+
+17
+00:01:52,000 --> 00:02:02,000
+Now someone changes one word. Turns FALSE into TRUE, and forwards it on.
+
+18
+00:02:02,000 --> 00:02:12,000
+ALTERED. The bot shows what was changed, and the original card.
+
+19
+00:02:12,000 --> 00:02:20,000
+No login, on any phone. The proof travels with the forward.
+
+20
+00:02:20,000 --> 00:02:30,000
+Built with Gemini on Vertex AI and Google Search grounding, on Cloud Run, Cloud Tasks, Firestore, Cloud Storage and Firebase.
+
+21
+00:02:30,000 --> 00:02:40,000
+On a 50 claim benchmark: accuracy {{ACC}}, prebunked cards in {{MATCH_MS}} ms, edits caught {{TAMPER}}.
+
+22
+00:02:40,000 --> 00:02:50,000
+Every number comes from a result file committed in the repo.
+
+23
+00:02:50,000 --> 00:02:57,000
+Proof Card. Know the claim before it's said.

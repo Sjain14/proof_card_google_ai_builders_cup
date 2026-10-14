@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.7.4 · p6-demo-inputs
+- `externals/inputs/demo_claims.md` (E02 step 4: lock table, 5+ timed claims, one cold claim, Agent dry run section) and `externals/inputs/e11_results.md` (5 VERIFIED + 5 ALTERED runs, inline share, pass count quoted on slide 12).
+- `context/demo/VO_SCRIPT.md`: 23 cues, 2:57, Hinglish VO + English caption + screen per cue, timed to the E12 beats, pace column, placeholders filled only from real runs. `context/demo/captions_en.srt`: same cues and times, ready for YouTube upload.
+- Docs touched: E02, E11, E12 (pointers), SNAPSHOT, versions/v0.7.4, CHANGELOG.
+
 ## 2026-10-14 · v0.7.3 · p6-deploy-wif
 - `.github/workflows/deploy.yml`: after green CI on main (or by hand), keyless via WIF: image built in Actions, pushed to Artifact Registry, `gcloud run deploy --image` (keeps E09 config), `/api/health` probe, frontend built with `VITE_LIVE_ORIGIN` = Cloud Run URL, Hosting + Firestore rules + indexes. No-op until `GCP_PROJECT` is set; refuses if E09 hasn't created the service.
 - `.github/workflows/bench.yml`: manual `bench.run --mode vertex`, optional Fact Check key from Secret Manager (masked), report in the run summary + JSON artifact.
