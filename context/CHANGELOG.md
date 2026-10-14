@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.7.2 · p6-submission-draft
+- `context/SUBMISSION_DRAFT.md`: submission description rewritten to match the real build (934 chars), claim to code table, swaps for submit day, "never claim" list (isolated fetcher, App Check, vector search, check grounding, EmbeddingGemma are not in code).
+- `context/DECK_TEXT.md`: slide text for every template slide, criteria tags, as built architecture, benchmark placeholders keyed to the vertex result file.
+- Docs touched: SUBMISSION_DRAFT (new), DECK_TEXT (new), 10_Criteria_Map, 02_Tech_Stack, 03_Architecture, SNAPSHOT, versions/v0.7.2, CHANGELOG.
+
 ## 2026-10-14 · v0.7.1 · feat/hindi-ui
 - Hindi UI (audit #17): every screen string in `frontend/src/i18n.ts` (en + hi, Hindi typed against the English keys so a missing string fails `tsc`). Toggle in the nav (हिंदी / English), saved in localStorage, default from the browser language. `<html lang>` follows. Verdict words are the same as the card image and share page.
 - Card content (claim, explanation, sources) stays in the language it was checked in. No new dependencies. Docs touched: CHANGELOG.

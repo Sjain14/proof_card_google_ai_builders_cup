@@ -4,6 +4,8 @@ Labels: ✅ verified · 🟡 inference / design choice.
 
 ## 1. Big picture
 
+🔴 Plan diagram. Not built (14 Oct): separate fetcher service, Firestore vectors, check grounding, EmbeddingGemma. As built: `ARCHITECTURE.md` § Data flow and [DECK_TEXT.md](DECK_TEXT.md) slide 8.
+
 ```mermaid
 flowchart LR
   U[Admin browser<br/>React on Firebase Hosting] -- HTTPS + Firebase ID token --> API

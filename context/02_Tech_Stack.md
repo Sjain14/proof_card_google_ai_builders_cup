@@ -53,6 +53,8 @@ Based on Stack v3 (sent 13 Oct), re-cut for the NARROWED scope. Labels: ✅ veri
 
 ## Google count (for the deck)
 
+🔴 This is the PLAN count. App Check, the second Cloud Run fetcher, check grounding, EmbeddingGemma, vector search, Model Armor and Cloud Build are not built (14 Oct). Use the as built list in [DECK_TEXT.md](DECK_TEXT.md) slide 9.
+
 Firebase Hosting, Firebase Auth, App Check, Cloud Run x2, Cloud Tasks, Vertex AI Gemini, Fact Check Tools API, Search grounding, check grounding, Gemini Live / Speech-to-Text, EmbeddingGemma, Firestore + vector search, Cloud Storage, Secret Manager, Logging/Trace, Cloud Build, YouTube IFrame API, Model Armor (stretch) = **19 Google pieces** 🟡 count is ours. Open source: langextract, trafilatura, RapidFuzz, imagehash, Pillow/qrcode, React stack, all permissive.
 
 ## Confirm in console on Oct 14 (Team lead, 30 min)

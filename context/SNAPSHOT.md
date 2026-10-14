@@ -2,22 +2,23 @@
 
 Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versions/`.
 
-**As of:** 14 Oct 2026 IST · **Version:** v0.5.0 · **Phase:** P5 Live bridge
+**As of:** 14 Oct 2026 IST · **Version:** v0.7.2 · **Phase:** P6 Submission prep
 
 ## Done
-- v0.1.0 (PR #1): backend spine, auth, schemas, rules, guards, CI.
-- v0.2.0 (PR #5): prebunk pipeline, proof snapshots, Cloud Tasks with OIDC, `sql/`.
-- v0.3.0 (PR p3-proof-capsule): card PNG/JPEG with QR, ALTERED check (re-render + band diff), `/v/:id` share page, web image + text checks, Telegram bot (photo check, card lookup, inline share), checks logged without user ids. AGENTS.md + context/skills.md.
-- v0.4.0 (PR p4-frontend): Vite + React + TS app (landing, new brief, live brief grid with share actions), Firebase Google sign in, Hosting rewrites to Cloud Run, CI frontend job.
-- v0.4.1: judging criteria gate (`judging-criteria.md` + PR checklist), ASSETS.md, design system, rules test deps.
-- v0.5.0 (PR p5-live-bridge): live websocket, Gemini Live transcription relay, claim spotting, instant match on embeddings, cold path, live page with player + tab audio + latency chips.
-- Gates: backend ruff, format, mypy strict, pytest (89 tests, 98%), pip-audit; frontend tsc strict, vitest, build, npm audit.
+- v0.1.0 to v0.5.0: backend spine, prebunk pipeline, proof snapshots, Cloud Tasks, card image + ALTERED check, `/v/:id`, Telegram bot, React frontend, live bridge.
+- v0.5.x to v0.6.x (PRs #11 to #19): Gemini 3.5 Flash on global, transcribe live on global/us/eu, Hindi/Hinglish proof match, final transcription segments + custom vocabulary, prebunk rate limits + local stub run, public snapshot download, Fact Check Tools API behind a key, H1 gold set + H2 benchmark runner, README + NOTICES.
+- v0.6.3 (#20) Search suggestion chips · v0.7.0 (#21) clip upload fallback · v0.7.1 (#22) Hindi UI.
+- v0.7.2: `SUBMISSION_DRAFT.md` (description matching the real build) + `DECK_TEXT.md` (slide text per template, criteria tags, benchmark placeholders).
+- Gates: backend ruff, format, mypy strict, pytest (coverage ~98%), pip-audit; frontend tsc strict, vitest, build, npm audit; Firestore rules tests.
+
+## Not built (never claim, see SUBMISSION_DRAFT.md §4)
+Separate fetcher service · App Check · Firestore vector index · check grounding · EmbeddingGemma.
 
 ## Needs his externals to go live
-E03 to E10 (E05 web config for sign in), E15.
+E01, E03 to E10 (E05 web config for sign in), E16, E15, gold label review, E11, E12, E13.
 
 ## Next
-Deploy (his E03 to E10, then E09 with `--timeout 3600` + `VITE_LIVE_ORIGIN`), then on real services: tune the 0.80 match threshold on the demo clip (E11), benchmark runner H2 (latency, accuracy, tamper rate), clip upload fallback B2, visual QA of the deployed frontend, then demo video + deck (E12, E13).
+Deploy workflow on WIF + manual bench workflow, `externals/inputs/` templates, demo VO script + captions. After E03 + E08: first real run, fix what it surfaces, real benchmark file into DECK_TEXT.
 
 ## Blockers (owner)
-- Repo public before submission (Team lead).
+- Repo public before submission, after a full history secrets scan (Team lead flips it).
