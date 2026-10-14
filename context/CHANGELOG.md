@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.6.2 · docs/readme-notices
+- README: how it works, stack, local run without GCP, benchmark, credits (audit §5). NOTICES.md: every backend / frontend dependency with its licence (read from package metadata), fonts (OFL), Google services, benchmark data sources, langextract considered and not used (dependency weight).
+- Flagged: Search grounding suggestions are not rendered on cards yet (grounding terms).
+- Docs only. Docs touched: README, NOTICES, CHANGELOG.
+
 ## 2026-10-14 · v0.6.1 · feat/benchmark
 - H1 gold set (`backend/bench/h1_gold.jsonl`): 50 source linked claims, en / hi / hi-Latn, TRUE + FALSE, 16 spoken paraphrases, 10 chit chat negatives (audit #8). Draft labels, Team lead reviews.
 - H2 runner (`python -m bench.run --mode vertex --out ...`): accuracy, proof rate, UNVERIFIABLE rate, cold latency p50 / p95 per language; live instant match rate + chit chat false matches; ALTERED check on recompressed and edited cards. Prod wiring, in memory store.
