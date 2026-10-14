@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     telegram_bot_token: SecretStr = SecretStr("")
     telegram_webhook_secret: SecretStr = SecretStr("")
     telegram_bot_username: str = ""  # public, e.g. proofcard_bot (no @)
+    # Google Fact Check Tools API key (restricted to that API). Empty = lookup off.
+    factcheck_api_key: SecretStr = SecretStr("")
 
     # Abuse limits for public endpoints (per instance; see STANDARDS.md "what we skip").
     public_rate_per_min: int = Field(default=30, ge=1, le=600)

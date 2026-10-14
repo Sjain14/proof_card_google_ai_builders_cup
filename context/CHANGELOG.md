@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.6.0 · feat/factcheck-api
+- Google Fact Check Tools API (plan A3, audit #17), behind `PC_FACTCHECK_API_KEY` (empty = off): published ClaimReviews (BOOM, Alt News, PIB Fact Check ...) become the first evidence, then grounding. They pass the same fetch, match, snapshot and gate as every source; the verdict stays with the model. Key sent as `X-Goog-Api-Key` header, never in a URL. Any API failure = no prior checks, never a failed claim.
+- `ModelClient` wrapper (`app/factcheck.py`), pipeline untouched. Human step: externals E16.
+- No new dependencies. Docs touched: CHANGELOG, externals E16 + README, backend/.env.example.
+
 ## 2026-10-14 · v0.5.6 · fix/public-snapshots
 - `GET /api/snapshots/<sha256>` (audit #16): the exact stored bytes of any proof page, so anyone can run `sha256sum` and check the hash on a card. Always a download (`application/octet-stream`, attachment), never rendered on our origin; bytes re-hashed before serving; public rate limit; immutable cache. Share page links every page hash to it.
 - No new dependencies, no Hosting change (`/api/**` rewrite already covers it). Docs touched: CHANGELOG.

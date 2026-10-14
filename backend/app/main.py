@@ -30,6 +30,7 @@ from pydantic import ValidationError
 from app import alter, card_image, share_page
 from app.auth import Principal, Verifier, admin_principal, firebase_verifier
 from app.config import Settings, get_settings
+from app.factcheck import FactCheckClient, FactCheckedModel
 from app.live import (
     GeminiLiveTranscriber,
     HashEmbedder,
@@ -87,6 +88,8 @@ def default_deps(settings: Settings, store: Store) -> Deps:  # pragma: no cover 
             settings.gemini_model,
         )
         fetcher: FixtureFetcher | HttpFetcher = HttpFetcher()
+        if key := settings.factcheck_api_key.get_secret_value():
+            model = FactCheckedModel(model, FactCheckClient(key))
     else:
         model, fetcher = StubModel(), FixtureFetcher()
     snaps = GcsSnapshots(settings.proof_bucket) if settings.proof_bucket else InMemorySnapshots()
