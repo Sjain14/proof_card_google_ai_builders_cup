@@ -21,7 +21,7 @@ import logging
 import math
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -299,8 +299,33 @@ class LiveEngine:
 
 class Transcriber(Protocol):
     async def run(
-        self, audio: asyncio.Queue[bytes | None], on_final: Callable[[str], Awaitable[None]]
+        self,
+        audio: asyncio.Queue[bytes | None],
+        on_final: Callable[[str], Awaitable[None]],
+        vocabulary: Sequence[str] = (),
     ) -> None: ...
+
+
+MAX_VOCABULARY = 100  # docs: up to 1,000 phrases, best results with up to 100
+_PROPER = re.compile(r"\b[A-Z][\w-]{2,}|[\u0900-\u0DFF]{4,}")  # 4+: skips में, हैं
+
+
+def vocabulary_for(claims: Sequence[str]) -> list[str]:
+    """Speech biasing terms from the prebunked claims: names, acronyms, Indic words.
+    Sentence initial capitals are kept too; a few common words cost nothing here."""
+    seen: dict[str, None] = {}
+    for c in claims:
+        for w in _PROPER.findall(c):
+            seen.setdefault(w, None)
+    return list(seen)[:MAX_VOCABULARY]
+
+
+def final_text(server_content: Any) -> str:
+    """input_transcription is already the finalized segment (emitted on pause / turn end);
+    interim_input_transcription is speculative and never checked. Docs:
+    https://ai.google.dev/gemini-api/docs/live-api/live-transcribe"""
+    tr = getattr(server_content, "input_transcription", None)
+    return (getattr(tr, "text", None) or "").strip()
 
 
 class GeminiLiveTranscriber:  # pragma: no cover - needs a GCP project and live audio
@@ -317,13 +342,19 @@ class GeminiLiveTranscriber:  # pragma: no cover - needs a GCP project and live 
         self.model = model
 
     async def run(
-        self, audio: asyncio.Queue[bytes | None], on_final: Callable[[str], Awaitable[None]]
+        self,
+        audio: asyncio.Queue[bytes | None],
+        on_final: Callable[[str], Awaitable[None]],
+        vocabulary: Sequence[str] = (),
     ) -> None:
         from google.genai import types
 
         config = types.LiveConnectConfig(
             response_modalities=[types.Modality.TEXT],
-            input_audio_transcription=types.AudioTranscriptionConfig(language_codes=[]),
+            # [] = auto language detection incl. mid sentence Hindi / English code mixing.
+            input_audio_transcription=types.AudioTranscriptionConfig(
+                language_codes=[], custom_vocabulary=list(vocabulary) or None
+            ),
         )
         done = False
         while not done:
@@ -340,17 +371,9 @@ class GeminiLiveTranscriber:  # pragma: no cover - needs a GCP project and live 
                         )
 
                 async def recv() -> None:
-                    buf = ""
                     async for r in s.receive():
-                        sc = r.server_content
-                        if sc and sc.input_transcription and sc.input_transcription.text:
-                            buf += sc.input_transcription.text
-                            if sc.input_transcription.finished:
-                                await on_final(buf)
-                                buf = ""
-                        if sc and sc.turn_complete and buf:
-                            await on_final(buf)
-                            buf = ""
+                        if text := final_text(r.server_content):
+                            await on_final(text)
 
                 pump_t = asyncio.create_task(pump())
                 recv_t = asyncio.create_task(recv())

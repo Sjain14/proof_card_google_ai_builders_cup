@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -11,7 +12,15 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.config import Settings
-from app.live import HashEmbedder, HeuristicSpotter, LiveDeps, cosine, heuristic_spot
+from app.live import (
+    HashEmbedder,
+    HeuristicSpotter,
+    LiveDeps,
+    cosine,
+    final_text,
+    heuristic_spot,
+    vocabulary_for,
+)
 from app.main import create_app
 from app.model import StubModel
 from app.pipeline import Deps
@@ -159,10 +168,15 @@ class FakeTranscriber:
 
     def __init__(self) -> None:
         self.frames = 0
+        self.vocabulary: list[str] = []
 
     async def run(
-        self, audio: asyncio.Queue[bytes | None], on_final: Callable[[str], Awaitable[None]]
+        self,
+        audio: asyncio.Queue[bytes | None],
+        on_final: Callable[[str], Awaitable[None]],
+        vocabulary: Sequence[str] = (),
     ) -> None:
+        self.vocabulary = list(vocabulary)
         while await audio.get() is not None:
             self.frames += 1
             if self.frames == 1:
@@ -182,6 +196,30 @@ def test_live_audio_path_relays_to_transcriber(settings: Settings) -> None:
         assert _until(ws, "error")["code"] == "audio_unavailable"
         ws.send_json({"type": "stop"})
     assert t.frames == 1
+    assert t.vocabulary  # prebunked claims bias the transcriber
+
+
+def test_vocabulary_from_prebunked_claims() -> None:
+    v = vocabulary_for(
+        [
+            "UPI processed 20 billion transactions, says NPCI",
+            "Chandrayaan-3 landed near the south pole",
+            "संविधान में 22 भाषाएँ हैं, says NPCI",
+        ]
+    )
+    assert v == ["UPI", "NPCI", "Chandrayaan-3", "संविधान", "भाषाएँ"]
+    assert len(vocabulary_for([f"Name{i} x" for i in range(300)])) == 100
+
+
+def test_every_input_transcription_is_final() -> None:
+    # Before: text waited for a `finished` flag that transcribe-live may never set.
+    final = SimpleNamespace(input_transcription=SimpleNamespace(text=" GDP grew 8% "))
+    interim = SimpleNamespace(
+        input_transcription=None, interim_input_transcription=SimpleNamespace(text="GDP gr")
+    )
+    assert final_text(final) == "GDP grew 8%"
+    assert final_text(interim) == ""
+    assert final_text(None) == ""
 
 
 def test_live_origin_guard_in_prod(settings: Settings) -> None:

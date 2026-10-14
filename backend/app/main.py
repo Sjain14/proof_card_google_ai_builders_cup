@@ -37,6 +37,7 @@ from app.live import (
     Transcriber,
     VertexEmbedder,
     VertexSpotter,
+    vocabulary_for,
 )
 from app.logging_setup import configure_logging
 from app.model import ModelClient, StubModel, VertexModel
@@ -48,6 +49,7 @@ from app.schemas import (
     CheckImageResponse,
     CheckTextRequest,
     CheckTextResponse,
+    ClaimSource,
     PrebunkRequest,
     SessionDoc,
     SessionView,
@@ -280,8 +282,15 @@ def create_app(
                         await emit({"type": "error", "code": "audio_unavailable"})
                         continue
                     if stt is None:
+                        vocab = vocabulary_for(
+                            [
+                                c.text
+                                for _, c in app.state.store.list_claims(session_id)
+                                if c.source == ClaimSource.PREDICTED
+                            ]
+                        )
                         stt = asyncio.create_task(
-                            app.state.transcriber.run(audio, engine.on_sentence)
+                            app.state.transcriber.run(audio, engine.on_sentence, vocab)
                         )
                     if audio.full():  # never let a slow upstream grow memory: drop oldest
                         audio.get_nowait()

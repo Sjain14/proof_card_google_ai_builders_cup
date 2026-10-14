@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.5.4 · fix/live-transcribe
+- Every `input_transcription` is treated as a final segment, as the Live transcription docs define it; no wait on a `finished` flag that `gemini-3.5-transcribe-live` may never set (audit #11). Interim hypotheses are ignored.
+- `custom_vocabulary` from the session's prebunked claims (names, acronyms, Indic words, ≤ 100 as the docs advise) biases recognition toward exactly the claims we hold cards for.
+- No new dependencies. Docs touched: CHANGELOG.
+
 ## 2026-10-14 · v0.5.3 · fix/proof-match
 - Hindi / Hinglish proof (audit #5): tokenizer keeps Indic combining marks (`संविधान` was split into 4 letters) and reads Devanagari digits; Hindi + Hinglish stopwords; RapidFuzz fuzzy token hits (ratio ≥ 85, words ≥ 4 chars) for inflections and transliteration variants.
 - Cross-lingual: the assess call now also returns `CLAIM_EN` (same call, no extra cost); every source is matched on the claim as said, its English restatement and the model's supporting sentence. Prompt version 2026-10-14.2.
