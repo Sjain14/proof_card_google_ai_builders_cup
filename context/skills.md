@@ -21,6 +21,7 @@ Rule (AGENTS.md §3): every dependency pinned, licence checked, reason given. No
 |---|---|---|---|
 | trafilatura | 2.3.1 | Apache-2.0 | main content extraction for proof snippets (08_Reuse_Map C2), drops menus / footers |
 | pypdf | 6.20.1 | BSD-3-Clause | text layer of official PDF sources (pure Python, no system deps) |
+| rapidfuzz | 3.14.6 | MIT | fuzzy token match in proof passages (08_Reuse_Map C2), C++ speed |
 
 ## Frontend dependencies (P4)
 | Package | Version | Licence | Why |

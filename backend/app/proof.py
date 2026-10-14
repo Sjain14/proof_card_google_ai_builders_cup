@@ -20,6 +20,7 @@ from typing import ClassVar, Protocol
 import httpx
 import trafilatura
 from pypdf import PdfReader
+from rapidfuzz import fuzz, process
 
 from app.security import (
     Resolver,
@@ -199,48 +200,33 @@ def extract_text(body: bytes, content_type: str = "text/html") -> str:
 
 # ---------- passage matching ----------
 
-_TOKEN = re.compile(r"[\w]+", re.UNICODE)
+# \w alone drops Indic combining marks (matras, virama): "संविधान" became स, व, ध, न.
+# Range covers Devanagari through Malayalam (U+0900..U+0DFF), same idea as live.py _WORD.
+_TOKEN = re.compile(r"[\w\u0900-\u0DFF]+", re.UNICODE)
+_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")  # Devanagari digits -> ASCII
 _STOP = {
-    "the",
-    "a",
-    "an",
-    "of",
-    "in",
-    "on",
-    "and",
-    "or",
-    "is",
-    "was",
-    "are",
-    "to",
-    "for",
-    "by",
-    "with",
-    "that",
-    "this",
-    "it",
-    "as",
-    "at",
-    "be",
-    "has",
-    "have",
-    "had",
-    "from",
-    "ki",
-    "ka",
-    "ke",
-    "hai",
-    "tha",
-    "thi",
-    "mein",
-    "ko",
-    "se",
-    "aur",
-}
+    # English
+    "the", "a", "an", "of", "in", "on", "and", "or", "is", "was", "are", "to", "for", "by",
+    "with", "that", "this", "it", "as", "at", "be", "has", "have", "had", "from",
+    # Hinglish (Latin script)
+    "ki", "ka", "ke", "hai", "hain", "tha", "thi", "mein", "me", "ko", "se", "aur", "bhi", "ye",
+    # Hindi (Devanagari)
+    "की", "का", "के", "है", "हैं", "था", "थी", "में", "को", "से", "और", "ने", "भी", "यह", "पर",
+}  # fmt: skip
+FUZZY_CUTOFF = 85  # rapidfuzz ratio 0..100: inflections, transliteration spelling variants
+FUZZY_MIN_LEN = 4  # short words fuzz into each other; exact match only
+
+
+@dataclass(frozen=True)
+class Match:
+    passage: str
+    score: float  # support for the claim as stated (numbers must appear)
+    topic: float  # same, ignoring numbers: "the passage is about this claim"
+    conflict: bool  # the claim's number is absent and the passage states other numbers
 
 
 def _norm(s: str) -> str:
-    return unicodedata.normalize("NFKC", s).lower()
+    return unicodedata.normalize("NFKC", s).lower().translate(_DIGITS)
 
 
 def tokens(s: str) -> list[str]:
@@ -252,37 +238,70 @@ def _sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if len(p.strip()) > 20]
 
 
-def score_passage(query: str, passage: str) -> float:
-    """Recall of the query's content words in the passage; numbers count double and
-    a number in the claim that is missing from the passage caps the score at 0.5."""
-    q = tokens(query)
+def _hit(t: str, p: set[str]) -> bool:
+    if t in p:
+        return True
+    if t.isdigit() or len(t) < FUZZY_MIN_LEN:
+        return False
+    # Docs: https://rapidfuzz.github.io/RapidFuzz/Usage/process.html#extractone
+    return process.extractOne(t, p, scorer=fuzz.ratio, score_cutoff=FUZZY_CUTOFF) is not None
+
+
+def match_passage(query: str, passage: str) -> Match:
+    """Recall of the query's content words in the passage (exact or fuzzy); numbers count
+    double and a number in the claim that is missing from the passage caps score at 0.5."""
+    q = set(tokens(query))
     if not q:
-        return 0.0
+        return Match(passage, 0.0, 0.0, False)
     p = set(tokens(passage))
-    weight = hit = 0.0
+    weight = hit = words = word_hits = 0.0
     missing_number = False
-    for t in set(q):
-        w = 2.0 if t.isdigit() else 1.0
+    for t in q:
+        is_num = t.isdigit()
+        w = 2.0 if is_num else 1.0
         weight += w
-        if t in p:
+        found = _hit(t, p)
+        if found:
             hit += w
-        elif t.isdigit():
+        elif is_num:
             missing_number = True
+        if not is_num:
+            words += 1
+            word_hits += found
     s = hit / weight
-    return min(s, 0.5) if missing_number else s
+    topic = word_hits / words if words else 0.0
+    conflict = missing_number and any(t.isdigit() for t in p)
+    return Match(passage, min(s, 0.5) if missing_number else s, topic, conflict)
+
+
+def score_passage(query: str, passage: str) -> float:
+    return match_passage(query, passage).score
+
+
+def best_match(query: str, text: str, window: int = 2) -> Match:
+    """Best window by score, and separately the best contradicting window by topic."""
+    best = Match("", 0.0, 0.0, False)
+    for i, _ in enumerate(sents := _sentences(text)):
+        m = match_passage(query, " ".join(sents[i : i + window]))
+        if m.score > best.score:
+            best = m
+    return Match(best.passage[:1_500], round(best.score, 3), round(best.topic, 3), best.conflict)
+
+
+def best_contradiction(query: str, text: str, window: int = 2) -> Match:
+    """For FALSE claims: the on topic passage that states a different number.
+    A wrong number is evidence AGAINST the claim, not missing evidence (audit #6)."""
+    best = Match("", 0.0, 0.0, False)
+    for i, _ in enumerate(sents := _sentences(text)):
+        m = match_passage(query, " ".join(sents[i : i + window]))
+        if m.conflict and m.topic > best.topic:
+            best = m
+    return Match(best.passage[:1_500], round(best.score, 3), round(best.topic, 3), best.conflict)
 
 
 def best_passage(query: str, text: str, window: int = 2) -> tuple[str, float]:
-    sents = _sentences(text)
-    if not sents:
-        return "", 0.0
-    best = ("", 0.0)
-    for i in range(len(sents)):
-        cand = " ".join(sents[i : i + window])
-        s = score_passage(query, cand)
-        if s > best[1]:
-            best = (cand, s)
-    return best[0][:1_500], round(best[1], 3)
+    m = best_match(query, text, window)
+    return m.passage, m.score
 
 
 # ---------- snapshot storage ----------

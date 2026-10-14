@@ -43,6 +43,9 @@ class Assessment:
     verdict: Verdict
     explanation: str
     evidence: list[Evidence] = field(default_factory=list)
+    # The claim restated in English by the same call. Sources are mostly English, so a
+    # Hindi / Hinglish claim is matched against pages through this (no extra model call).
+    claim_en: str = ""
 
 
 class ModelClient(Protocol):
@@ -52,7 +55,7 @@ class ModelClient(Protocol):
 
 # ---------- prompts (kept here so they are versioned and reviewable) ----------
 
-PROMPT_VERSION = "2026-10-14.1"
+PROMPT_VERSION = "2026-10-14.2"
 
 PREDICT_PROMPT = """You are the research desk of an Indian fact-checking newsroom preparing
 for a live broadcast. Topic: {topic}
@@ -85,6 +88,7 @@ ASSESS_PROMPT = """Fact check this claim using Google Search. Claim: "{claim}"
 
 Answer in EXACTLY this format, nothing else:
 VERDICT: <TRUE|FALSE|MISLEADING|UNVERIFIABLE>
+CLAIM_EN: <the claim restated as one plain English sentence, same numbers and names>
 EXPLANATION: <at most 60 words, plain English, cite the official figure and its date>
 
 Use UNVERIFIABLE when reliable sources disagree or are missing. Prefer official and
@@ -93,6 +97,12 @@ primary sources (government statistics, regulators, court records) over news.
 
 _VERDICT_RE = re.compile(r"VERDICT:\s*(TRUE|FALSE|MISLEADING|UNVERIFIABLE)", re.IGNORECASE)
 _EXPL_RE = re.compile(r"EXPLANATION:\s*(.+)", re.IGNORECASE | re.DOTALL)
+_CLAIM_EN_RE = re.compile(r"CLAIM_EN:\s*(.+)", re.IGNORECASE)
+
+
+def parse_claim_en(text: str) -> str:
+    m = _CLAIM_EN_RE.search(text or "")
+    return m.group(1).strip()[:500] if m else ""
 
 
 def parse_assessment_text(text: str) -> tuple[Verdict, str]:
@@ -153,6 +163,7 @@ class StubModel:
             evidence=[
                 Evidence(url=fx.url, title=fx.title, model_snippet=fx.passage, confidence=0.9)
             ],
+            claim_en=claim,
         )
 
 
@@ -191,8 +202,9 @@ class VertexModel:  # pragma: no cover - needs a GCP project; covered by the par
                 tools=[types.Tool(google_search=types.GoogleSearch())],
             ),
         )
-        verdict, explanation = parse_assessment_text(resp.text or "")
-        return Assessment(verdict, explanation, evidence_from_grounding(resp))
+        raw = resp.text or ""
+        verdict, explanation = parse_assessment_text(raw)
+        return Assessment(verdict, explanation, evidence_from_grounding(resp), parse_claim_en(raw))
 
 
 def evidence_from_grounding(resp: Any) -> list[Evidence]:

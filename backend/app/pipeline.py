@@ -11,8 +11,24 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from app.model import Assessment, ModelClient
-from app.proof import Fetcher, FetchError, SnapshotStore, best_passage, extract_text, snapshot
-from app.schemas import CardDoc, ClaimDoc, ClaimSource, ClaimStatus, SourceProof, gate_verdict
+from app.proof import (
+    Fetcher,
+    FetchError,
+    SnapshotStore,
+    best_contradiction,
+    best_match,
+    extract_text,
+    snapshot,
+)
+from app.schemas import (
+    CardDoc,
+    ClaimDoc,
+    ClaimSource,
+    ClaimStatus,
+    SourceProof,
+    Verdict,
+    gate_verdict,
+)
 from app.security import card_fingerprint
 from app.store import Store, new_card_id
 
@@ -31,6 +47,21 @@ class Deps:
     workers: int = 4
 
 
+def support_for(claim: str, a: Assessment, snippet: str, text: str) -> tuple[str, float]:
+    """Best passage for the claim as said, its English restatement and the model's
+    supporting sentence. For FALSE / MISLEADING an on topic passage with a different
+    number is support too: it is the evidence that the claim is wrong."""
+    queries = [q for q in dict.fromkeys([claim, a.claim_en, snippet]) if q]
+    best = max((best_match(q, text) for q in queries), key=lambda m: m.score)
+    passage, score = best.passage, best.score
+    if a.verdict in (Verdict.FALSE, Verdict.MISLEADING):
+        for q in [claim, a.claim_en]:
+            c = best_contradiction(q, text) if q else None
+            if c and c.topic > score:
+                passage, score = c.passage, c.topic
+    return passage, score
+
+
 def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None:
     proofs: list[SourceProof] = []
     scores: list[float] = []
@@ -47,12 +78,7 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
             continue
         seen.add(fetched.final_url)
         text = extract_text(fetched.body, fetched.content_type)
-        # Match against the claim and the model's supporting sentence, keep the better.
-        passage, score = best_passage(claim, text)
-        if ev.model_snippet:
-            p2, s2 = best_passage(ev.model_snippet, text)
-            if s2 > score:
-                passage, score = p2, s2
+        passage, score = support_for(claim, assessment, ev.model_snippet, text)
         if score < MIN_PASSAGE_SCORE or not passage:
             continue
         digest = snapshot(fetched, deps.snapshots)

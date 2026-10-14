@@ -13,6 +13,7 @@ from app.model import (
     StubModel,
     evidence_from_grounding,
     parse_assessment_text,
+    parse_claim_en,
     parse_predictions,
 )
 from app.pipeline import Deps, build_card, run_prebunk, verify_claim
@@ -21,9 +22,12 @@ from app.proof import (
     FetchError,
     FixtureFetcher,
     InMemorySnapshots,
+    best_contradiction,
     best_passage,
     extract_text,
+    match_passage,
     score_passage,
+    tokens,
 )
 from app.schemas import ClaimDoc, ClaimSource, ClaimStatus, SessionDoc, Verdict
 from app.security import card_fingerprint, sha256_hex
@@ -43,6 +47,13 @@ def deps(store: InMemoryStore, model: Any = None, fetcher: Any = None) -> Deps:
 
 
 # ---------- parsing ----------
+
+
+def test_parse_claim_en() -> None:
+    raw = "VERDICT: TRUE\nCLAIM_EN: The schedule has 22 languages.\nEXPLANATION: Yes."
+    assert parse_claim_en(raw) == "The schedule has 22 languages."
+    assert parse_assessment_text(raw)[1] == "Yes."
+    assert parse_claim_en("VERDICT: TRUE") == ""
 
 
 def test_parse_assessment_strict_format() -> None:
@@ -138,6 +149,51 @@ def test_best_passage_picks_matching_window() -> None:
     assert best_passage("x", "short") == ("", 0.0)
 
 
+# Audit 14 Oct section 3: these claims failed on the real Wikipedia page.
+EIGHTH = (
+    "<p>The Eighth Schedule to the Constitution of India lists the official languages of "
+    "the Republic of India. At the time the Constitution was enacted it had 14 languages; "
+    "today the Eighth Schedule lists 22 languages.</p>"
+)
+
+
+def test_devanagari_tokens_keep_matras_and_digits() -> None:
+    assert tokens("संविधान की आठवीं अनुसूची में २२ भाषाएँ हैं") == [
+        "संविधान",
+        "आठवीं",
+        "अनुसूची",
+        "22",
+        "भाषाएँ",
+    ]
+
+
+def test_hindi_claim_matches_hindi_page() -> None:
+    page = "भारत के संविधान की आठवीं अनुसूची में 22 भाषाएँ शामिल हैं। यह सूची 1950 से बढ़ी है।"
+    assert score_passage("संविधान की आठवीं अनुसूची में २२ भाषाएँ हैं", page) >= 0.8
+
+
+def test_fuzzy_tokens_absorb_spelling_variants() -> None:
+    # "languages" vs "language", "schedul" typo: exact recall was 0.5 here
+    assert (
+        score_passage("Eighth Schedule languages 22", "the eighth schedul language list: 22") == 1
+    )
+
+
+def test_wrong_number_is_a_contradiction_not_a_miss() -> None:
+    m = match_passage(
+        "India has 25 languages in the Eighth Schedule", "The Eighth Schedule lists 22 languages."
+    )
+    assert m.score <= 0.5
+    assert m.conflict
+    assert m.topic == 0.75  # "india" absent, the rest on topic
+    assert not match_passage(
+        "Eighth Schedule has 25 languages", "Eighth Schedule languages"
+    ).conflict
+    assert best_contradiction(
+        "x 5", "no numbers in this sentence at all here"
+    ) == best_contradiction("", "")
+
+
 # ---------- pipeline ----------
 
 
@@ -193,6 +249,53 @@ def test_build_card_gates_weak_evidence() -> None:
     card = build_card("Eighth Schedule languages of the Republic number 24", d.model.assess(""), d)
     assert card is not None
     assert card.verdict is Verdict.UNVERIFIABLE  # number missing caps support below gate
+
+
+def test_false_claim_with_wrong_number_stays_false() -> None:
+    # Before: 0.5 capped support < 0.6 gate turned a debunk into UNVERIFIABLE (audit #6).
+    d = deps(
+        InMemoryStore(),
+        FakeModel(Verdict.FALSE, ["https://w/a"]),
+        MapFetcher({"https://w/a": EIGHTH}),
+    )
+    card = build_card("India has 25 languages in the Eighth Schedule", d.model.assess(""), d)
+    assert card is not None
+    assert card.verdict is Verdict.FALSE
+    assert "22 languages" in card.sources[0].snippet
+
+
+def test_true_claim_with_wrong_number_is_never_true() -> None:
+    d = deps(
+        InMemoryStore(),
+        FakeModel(Verdict.TRUE, ["https://w/a"]),
+        MapFetcher({"https://w/a": EIGHTH}),
+    )
+    card = build_card("India has 25 languages in the Eighth Schedule", d.model.assess(""), d)
+    assert card is not None
+    assert card.verdict is Verdict.UNVERIFIABLE
+
+
+def test_hinglish_claim_matches_english_page_via_claim_en() -> None:
+    @dataclass
+    class Translating(FakeModel):
+        def assess(self, claim: str) -> Assessment:
+            return Assessment(
+                self.verdict,
+                "why",
+                [Evidence(url=u) for u in self.urls],
+                claim_en="The Eighth Schedule of the Constitution has 22 languages",
+            )
+
+    d = deps(
+        InMemoryStore(),
+        Translating(Verdict.TRUE, ["https://w/a"]),
+        MapFetcher({"https://w/a": EIGHTH}),
+    )
+    claim = "Samvidhan ki aathvi anusuchi mein 22 bhashayein hain"
+    assert score_passage(claim, EIGHTH) < 0.35  # lexical alone cannot cross scripts
+    card = build_card(claim, d.model.assess(claim), d)
+    assert card is not None
+    assert card.verdict is Verdict.TRUE
 
 
 def test_build_card_no_sources_returns_none() -> None:

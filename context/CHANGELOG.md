@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.5.3 · fix/proof-match
+- Hindi / Hinglish proof (audit #5): tokenizer keeps Indic combining marks (`संविधान` was split into 4 letters) and reads Devanagari digits; Hindi + Hinglish stopwords; RapidFuzz fuzzy token hits (ratio ≥ 85, words ≥ 4 chars) for inflections and transliteration variants.
+- Cross-lingual: the assess call now also returns `CLAIM_EN` (same call, no extra cost); every source is matched on the claim as said, its English restatement and the model's supporting sentence. Prompt version 2026-10-14.2.
+- Debunks survive the gate (audit #6): for FALSE / MISLEADING, an on topic passage that states a different number counts as support (it is the counter evidence). TRUE still needs the claim's own numbers.
+- New dep (pinned): rapidfuzz 3.14.6 (MIT). Docs touched: CHANGELOG, skills.md, DECISIONS (D20).
+
 ## 2026-10-14 · v0.5.2 · fix/proof-fetch
 - One slow or broken source no longer fails the whole claim: every `httpx.HTTPError` (timeout, DNS, TLS, proxy) becomes `FetchError` and that source is skipped (audit #7).
 - Main content extraction with trafilatura (plan C2), hand parser kept only as fallback: no more menu / pager text as proof snippets (audit #10).
