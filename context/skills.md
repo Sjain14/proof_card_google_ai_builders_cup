@@ -16,6 +16,12 @@ Rule (AGENTS.md §3): every dependency pinned, licence checked, reason given. No
 | numpy | pinned in requirements.txt | BSD-3-Clause | band diff math in the ALTERED check (already pulled by ImageHash) |
 | python-multipart | 0.0.32 | Apache-2.0 | FastAPI file upload on the share page check form |
 
+## Backend runtime dependencies added in v0.5.2 (proof path)
+| Package | Version | Licence | Why |
+|---|---|---|---|
+| trafilatura | 2.3.1 | Apache-2.0 | main content extraction for proof snippets (08_Reuse_Map C2), drops menus / footers |
+| pypdf | 6.20.1 | BSD-3-Clause | text layer of official PDF sources (pure Python, no system deps) |
+
 ## Frontend dependencies (P4)
 | Package | Version | Licence | Why |
 |---|---|---|---|

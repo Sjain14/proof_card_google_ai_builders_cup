@@ -9,12 +9,17 @@ later prove what the page said when the card was issued.
 from __future__ import annotations
 
 import contextlib
+import io
 import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from typing import ClassVar, Protocol
+
+import httpx
+import trafilatura
+from pypdf import PdfReader
 
 from app.security import (
     Resolver,
@@ -58,19 +63,43 @@ class FixtureFetcher:
         return Fetched(url, url, body, "text/html", datetime.now(UTC))
 
 
-class HttpFetcher:
-    """Real fetcher. Redirects are followed manually so each hop is re-vetted."""
+HTML_TYPES = frozenset({"text/html", "text/plain", "application/xhtml+xml"})
+PDF_TYPE = "application/pdf"
+MAX_PDF_BYTES = 10_000_000  # official statistics (MoSPI, RBI, PIB) are mostly PDFs
+MAX_PDF_PAGES = 60
 
-    def __init__(self, resolve: Resolver = _system_resolver, timeout: float = 8.0) -> None:
+
+class HttpFetcher:
+    """Real fetcher. Redirects are followed manually so each hop is re-vetted.
+
+    Every transport failure (timeout, DNS, TLS, proxy, protocol) becomes FetchError, so one
+    slow source is skipped instead of failing the whole claim.
+    Docs: https://www.python-httpx.org/exceptions/
+    """
+
+    def __init__(
+        self,
+        resolve: Resolver = _system_resolver,
+        timeout: float = 8.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         self.resolve = resolve
         self.timeout = timeout
+        self.transport = transport  # tests inject httpx.MockTransport
 
-    def fetch(self, url: str) -> Fetched:  # pragma: no cover - network; logic covered via fakes
-        import httpx
+    def fetch(self, url: str) -> Fetched:
+        try:
+            return self._fetch(url)
+        except httpx.HTTPError as exc:
+            raise FetchError(f"{type(exc).__name__}") from exc
 
+    def _fetch(self, url: str) -> Fetched:
         current = url
         with httpx.Client(
-            timeout=self.timeout, follow_redirects=False, headers={"User-Agent": USER_AGENT}
+            timeout=self.timeout,
+            follow_redirects=False,
+            headers={"User-Agent": USER_AGENT},
+            transport=self.transport,
         ) as c:
             for _ in range(MAX_REDIRECTS + 1):
                 try:
@@ -85,12 +114,16 @@ class HttpFetcher:
                     if r.status_code != 200:
                         raise FetchError(f"status {r.status_code}")
                     ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
-                    if ctype not in {"text/html", "text/plain", "application/xhtml+xml"}:
+                    if ctype in HTML_TYPES:
+                        cap = MAX_BYTES
+                    elif ctype == PDF_TYPE:
+                        cap = MAX_PDF_BYTES
+                    else:
                         raise FetchError(f"unsupported content type {ctype}")
                     buf = bytearray()
                     for chunk in r.iter_bytes():
                         buf.extend(chunk)
-                        if len(buf) > MAX_BYTES:
+                        if len(buf) > cap:
                             raise FetchError("page too large")
                     return Fetched(url, current, bytes(buf), ctype, datetime.now(UTC))
         raise FetchError("too many redirects")
@@ -100,6 +133,8 @@ class HttpFetcher:
 
 
 class _TextExtractor(HTMLParser):
+    """Fallback when trafilatura finds no main content (tiny or unusual pages)."""
+
     SKIP: ClassVar[frozenset[str]] = frozenset(
         {"script", "style", "noscript", "svg", "template", "nav", "footer", "header"}
     )
@@ -108,37 +143,57 @@ class _TextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self._skip = 0
-        self.title = ""
-        self._in_title = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in self.SKIP:
             self._skip += 1
-        if tag == "title":
-            self._in_title = True
         if tag in {"p", "br", "li", "div", "h1", "h2", "h3", "tr", "td"}:
             self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in self.SKIP and self._skip:
             self._skip -= 1
-        if tag == "title":
-            self._in_title = False
 
     def handle_data(self, data: str) -> None:
-        if self._in_title:
-            self.title += data
-        elif not self._skip:
+        if not self._skip:
             self.parts.append(data)
 
 
-def extract_text(body: bytes, content_type: str = "text/html") -> str:
-    raw = body.decode("utf-8", errors="replace")
-    if content_type == "text/plain":
-        return re.sub(r"\s+", " ", raw).strip()
+def _pdf_text(body: bytes) -> str:
+    """Text layer of a PDF (pypdf, pure Python). Scanned PDFs have none: empty string.
+    Docs: https://pypdf.readthedocs.io/en/stable/user/extract-text.html"""
+    try:
+        reader = PdfReader(io.BytesIO(body))
+        pages = reader.pages[:MAX_PDF_PAGES]
+        return "\n".join((pg.extract_text() or "") for pg in pages)
+    except Exception:  # hostile / broken PDFs raise many types; a bad source is just skipped
+        return ""
+
+
+def _html_text(raw: str) -> str:
+    # Main content only (no menus, footers, "1 · 2 · 3" pagers): trafilatura, the extractor
+    # picked in 08_Reuse_Map C2. Docs: https://trafilatura.readthedocs.io/en/latest/corefunctions.html
+    main = trafilatura.extract(
+        raw, include_comments=False, include_tables=True, favor_recall=True, deduplicate=True
+    )
+    if main and len(main) >= MIN_MAIN_TEXT:
+        return main
     p = _TextExtractor()
     p.feed(raw)
-    text = "".join(p.parts)
+    return "".join(p.parts)
+
+
+MIN_MAIN_TEXT = 200
+
+
+def extract_text(body: bytes, content_type: str = "text/html") -> str:
+    if content_type == PDF_TYPE:
+        text = _pdf_text(body)
+    else:
+        raw = body.decode("utf-8", errors="replace")
+        if content_type == "text/plain":
+            return re.sub(r"\s+", " ", raw).strip()
+        text = _html_text(raw)
     return re.sub(r"[ \t\r\f\v]+", " ", text).strip()
 
 

@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.5.2 · fix/proof-fetch
+- One slow or broken source no longer fails the whole claim: every `httpx.HTTPError` (timeout, DNS, TLS, proxy) becomes `FetchError` and that source is skipped (audit #7).
+- Main content extraction with trafilatura (plan C2), hand parser kept only as fallback: no more menu / pager text as proof snippets (audit #10).
+- PDF sources accepted (10 MB, first 60 pages, pypdf text layer): MoSPI / RBI / PIB figures are mostly PDFs (audit #13).
+- `HttpFetcher` now tested on `httpx.MockTransport` (redirects, errors, size caps, SSRF, PDF); it was `pragma: no cover` before.
+- New deps (pinned): trafilatura 2.3.1 (Apache-2.0), pypdf 6.20.1 (BSD-3-Clause). Docs touched: CHANGELOG, skills.md.
+
 ## 2026-10-14 · v0.5.1 · fix/models-regions
 - Default model `gemini-3.5-flash` (GA, retires no sooner than May 2027) on the `global` endpoint; `gemini-2.5-flash` retires on Vertex 20 Oct 2026, the second day of scoring.
 - Separate locations per model: `PC_LIVE_REGION` (default `global`, validated to global / us / eu, the only places `gemini-3.5-transcribe-live` exists), `PC_EMBED_REGION` (default = `PC_GCP_REGION`). Before, all three models used `asia-south1`, where live transcription is not served.
