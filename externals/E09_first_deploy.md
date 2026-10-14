@@ -51,7 +51,7 @@ Expect `{"ok":true,...}`.
 
 ## 4. Smoke test
 1. `https://<domain>/` loads the homepage.
-2. `https://<domain>/api/healthz` → `{"status":"ok"}`.
+2. `https://<domain>/api/health` → `{"status":"ok"}`.
 3. Sign in, create a brief on the sample topic, cards appear.
 4. Open a card, tap "Share to Telegram", forward it to the bot → VERIFIED.
 

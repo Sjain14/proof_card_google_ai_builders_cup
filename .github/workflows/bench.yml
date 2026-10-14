@@ -1,0 +1,79 @@
+name: bench
+
+# Manual: the real H2 benchmark on Vertex AI (python -m bench.run --mode vertex).
+# The deck quotes ONLY files produced here (backend/bench/README.md rule). The JSON comes
+# back as a workflow artifact; commit it under backend/bench/results/ in a PR.
+# Keyless: Workload Identity Federation as deploy-sa (externals/E08). In memory store,
+# in memory snapshots: the run never writes to Firestore or the proof bucket.
+
+on:
+  workflow_dispatch:
+    inputs:
+      factcheck:
+        description: "Use the Fact Check Tools API key from Secret Manager (factcheck-api-key, E16)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: bench
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    if: vars.GCP_PROJECT != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: run benchmark (vertex)
+        env:
+          PC_ENV: test
+          PC_MODEL_MODE: vertex
+          PC_GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+          PC_GCP_REGION: ${{ vars.GCP_REGION }}
+          FACTCHECK: ${{ inputs.factcheck }}
+        run: |
+          if [ "$FACTCHECK" = "true" ]; then
+            KEY=$(gcloud secrets versions access latest --secret=factcheck-api-key --project "$PC_GCP_PROJECT")
+            echo "::add-mask::$KEY"
+            export PC_FACTCHECK_API_KEY="$KEY"
+          fi
+          OUT="bench/results/$(date -u +%Y-%m-%d)-${GITHUB_SHA::7}.json"
+          python -m bench.run --mode vertex --out "$OUT" | tee /tmp/report.md
+          echo "OUT=backend/$OUT" >> "$GITHUB_ENV"
+
+      - name: summary
+        run: |
+          {
+            echo "### Benchmark (vertex, commit ${GITHUB_SHA::7}, factcheck=${{ inputs.factcheck }})"
+            cat /tmp/report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-results
+          path: ${{ env.OUT }}
+          if-no-files-found: error
+          retention-days: 30

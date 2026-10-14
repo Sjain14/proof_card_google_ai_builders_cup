@@ -35,6 +35,7 @@ def _card(claim: str = "India has 22 scheduled languages") -> CardDoc:
 
 
 def test_healthz_has_security_headers(client: TestClient) -> None:
+    assert client.get("/api/health").json() == {"status": "ok"}  # Cloud Run + Hosting probe
     r = client.get("/healthz")
     assert r.status_code == 200
     assert r.headers["x-content-type-options"] == "nosniff"

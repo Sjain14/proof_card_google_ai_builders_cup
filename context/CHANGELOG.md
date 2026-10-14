@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.7.3 · p6-deploy-wif
+- `.github/workflows/deploy.yml`: after green CI on main (or by hand), keyless via WIF: image built in Actions, pushed to Artifact Registry, `gcloud run deploy --image` (keeps E09 config), `/api/health` probe, frontend built with `VITE_LIVE_ORIGIN` = Cloud Run URL, Hosting + Firestore rules + indexes. No-op until `GCP_PROJECT` is set; refuses if E09 hasn't created the service.
+- `.github/workflows/bench.yml`: manual `bench.run --mode vertex`, optional Fact Check key from Secret Manager (masked), report in the run summary + JSON artifact.
+- `GET /api/health`: Cloud Run reserves some paths ending in "z" (`/healthz` may never reach us) and Hosting only rewrites `/api/**`. E09 smoke test pointed at a route that didn't exist (`/api/healthz`), fixed.
+- Docs touched: E08 (roles, Artifact Registry repo, web config variables, what the workflows do), E09, ARCHITECTURE, SNAPSHOT, versions/v0.7.3, CHANGELOG.
+
 ## 2026-10-14 · v0.7.2 · p6-submission-draft
 - `context/SUBMISSION_DRAFT.md`: submission description rewritten to match the real build (934 chars), claim to code table, swaps for submit day, "never claim" list (isolated fetcher, App Check, vector search, check grounding, EmbeddingGemma are not in code).
 - `context/DECK_TEXT.md`: slide text for every template slide, criteria tags, as built architecture, benchmark placeholders keyed to the vertex result file.

@@ -234,6 +234,10 @@ def create_app(
         if not app.state.limiter.allow(client):
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
 
+    # /api/health is the one to probe: Cloud Run reserves some paths ending in "z" and
+    # recommends avoiding them all (https://docs.cloud.google.com/run/docs/known-issues),
+    # and Hosting only rewrites /api/** to us. /healthz stays for local runs.
+    @app.get("/api/health")
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}

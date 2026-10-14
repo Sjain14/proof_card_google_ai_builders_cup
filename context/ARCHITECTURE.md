@@ -33,7 +33,7 @@ context/            docs, dev memory, versions/
 ## Endpoints
 | Route | Auth | What |
 |---|---|---|
-| `GET /healthz` | none | liveness |
+| `GET /api/health` (+ `/healthz` local) | none | liveness; probe `/api/health` on Cloud Run (paths ending in z are reserved there) |
 | `POST /api/prebunk` | Firebase user (not anonymous) | create session, enqueue prebunk job |
 | `GET /api/sessions/:id` | owner only (404 otherwise) | session + claims + counts |
 | `GET /api/cards/:id` | public | one immutable card |
@@ -63,6 +63,9 @@ LIVE (P5): browser tab audio ─getDisplayMedia─▶ AudioWorklet 16 kHz PCM16,
      prebunked claims ─▶ ≥ 0.80: push the existing card at once (PREBUNKED, latency in ms)
                      └▶ miss: claim LIVE `checking` ─▶ verify_claim() (same path as Before) ─▶ `proved`
 ```
+
+## Deploy (v0.7.3)
+`ci` green on main ─▶ `deploy.yml` (WIF as deploy-sa) ─▶ docker build ─▶ Artifact Registry `proofcard/api:<sha>` ─▶ `gcloud run deploy --image` ─▶ `/api/health` ─▶ frontend build (`VITE_LIVE_ORIGIN` = run URL) ─▶ Firebase Hosting + Firestore rules/indexes. First deploy by hand (E09). `bench.yml` by hand: vertex benchmark, JSON artifact.
 
 ## Not built yet
 Clip upload fallback (B2) · Firestore onSnapshot instead of polling · benchmark runner (H2).

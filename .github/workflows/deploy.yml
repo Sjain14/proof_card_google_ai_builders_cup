@@ -1,0 +1,113 @@
+name: deploy
+
+# Merge to main -> CI green -> new API image on Cloud Run + frontend on Firebase Hosting.
+# Keyless: Workload Identity Federation (externals/E08), no JSON key anywhere.
+# The FIRST deploy is manual (externals/E09): it sets the service account, env vars and
+# secrets. This workflow only ships a new image and keeps that configuration as is.
+# Docs: https://github.com/google-github-actions/auth#preferred-direct-workload-identity-federation
+#       https://cloud.google.com/run/docs/deploying#service
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # mint the GitHub OIDC token for WIF
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false # never kill a deploy half way
+
+env:
+  SERVICE: proofcard-api
+  REPO: proofcard # Artifact Registry repository (E08 one time command)
+
+jobs:
+  deploy:
+    # Only after a green CI run on a push to main, and only once E08 variables exist.
+    if: >-
+      vars.GCP_PROJECT != '' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+          # access_token for firebase-tools (it does not read the WIF credentials file);
+          # the file is still written for gcloud + docker.
+          token_format: access_token
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: service exists (first deploy is E09, by hand)
+        run: |
+          if ! gcloud run services describe "$SERVICE" --region "${{ vars.GCP_REGION }}" \
+               --project "${{ vars.GCP_PROJECT }}" --format='value(status.url)' > /tmp/url; then
+            echo "::error::Cloud Run service $SERVICE not found. Do externals/E09 (manual first deploy) first."
+            exit 1
+          fi
+          echo "URL=$(cat /tmp/url)" >> "$GITHUB_ENV"
+
+      - name: build + push API image
+        working-directory: backend
+        run: |
+          IMAGE="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/$REPO/api:${GITHUB_SHA::12}"
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker build --pull -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: deploy API (keeps E09 env vars, secrets, service account)
+        run: |
+          ARGS=()
+          if [ -n "${{ vars.PROOF_BUCKET }}" ]; then ARGS+=(--update-env-vars "PC_PROOF_BUCKET=${{ vars.PROOF_BUCKET }}"); fi
+          gcloud run deploy "$SERVICE" --image "$IMAGE" --region "${{ vars.GCP_REGION }}" \
+            --project "${{ vars.GCP_PROJECT }}" --quiet "${ARGS[@]}"
+          curl -fsS --retry 5 --retry-delay 3 "$URL/api/health"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+
+      - name: build frontend
+        working-directory: frontend
+        env:
+          # Firebase web config is public (https://firebase.google.com/docs/projects/api-keys).
+          VITE_FIREBASE_API_KEY: ${{ vars.FIREBASE_WEB_API_KEY }}
+          VITE_FIREBASE_APP_ID: ${{ vars.FIREBASE_WEB_APP_ID }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.GCP_PROJECT }}.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID: ${{ vars.GCP_PROJECT }}
+        run: |
+          # Live socket + clip upload go straight to Cloud Run (Hosting rewrites stop at 60 s).
+          export VITE_LIVE_ORIGIN="$URL"
+          npm ci --ignore-scripts
+          npm run build
+
+      - name: deploy Hosting + Firestore rules + indexes
+        env:
+          FIREBASE_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: >-
+          npx --yes firebase-tools@15 deploy --non-interactive
+          --project "${{ vars.GCP_PROJECT }}"
+          --only hosting,firestore:rules,firestore:indexes
+
+      - name: summary
+        run: |
+          {
+            echo "### Deployed"
+            echo "- API: $URL (image \`$IMAGE\`)"
+            echo "- Web: https://${{ vars.GCP_PROJECT }}.web.app"
+          } >> "$GITHUB_STEP_SUMMARY"
