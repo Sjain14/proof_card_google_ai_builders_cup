@@ -199,3 +199,15 @@ a { color: var(--brand); }
   border: 0;
   margin: 4px 0 8px;
 }
+
+.clip {
+  display: block;
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--muted, #6b7280);
+}
+
+.clip input {
+  display: block;
+  margin-top: 6px;
+}

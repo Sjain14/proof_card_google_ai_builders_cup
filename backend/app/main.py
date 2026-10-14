@@ -24,11 +24,19 @@ from fastapi import (
     status,
 )
 from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
 from app import alter, card_image, share_page
 from app.auth import Principal, Verifier, admin_principal, firebase_verifier
+from app.clip import (
+    MAX_CLIP_BYTES,
+    ClipTranscriber,
+    GeminiClipTranscriber,
+    clip_mime,
+)
+from app.clip import sentences as clip_sentences
 from app.config import Settings, get_settings
 from app.factcheck import FactCheckClient, FactCheckedModel
 from app.live import (
@@ -146,6 +154,7 @@ def create_app(
     bot_api: BotApi | None = None,
     live: LiveDeps | None = None,
     transcriber: Transcriber | None = None,
+    clip_transcriber: ClipTranscriber | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging()
@@ -176,6 +185,11 @@ def create_app(
     if live is None:
         live, transcriber = default_live(settings, app.state.deps)
     app.state.live, app.state.transcriber = live, transcriber
+    if clip_transcriber is None and settings.model_mode == "vertex":  # pragma: no cover
+        clip_transcriber = GeminiClipTranscriber(
+            settings.gcp_project, settings.live_region, settings.clip_model
+        )
+    app.state.clip = clip_transcriber
     token = settings.telegram_bot_token.get_secret_value()
     app.state.bot_api = bot_api or (HttpBotApi(token) if token else None)
     app.state.oidc = oidc_verifier or (
@@ -186,6 +200,16 @@ def create_app(
     app.state.limiter = TokenBucket(rate_per_min=settings.public_rate_per_min)
     app.state.prebunk_limiter = TokenBucket(rate_per_min=settings.prebunk_per_min)
 
+    # Clip uploads go straight to the Cloud Run URL (VITE_LIVE_ORIGIN) from our own pages:
+    # only our configured origins, POST + Authorization, no cookies.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=sorted(allowed_origins),
+        allow_methods=["POST"],
+        allow_headers=["Authorization"],
+        allow_credentials=False,
+    )
+
     @app.middleware("http")
     async def guard(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -193,6 +217,8 @@ def create_app(
         length = request.headers.get("content-length")
         upload = request.url.path == "/api/check/image" or request.url.path.endswith("/check")
         cap = alter.MAX_UPLOAD_BYTES + 64_000 if upload else settings.max_body_bytes
+        if request.url.path.endswith("/clip"):
+            cap = MAX_CLIP_BYTES + 64_000
         if length is not None and (not length.isdigit() or int(length) > cap):
             return JSONResponse({"detail": "payload too large"}, status_code=413)
         response = await call_next(request)
@@ -246,6 +272,58 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         claims = app.state.store.list_claims(session_id)
         return SessionView.build(session_id, s, claims)
+
+    @app.post("/api/sessions/{session_id}/clip")
+    async def upload_clip(
+        session_id: str,
+        user: Annotated[Principal, Depends(admin_principal)],
+        file: Annotated[UploadFile, File()],
+    ) -> dict[str, object]:
+        """Fallback when live audio isn't possible: a recorded clip, transcribed in one
+        call, every sentence through the same live engine. Returns the same events the
+        websocket would have pushed, in order."""
+        s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
+        if s is None or s.owner_uid != user.uid:
+            raise HTTPException(status_code=404, detail="not found")
+        mime = clip_mime(file.content_type)
+        if mime is None:
+            raise HTTPException(
+                status_code=415, detail="audio only: mp3, m4a, wav, ogg, webm, flac"
+            )
+        data = await file.read(MAX_CLIP_BYTES + 1)
+        if len(data) > MAX_CLIP_BYTES:
+            raise HTTPException(status_code=413, detail="clip over 20 MB, trim it")
+        if app.state.clip is None:
+            raise HTTPException(status_code=503, detail="clip transcription needs the cloud model")
+        if not app.state.prebunk_limiter.allow(user.uid):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
+        vocab = vocabulary_for(
+            [
+                c.text
+                for _, c in app.state.store.list_claims(session_id)
+                if c.source == ClaimSource.PREDICTED
+            ]
+        )
+        try:
+            transcript = await run_in_threadpool(app.state.clip.transcribe, data, mime, vocab)
+        except Exception:
+            log.exception("clip transcription failed")
+            raise HTTPException(status_code=502, detail="transcription failed, try again") from None
+        lines = clip_sentences(transcript)
+        events: list[dict[str, object]] = []
+
+        async def collect(ev: dict[str, object]) -> None:
+            events.append(ev)
+
+        app.state.store.update_session(session_id, status="live")
+        try:
+            engine = LiveEngine(session_id, app.state.live, collect)
+            for line in lines:
+                await engine.on_sentence(line)
+            await engine.drain()
+        finally:
+            app.state.store.update_session(session_id, status="ready")
+        return {"sentences": len(lines), "events": events}
 
     @app.websocket("/api/live/{session_id}")
     async def live_ws(ws: WebSocket, session_id: str) -> None:

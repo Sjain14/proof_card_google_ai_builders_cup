@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type Card, type ClaimView, type SessionView } from "../api";
+import { api, CLIP_MAX_BYTES, uploadClip, type Card, type ClaimView, type SessionView } from "../api";
 import type { SignedIn } from "../auth";
 import { CardTile } from "../components/CardTile";
 import { captureTabAudio, openLive, youtubeId, type Capture, type LiveEvent } from "../live";
@@ -97,6 +97,21 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     setMode("ended");
   };
 
+  const sendClip = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const file = ev.target.files?.[0];
+    ev.target.value = "";
+    if (!file) return;
+    if (file.size > CLIP_MAX_BYTES) return setNote("Clip is over 20 MB. Trim it and try again.");
+    setNote("Transcribing the clip and checking every line…");
+    try {
+      const r = await uploadClip(id, file);
+      (r.events as LiveEvent[]).forEach(onEvent);
+      setNote(`Clip done: ${r.sentences} lines checked.`);
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Couldn't process the clip.");
+    }
+  };
+
   const sendLine = async (ev: React.FormEvent) => {
     ev.preventDefault();
     const text = line.trim();
@@ -161,6 +176,10 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
             />
             <button className="btn small" type="submit">Check</button>
           </form>
+          <label className="clip">
+            Or upload a recorded clip (audio, up to 15 min / 20 MB)
+            <input type="file" accept="audio/*" onChange={(e) => void sendClip(e)} aria-label="Recorded audio clip" />
+          </label>
           {note && <p className="note">{note}</p>}
         </div>
 

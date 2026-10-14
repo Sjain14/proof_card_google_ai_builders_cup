@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     # https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-transcribe
     live_model: str = "gemini-3.5-transcribe-live"  # Live API transcription
     live_region: str = Field(default="global", pattern="^(global|us|eu)$")
+    clip_model: str = "gemini-3.5-transcribe"  # file transcription, clip upload (same regions)
     embed_model: str = "gemini-embedding-001"
     embed_region: str = ""  # empty = gcp_region (embedding-001 is regional, close to the API)
     live_origins: str = ""  # extra allowed websocket Origins, comma separated

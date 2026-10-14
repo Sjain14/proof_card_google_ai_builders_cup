@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.7.0 · feat/clip-upload
+- Clip upload fallback (plan B2, audit #12): `POST /api/sessions/:id/clip` (owner only, audio up to 20 MB / 15 min). One `gemini-3.5-transcribe` call (synchronous file transcription, custom vocabulary from the prebunked claims), then every sentence goes through the same `LiveEngine.on_sentence` as tab audio: instant prebunked match or cold path. Returns the events the socket would have pushed; the Live page replays them into the feed.
+- Upload goes straight to Cloud Run (`VITE_LIVE_ORIGIN`, like the socket) because a long clip outlasts the Hosting rewrite timeout; CORS only for our own configured origins, POST + Authorization, no credentials.
+- `PC_CLIP_MODEL` (default gemini-3.5-transcribe, served from `PC_LIVE_REGION`). No new dependencies. Docs touched: CHANGELOG.
+
 ## 2026-10-14 · v0.6.3 · feat/search-suggestions
 - Grounding with Google Search display rules: the assess call's `search_entry_point.rendered_content` is kept on the card (`search_suggestion_html`, outside the proof fingerprint) and shown, unmodified, next to the grounded explanation on `/v/:id` and on every brief tile. Served as its own document (`/api/cards/:id/search-suggestion`, no scripts, own CSP, frame-ancestors self) inside a sandboxed iframe; a tap opens the Google results page directly (popup escapes sandbox).
 - NOTICES gap closed. No new dependencies. Docs touched: CHANGELOG, NOTICES.
