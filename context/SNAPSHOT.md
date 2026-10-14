@@ -2,7 +2,7 @@
 
 Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versions/`.
 
-**As of:** 14 Oct 2026 IST · **Version:** v0.7.5 · **Phase:** P6 Submission prep
+**As of:** 14 Oct 2026 IST · **Version:** v0.7.6 · **Phase:** P6 Submission prep
 
 ## Done
 - v0.1.0 to v0.5.0: backend spine, prebunk pipeline, proof snapshots, Cloud Tasks, card image + ALTERED check, `/v/:id`, Telegram bot, React frontend, live bridge.
@@ -11,6 +11,7 @@ Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versi
 - v0.7.2: `SUBMISSION_DRAFT.md` (description matching the real build) + `DECK_TEXT.md` (slide text per template, criteria tags, benchmark placeholders).
 - v0.7.3: `deploy.yml` (WIF, merge to main → Cloud Run + Hosting) + manual `bench.yml` (vertex benchmark), `/api/health`.
 - v0.7.5: Gemini audit fixes kept: `gs://` bucket accepted, E09 Cloud Tasks agent binding + env var escaping, E02 rename truth.
+- v0.7.6: creds docs ignored in repo `.gitignore`, one bucket name `<project-id>-proofs` across E04/E08/E09, `VITE_LIVE_ORIGIN` in `frontend/.env.example`.
 - v0.7.4: `externals/inputs/` templates (demo claims, E11 results), demo VO script + English `.srt` (`context/demo/`).
 - Gates: backend ruff, format, mypy strict, pytest (coverage ~98%), pip-audit; frontend tsc strict, vitest, build, npm audit; Firestore rules tests.
 

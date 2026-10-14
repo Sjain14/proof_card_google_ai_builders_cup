@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.7.6 · p6-repo-hygiene
+- `.gitignore`: local docs with account details never commit (`context/Gemini_docs/`, `context/Gemini_docs.zip`, any `06_CREDENTIALS_AND_ACCOUNTS_REGISTRY.md` / `*CREDENTIALS*.md`). Moves the protection from one laptop into the repo, so every clone has it.
+- One bucket name everywhere: `<project-id>-proofs` (E04 create, E08 `PROOF_BUCKET`, E09 `PC_PROOF_BUCKET`). Project ids are globally unique, so the bucket name is too, and the guide never mixes two names.
+- `frontend/.env.example`: `VITE_LIVE_ORIGIN` listed (Cloud Run URL, needed for a manual prod build, same as `deploy.yml`).
+- Docs touched: E04, E08, E09, SNAPSHOT, versions/v0.7.6, CHANGELOG.
+
 ## 2026-10-14 · v0.7.5 · p6-gemini-review-fixes
 - Review of Team lead's Gemini audit: kept the real findings, dropped the rest. `PC_PROOF_BUCKET` now accepts `gs://name` or `name` (validator in `config.py`, `tests/test_config.py`).
 - E09: Cloud Tasks service agent gets Service Account User on api-sa (docs require it for OIDC tasks); `--update-env-vars` uses `^@^` because `PC_LIVE_ORIGINS` contains a comma (old line failed to parse); lock base URL + bot username before the first card (both are printed on it, a later change reads ALTERED).

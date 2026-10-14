@@ -16,3 +16,8 @@ node_modules/
 *-key.json
 dist/
 .env.local
+# local docs with account details: never commit
+context/Gemini_docs/
+context/Gemini_docs.zip
+**/06_CREDENTIALS_AND_ACCOUNTS_REGISTRY.md
+*CREDENTIALS*.md

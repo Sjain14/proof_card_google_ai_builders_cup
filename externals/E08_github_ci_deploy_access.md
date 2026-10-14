@@ -43,7 +43,7 @@ Then in GitHub → repo → Settings → Secrets and variables → Actions → *
 | `GCP_REGION` | `asia-south1` |
 | `GCP_WIF_PROVIDER` | `projects/<PN>/locations/global/workloadIdentityPools/github/providers/repo` |
 | `GCP_DEPLOY_SA` | `deploy-sa@<project>.iam.gserviceaccount.com` |
-| `PROOF_BUCKET` | bucket from E04 |
+| `PROOF_BUCKET` | `<project-id>-proofs` (bucket from E04, name only, no `gs://`) |
 | `FIREBASE_WEB_API_KEY` | `apiKey` from the E05 web config (public, not a secret ✅ [Firebase API keys](https://firebase.google.com/docs/projects/api-keys)) |
 | `FIREBASE_WEB_APP_ID` | `appId` from the same config |
 
