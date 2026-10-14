@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.6.1 · feat/benchmark
+- H1 gold set (`backend/bench/h1_gold.jsonl`): 50 source linked claims, en / hi / hi-Latn, TRUE + FALSE, 16 spoken paraphrases, 10 chit chat negatives (audit #8). Draft labels, Team lead reviews.
+- H2 runner (`python -m bench.run --mode vertex --out ...`): accuracy, proof rate, UNVERIFIABLE rate, cold latency p50 / p95 per language; live instant match rate + chit chat false matches; ALTERED check on recompressed and edited cards. Prod wiring, in memory store.
+- First stub run: tamper 150/150 VERIFIED clean, 150/150 edits caught (real code); accuracy needs the vertex run.
+- No new dependencies. Docs touched: CHANGELOG, bench/README.
+
 ## 2026-10-14 · v0.6.0 · feat/factcheck-api
 - Google Fact Check Tools API (plan A3, audit #17), behind `PC_FACTCHECK_API_KEY` (empty = off): published ClaimReviews (BOOM, Alt News, PIB Fact Check ...) become the first evidence, then grounding. They pass the same fetch, match, snapshot and gate as every source; the verdict stays with the model. Key sent as `X-Goog-Api-Key` header, never in a URL. Any API failure = no prior checks, never a failed claim.
 - `ModelClient` wrapper (`app/factcheck.py`), pipeline untouched. Human step: externals E16.

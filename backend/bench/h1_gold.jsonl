@@ -1,0 +1,50 @@
+{"id": "H1-01", "lang": "en", "claim": "The Eighth Schedule of the Indian Constitution lists 22 languages.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Eighth_Schedule_to_the_Constitution_of_India", "spoken": "Constitution ki list mein ab 22 languages hain"}
+{"id": "H1-02", "lang": "en", "claim": "The Constitution of India came into effect on 26 January 1950.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Constitution_of_India", "spoken": "our constitution came into force on 26 January 1950"}
+{"id": "H1-03", "lang": "en", "claim": "Chandrayaan-3 landed near the Moon's south pole on 23 August 2023.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Chandrayaan-3", "spoken": "on 23 August 2023 Chandrayaan-3 touched down near the lunar south pole"}
+{"id": "H1-04", "lang": "en", "claim": "India has 28 states and 8 union territories.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/States_and_union_territories_of_India", "spoken": "we are 28 states and 8 union territories today"}
+{"id": "H1-05", "lang": "en", "claim": "The Lok Sabha has 543 elected seats.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Lok_Sabha", "spoken": "543 seats are elected to the Lok Sabha"}
+{"id": "H1-06", "lang": "en", "claim": "Mount Everest is 8,849 metres tall.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Mount_Everest"}
+{"id": "H1-07", "lang": "en", "claim": "The Rajya Sabha can have a maximum of 250 members.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Rajya_Sabha"}
+{"id": "H1-08", "lang": "en", "claim": "The Reserve Bank of India was established in 1935.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Reserve_Bank_of_India", "spoken": "RBI was set up back in 1935"}
+{"id": "H1-09", "lang": "en", "claim": "India launched the Mars Orbiter Mission, Mangalyaan, in 2013.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Mars_Orbiter_Mission"}
+{"id": "H1-10", "lang": "en", "claim": "UPI was launched by NPCI in 2016.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Unified_Payments_Interface", "spoken": "NPCI launched UPI in 2016"}
+{"id": "H1-11", "lang": "en", "claim": "GST was introduced in India on 1 July 2017.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Goods_and_Services_Tax_(India)", "spoken": "GST came in on 1 July 2017"}
+{"id": "H1-12", "lang": "en", "claim": "Demonetisation of 500 and 1000 rupee notes was announced on 8 November 2016.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/2016_Indian_banknote_demonetisation"}
+{"id": "H1-13", "lang": "en", "claim": "The Ganges is 2,525 km long.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Ganges"}
+{"id": "H1-14", "lang": "en", "claim": "ISRO was founded in 1969.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Indian_Space_Research_Organisation"}
+{"id": "H1-15", "lang": "en", "claim": "India won the 2011 Cricket World Cup.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/2011_Cricket_World_Cup", "spoken": "we won the World Cup in 2011"}
+{"id": "H1-16", "lang": "en", "claim": "The Eighth Schedule of the Indian Constitution lists 25 languages.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Eighth_Schedule_to_the_Constitution_of_India"}
+{"id": "H1-17", "lang": "en", "claim": "The Constitution of India came into effect in 1947.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Constitution_of_India"}
+{"id": "H1-18", "lang": "en", "claim": "Mount Everest is located in India.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Mount_Everest", "spoken": "Everest is in India, our highest peak"}
+{"id": "H1-19", "lang": "en", "claim": "Chandrayaan-3 landed on the Moon in 2019.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Chandrayaan-3"}
+{"id": "H1-20", "lang": "en", "claim": "The Lok Sabha has 600 elected seats.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Lok_Sabha"}
+{"id": "H1-21", "lang": "en", "claim": "GST was introduced in India in 2014.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Goods_and_Services_Tax_(India)"}
+{"id": "H1-22", "lang": "en", "claim": "The Reserve Bank of India was established in 1950.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Reserve_Bank_of_India"}
+{"id": "H1-23", "lang": "en", "claim": "India has 30 states.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/States_and_union_territories_of_India"}
+{"id": "H1-24", "lang": "en", "claim": "UPI was launched in 2010.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Unified_Payments_Interface"}
+{"id": "H1-25", "lang": "en", "claim": "ISRO was founded in 1980.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Indian_Space_Research_Organisation"}
+{"id": "H1-26", "lang": "hi", "claim": "संविधान की आठवीं अनुसूची में 22 भाषाएँ हैं।", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Eighth_Schedule_to_the_Constitution_of_India", "spoken": "आठवीं अनुसूची में कुल 22 भाषाएँ शामिल हैं"}
+{"id": "H1-27", "lang": "hi", "claim": "भारत का संविधान 26 जनवरी 1950 को लागू हुआ।", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Constitution_of_India"}
+{"id": "H1-28", "lang": "hi", "claim": "चंद्रयान-3 23 अगस्त 2023 को चंद्रमा के दक्षिणी ध्रुव के पास उतरा।", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Chandrayaan-3", "spoken": "चंद्रयान-3 दक्षिणी ध्रुव के पास 23 अगस्त 2023 को उतरा था"}
+{"id": "H1-29", "lang": "hi", "claim": "लोकसभा में 543 निर्वाचित सीटें हैं।", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Lok_Sabha"}
+{"id": "H1-30", "lang": "hi", "claim": "भारत में 28 राज्य और 8 केंद्र शासित प्रदेश हैं।", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/States_and_union_territories_of_India"}
+{"id": "H1-31", "lang": "hi", "claim": "जीएसटी 1 जुलाई 2017 को लागू हुआ।", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Goods_and_Services_Tax_(India)"}
+{"id": "H1-32", "lang": "hi", "claim": "भारतीय रिज़र्व बैंक की स्थापना 1935 में हुई।", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Reserve_Bank_of_India"}
+{"id": "H1-33", "lang": "hi", "claim": "संविधान की आठवीं अनुसूची में 25 भाषाएँ हैं।", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Eighth_Schedule_to_the_Constitution_of_India"}
+{"id": "H1-34", "lang": "hi", "claim": "भारत का संविधान 1947 में लागू हुआ।", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Constitution_of_India"}
+{"id": "H1-35", "lang": "hi", "claim": "माउंट एवरेस्ट भारत में स्थित है।", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Mount_Everest"}
+{"id": "H1-36", "lang": "hi", "claim": "लोकसभा में 600 निर्वाचित सीटें हैं।", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Lok_Sabha"}
+{"id": "H1-37", "lang": "hi", "claim": "इसरो की स्थापना 1980 में हुई।", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Indian_Space_Research_Organisation"}
+{"id": "H1-38", "lang": "hi", "claim": "यूपीआई 2010 में शुरू हुआ।", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Unified_Payments_Interface"}
+{"id": "H1-39", "lang": "hi-Latn", "claim": "Samvidhan ki aathvi anusuchi mein 22 bhashayein hain.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Eighth_Schedule_to_the_Constitution_of_India", "spoken": "aathvi anusuchi mein 22 bhashayein hain"}
+{"id": "H1-40", "lang": "hi-Latn", "claim": "Bharat ka samvidhan 26 January 1950 ko lagu hua.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Constitution_of_India", "spoken": "26 January 1950 ko samvidhan lagu hua tha"}
+{"id": "H1-41", "lang": "hi-Latn", "claim": "Chandrayaan-3 23 August 2023 ko chand ke south pole ke paas utra.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Chandrayaan-3"}
+{"id": "H1-42", "lang": "hi-Latn", "claim": "UPI 2016 mein NPCI ne launch kiya tha.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Unified_Payments_Interface", "spoken": "UPI ko NPCI ne 2016 mein launch kiya"}
+{"id": "H1-43", "lang": "hi-Latn", "claim": "GST 1 July 2017 se lagu hai.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Goods_and_Services_Tax_(India)"}
+{"id": "H1-44", "lang": "hi-Latn", "claim": "Mangalyaan 2013 mein launch hua tha.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/Mars_Orbiter_Mission"}
+{"id": "H1-45", "lang": "hi-Latn", "claim": "Bharat ne 2011 ka Cricket World Cup jeeta tha.", "expected": "TRUE", "source": "https://en.wikipedia.org/wiki/2011_Cricket_World_Cup"}
+{"id": "H1-46", "lang": "hi-Latn", "claim": "Samvidhan ki aathvi anusuchi mein 25 bhashayein hain.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Eighth_Schedule_to_the_Constitution_of_India"}
+{"id": "H1-47", "lang": "hi-Latn", "claim": "Mount Everest Bharat mein hai.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Mount_Everest", "spoken": "Everest toh Bharat mein hi hai"}
+{"id": "H1-48", "lang": "hi-Latn", "claim": "Lok Sabha mein 600 elected seats hain.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Lok_Sabha"}
+{"id": "H1-49", "lang": "hi-Latn", "claim": "GST 2014 mein lagu hua tha.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Goods_and_Services_Tax_(India)"}
+{"id": "H1-50", "lang": "hi-Latn", "claim": "Chandrayaan-3 2019 mein chand par utra tha.", "expected": "FALSE", "source": "https://en.wikipedia.org/wiki/Chandrayaan-3"}
