@@ -3,10 +3,13 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import Settings
+from app.main import create_app
 from app.schemas import CardDoc, SourceProof, Verdict
 from app.security import card_fingerprint, sha256_hex
 from app.store import InMemoryStore
-from tests.conftest import WEBHOOK_SECRET
+from app.tasks import SyncQueue
+from tests.conftest import WEBHOOK_SECRET, fake_oidc, fake_verifier
 
 ADMIN = {"Authorization": "Bearer admin-token"}
 ANON = {"Authorization": "Bearer anon-token"}
@@ -152,3 +155,40 @@ def test_rate_limit_ignores_spoofed_forwarded_for(client: TestClient, store: InM
         for i in range(5)
     ]
     assert 429 in codes
+
+
+def test_prebunk_burst_limit_per_user(client: TestClient) -> None:
+    codes = [
+        client.post("/api/prebunk", json={"topic": f"topic {i}"}, headers=ADMIN).status_code
+        for i in range(5)
+    ]
+    assert codes[:3] == [201, 201, 201]  # prebunk_per_min default 3
+    assert codes[3:] == [429, 429]
+
+
+def test_prebunk_daily_cap_is_durable(settings: Settings, store: InMemoryStore) -> None:
+    # The cap counts stored sessions, so it holds across instances and restarts.
+    capped = settings.model_copy(update={"prebunk_daily_cap": 2, "prebunk_per_min": 60})
+    app = create_app(
+        settings=capped,
+        verifier=fake_verifier,
+        store=store,
+        queue=SyncQueue(),
+        oidc_verifier=fake_oidc,
+    )
+    c = TestClient(app)
+    codes = [
+        c.post("/api/prebunk", json={"topic": "t"}, headers=ADMIN).status_code for _ in range(3)
+    ]
+    assert codes == [201, 201, 429]
+    assert store.count_sessions_since("admin-1", "2000-01-01") == 2
+    assert store.count_sessions_since("admin-1", "2999-01-01") == 0
+
+
+def test_local_stub_mode_runs_without_gcp() -> None:
+    # README "Run locally" crashed with DefaultCredentialsError before (audit #15).
+    app = create_app(settings=Settings(_env_file=None, env="local", auth_disabled=True))
+    assert isinstance(app.state.store, InMemoryStore)
+    c = TestClient(app)
+    r = c.post("/api/prebunk", json={"topic": "India"}, headers={"Authorization": "Bearer x"})
+    assert r.status_code == 201

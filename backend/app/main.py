@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Annotated
 
@@ -57,7 +58,7 @@ from app.schemas import (
     TgUpdate,
 )
 from app.security import TokenBucket, telegram_secret_ok
-from app.store import FirestoreStore, Store
+from app.store import FirestoreStore, InMemoryStore, Store
 from app.tasks import CloudTasksQueue, InlineQueue, OidcVerifier, TaskQueue, google_oidc_verifier
 from app.telegram import BotApi, BotDeps, HttpBotApi, handle_update
 
@@ -160,6 +161,11 @@ def create_app(
         for o in [settings.public_base_url, *settings.live_origins.split(",")]
         if o.strip()
     }
+    if store is None and settings.model_mode == "stub" and not settings.gcp_project:
+        # Local demo without GCP (README "Run locally"): nothing to connect to, keep it in
+        # memory. Prod can't hit this: stub mode is refused there (config.py).
+        log.warning("no PC_GCP_PROJECT in stub mode: in memory store, data is not kept")
+        store = InMemoryStore()
     app.state.store = store or FirestoreStore(settings.gcp_project)
     app.state.deps = deps or default_deps(settings, app.state.store)
     app.state.queue = queue or default_queue(settings)
@@ -174,6 +180,7 @@ def create_app(
         else None
     )
     app.state.limiter = TokenBucket(rate_per_min=settings.public_rate_per_min)
+    app.state.prebunk_limiter = TokenBucket(rate_per_min=settings.prebunk_per_min)
 
     @app.middleware("http")
     async def guard(
@@ -212,6 +219,13 @@ def create_app(
             youtube_url=str(body.youtube_url) if body.youtube_url else None,
             status="prebunking",
         )
+        if not app.state.prebunk_limiter.allow(user.uid):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
+        today = datetime.now(UTC).date().isoformat()
+        if app.state.store.count_sessions_since(user.uid, today) >= settings.prebunk_daily_cap:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="daily brief limit reached"
+            )
         sid = app.state.store.create_session(doc)
         log.info("session created", extra={"fields": {"session": sid}})
         n = settings.prebunk_claims

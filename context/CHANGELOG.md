@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.5.5 · fix/local-run-limits
+- `/api/prebunk` limits (audit #14): per user burst (`PC_PREBUNK_PER_MIN`, default 3) + durable daily cap (`PC_PREBUNK_DAILY_CAP`, default 20) counted server side in Firestore (one aggregation read on the existing owner_uid + created_at index), so it holds across Cloud Run instances. Each brief is ~15 grounded calls on the bill.
+- Local run fixed (audit #15): stub mode without `PC_GCP_PROJECT` uses the in memory store instead of crashing on missing Google credentials.
+- No new dependencies. Docs touched: CHANGELOG.
+
 ## 2026-10-14 · v0.5.4 · fix/live-transcribe
 - Every `input_transcription` is treated as a final segment, as the Live transcription docs define it; no wait on a `finished` flag that `gemini-3.5-transcribe-live` may never set (audit #11). Interim hypotheses are ignored.
 - `custom_vocabulary` from the session's prebunked claims (names, acronyms, Indic words, ≤ 100 as the docs advise) biases recognition toward exactly the claims we hold cards for.

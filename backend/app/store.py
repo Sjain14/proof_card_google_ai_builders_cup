@@ -34,6 +34,7 @@ def _apply[M: BaseModel](doc: M, changes: dict[str, Any]) -> M:
 
 class Store(Protocol):
     def create_session(self, doc: SessionDoc) -> str: ...
+    def count_sessions_since(self, owner_uid: str, day: str) -> int: ...
     def get_session(self, session_id: str) -> SessionDoc | None: ...
     def update_session(self, session_id: str, **changes: Any) -> None: ...
     def add_claim(self, session_id: str, doc: ClaimDoc) -> str: ...
@@ -59,6 +60,13 @@ class InMemoryStore:
             self.sessions[sid] = doc
             self.claims[sid] = {}
         return sid
+
+    def count_sessions_since(self, owner_uid: str, day: str) -> int:
+        return sum(
+            1
+            for d in self.sessions.values()
+            if d.owner_uid == owner_uid and d.created_at.date().isoformat() >= day
+        )
 
     def get_session(self, session_id: str) -> SessionDoc | None:
         return self.sessions.get(session_id)
@@ -117,6 +125,23 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
         sid = new_id()
         self._session(sid).create(doc.model_dump(mode="json"))
         return sid
+
+    def count_sessions_since(self, owner_uid: str, day: str) -> int:
+        """Server side count (one aggregation read). created_at is stored as an ISO 8601
+        string, so ">= 'YYYY-MM-DD'" is an exact day bound. Uses the existing
+        (owner_uid, created_at desc) index. Docs:
+        https://firebase.google.com/docs/firestore/query-data/aggregation-queries"""
+        from google.cloud.firestore_v1 import FieldFilter, Query
+
+        q = (
+            self.db.collection("sessions")
+            .where(filter=FieldFilter("owner_uid", "==", owner_uid))
+            .where(filter=FieldFilter("created_at", ">=", day))
+            .order_by("created_at", direction=Query.DESCENDING)
+        )
+        # SDK annotations say count() returns a Type; at runtime get() is [[result]].
+        agg: Any = q.count(alias="n")
+        return int(agg.get()[0][0].value)
 
     def get_session(self, session_id: str) -> SessionDoc | None:
         snap = self._session(session_id).get()
