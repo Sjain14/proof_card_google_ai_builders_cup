@@ -2,6 +2,10 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.7.1 · feat/hindi-ui
+- Hindi UI (audit #17): every screen string in `frontend/src/i18n.ts` (en + hi, Hindi typed against the English keys so a missing string fails `tsc`). Toggle in the nav (हिंदी / English), saved in localStorage, default from the browser language. `<html lang>` follows. Verdict words are the same as the card image and share page.
+- Card content (claim, explanation, sources) stays in the language it was checked in. No new dependencies. Docs touched: CHANGELOG.
+
 ## 2026-10-14 · v0.7.0 · feat/clip-upload
 - Clip upload fallback (plan B2, audit #12): `POST /api/sessions/:id/clip` (owner only, audio up to 20 MB / 15 min). One `gemini-3.5-transcribe` call (synchronous file transcription, custom vocabulary from the prebunked claims), then every sentence goes through the same `LiveEngine.on_sentence` as tab audio: instant prebunked match or cold path. Returns the events the socket would have pushed; the Live page replays them into the feed.
 - Upload goes straight to Cloud Run (`VITE_LIVE_ORIGIN`, like the socket) because a long clip outlasts the Hosting rewrite timeout; CORS only for our own configured origins, POST + Authorization, no credentials.

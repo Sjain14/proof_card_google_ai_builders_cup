@@ -4,6 +4,7 @@ import type { SignedIn } from "../auth";
 import { CardTile } from "../components/CardTile";
 import { navigate } from "../router";
 import { progress } from "../verdict";
+import { t } from "../i18n";
 
 const POLL_MS = 1500;
 
@@ -26,7 +27,7 @@ export function Brief({ id, user }: { id: string; user: SignedIn | null | undefi
         const p = progress(s.counts);
         if (p.total === 0 || p.done < p.total) timer = window.setTimeout(tick, POLL_MS);
       } catch (err) {
-        if (alive) setError(err instanceof ApiError && err.status === 404 ? "No such brief." : "Couldn't load.");
+        if (alive) setError(err instanceof ApiError && err.status === 404 ? t("brief.none") : t("brief.loadFail"));
       }
     };
     void tick();
@@ -46,7 +47,7 @@ export function Brief({ id, user }: { id: string; user: SignedIn | null | undefi
   }, [session, cards]);
 
   if (error) return <section className="panel narrow center"><h1>{error}</h1></section>;
-  if (!session) return <section className="panel narrow center"><p className="muted">Loading brief…</p></section>;
+  if (!session) return <section className="panel narrow center"><p className="muted">{t("brief.loading")}</p></section>;
 
   const { done, total } = progress(session.counts);
   const pct = total ? Math.round((done / total) * 100) : 0;
@@ -55,16 +56,16 @@ export function Brief({ id, user }: { id: string; user: SignedIn | null | undefi
     <section className="brief">
       <div className="brief-head">
         <div>
-          <p className="eyebrow">Prebunk brief{session.speaker && ` · ${session.speaker}`}</p>
+          <p className="eyebrow">{t("brief.eyebrow")}{session.speaker && ` · ${session.speaker}`}</p>
           <h1>{session.topic}</h1>
         </div>
         <div className="progress" aria-live="polite">
           <span>
-            {total === 0 ? "Predicting claims…" : done < total ? `${done} of ${total} checked` : `${total} claims ready`}
+            {total === 0 ? t("brief.predicting") : done < total ? t("brief.progress", { done, total }) : t("brief.ready", { total })}
           </span>
           {total > 0 && done === total && (
             <button className="btn small" onClick={() => navigate(`/s/${id}/live`)}>
-              Go live
+              {t("brief.goLive")}
             </button>
           )}
           <div className="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>

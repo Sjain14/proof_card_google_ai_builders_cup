@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { api, ApiError } from "../api";
 import { signIn, type SignedIn } from "../auth";
 import { navigate } from "../router";
+import { t } from "../i18n";
 
 const SAMPLE = {
   topic: "Union Budget speech: fuel prices, digital India, languages and population",
@@ -19,10 +20,10 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
   if (user === null) {
     return (
       <section className="panel narrow center">
-        <h1>Sign in to create a brief</h1>
-        <p className="muted">Briefs are private to you. Cards you share are public.</p>
+        <h1>{t("new.signInH")}</h1>
+        <p className="muted">{t("new.signInBody")}</p>
         <button className="btn" onClick={() => void signIn()}>
-          Sign in with Google
+          {t("new.signInBtn")}
         </button>
       </section>
     );
@@ -46,33 +47,33 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
       });
       navigate(`/s/${session_id}`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Network error, try again.");
+      setError(err instanceof ApiError ? err.message : t("new.network"));
       setBusy(false);
     }
   }
 
   return (
     <section className="panel narrow">
-      <p className="eyebrow">New brief</p>
-      <h1>What's the speech about?</h1>
+      <p className="eyebrow">{t("new.eyebrow")}</p>
+      <h1>{t("new.h1")}</h1>
       <form onSubmit={(e) => void submit(e)} className="form">
         <label>
-          Topic <span className="req">required</span>
+          {t("new.topic")} <span className="req">{t("new.required")}</span>
           <textarea
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             maxLength={500}
             rows={3}
             required
-            placeholder="e.g. Budget speech on fuel, jobs and digital India"
+            placeholder={t("new.topicPh")}
           />
         </label>
         <label>
-          Speaker
+          {t("new.speaker")}
           <input value={speaker} onChange={(e) => setSpeaker(e.target.value)} maxLength={200} />
         </label>
         <label>
-          YouTube link
+          {t("new.youtube")}
           <input
             value={youtube}
             onChange={(e) => setYoutube(e.target.value)}
@@ -82,7 +83,7 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
           />
         </label>
         <label>
-          Context links <span className="muted">up to 5, space separated</span>
+          {t("new.links")} <span className="muted">{t("new.linksHint")}</span>
           <input value={links} onChange={(e) => setLinks(e.target.value)} inputMode="url" />
         </label>
         {error && (
@@ -92,7 +93,7 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
         )}
         <div className="row">
           <button className="btn" disabled={busy || !topic.trim()}>
-            {busy ? "Starting…" : "Generate brief"}
+            {busy ? t("new.starting") : t("new.generate")}
           </button>
           <button
             type="button"
@@ -102,7 +103,7 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
               setSpeaker(SAMPLE.speaker);
             }}
           >
-            Try a sample topic
+            {t("new.sample")}
           </button>
         </div>
       </form>

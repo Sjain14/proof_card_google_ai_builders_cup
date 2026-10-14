@@ -2,6 +2,7 @@ import { useState } from "react";
 import { shareUrl, type Card, type ClaimView } from "../api";
 import { domain } from "../verdict";
 import { VerdictPill } from "./VerdictPill";
+import { t } from "../i18n";
 
 export function CardTile({ claim, card }: { claim: ClaimView; card: Card | undefined }) {
   const [copied, setCopied] = useState(false);
@@ -11,7 +12,7 @@ export function CardTile({ claim, card }: { claim: ClaimView; card: Card | undef
     return (
       <article className="tile pending" aria-busy="true">
         <span className="pill v-checking">
-          <span className="spin" aria-hidden="true" /> Checking sources…
+          <span className="spin" aria-hidden="true" /> {t("tile.checking")}
         </span>
         <p className="tile-claim">“{claim.text}”</p>
       </article>
@@ -21,9 +22,9 @@ export function CardTile({ claim, card }: { claim: ClaimView; card: Card | undef
   if (claim.status === "failed" || !claim.card_id) {
     return (
       <article className="tile">
-        <span className="pill v-unknown">? Couldn't check</span>
+        <span className="pill v-unknown">? {t("tile.couldnt")}</span>
         <p className="tile-claim">“{claim.text}”</p>
-        <p className="tile-why muted">No source we could fetch backed or refuted this. We show that instead of guessing.</p>
+        <p className="tile-why muted">{t("tile.noSource")}</p>
       </article>
     );
   }
@@ -39,7 +40,7 @@ export function CardTile({ claim, card }: { claim: ClaimView; card: Card | undef
     <article className="tile stamped">
       <div className="tile-top">
         <VerdictPill verdict={card?.verdict ?? claim.verdict ?? "UNVERIFIABLE"} />
-        <span className="badge">{claim.source === "live" ? "LIVE" : "PREBUNKED"}</span>
+        <span className="badge">{claim.source === "live" ? t("tile.live") : t("tile.prebunked")}</span>
       </div>
       <p className="tile-claim">“{card?.claim ?? claim.text}”</p>
       {card && (
@@ -59,16 +60,16 @@ export function CardTile({ claim, card }: { claim: ClaimView; card: Card | undef
           )}
           <p className="tile-meta">
             {card.sources.map((s) => domain(s.url)).filter((d, i, a) => a.indexOf(d) === i).slice(0, 2).join(" · ")}
-            {" · "}support {card.support_score.toFixed(2)}
+            {" · "}{t("tile.support")} {card.support_score.toFixed(2)}
           </p>
         </>
       )}
       <div className="tile-actions">
         <a className="btn small" href={url} target="_blank" rel="noopener">
-          Proof
+          {t("tile.proof")}
         </a>
         <button className="btn small ghost" onClick={() => void copy()}>
-          {copied ? "Copied" : "Copy link"}
+          {copied ? t("tile.copied") : t("tile.copy")}
         </button>
         <a
           className="btn small ghost"

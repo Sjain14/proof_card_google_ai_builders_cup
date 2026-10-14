@@ -8,11 +8,14 @@ import { Landing } from "./pages/Landing";
 import { Live } from "./pages/Live";
 import { NewBrief } from "./pages/NewBrief";
 import { navigate, usePath } from "./router";
+import { getLang, setLang, t } from "./i18n";
 
 function App() {
   const path = usePath();
   const [user, setUser] = useState<SignedIn | null | undefined>(undefined);
   useEffect(() => watchUser(setUser), []);
+  const [lang, setLangState] = useState(getLang());
+  useEffect(() => setLang(lang), [lang]);
 
   const brief = path.match(/^\/s\/([A-Za-z0-9_-]{8,64})$/);
   const live = path.match(/^\/s\/([A-Za-z0-9_-]{8,64})\/live$/);
@@ -37,22 +40,30 @@ function App() {
           Proof Card
         </a>
         <div className="nav-right">
-          {devMode && <span className="chip">local dev</span>}
+          <button
+            className="link"
+            lang={lang === "en" ? "hi" : "en"}
+            aria-label={t("nav.langLabel")}
+            onClick={() => setLangState(lang === "en" ? "hi" : "en")}
+          >
+            {t("nav.lang")}
+          </button>
+          {devMode && <span className="chip">{t("nav.dev")}</span>}
           {user && !devMode && (
             <button className="link" onClick={() => void signOut()}>
-              Sign out
+              {t("nav.signOut")}
             </button>
           )}
           {user === null && (
             <button className="btn small" onClick={() => void signIn()}>
-              Sign in
+              {t("nav.signIn")}
             </button>
           )}
         </div>
       </header>
-      <main>{page}</main>
+      <main key={lang}>{page}</main>
       <footer className="foot">
-        Built with Gemini on Vertex AI, Cloud Run, Firestore and Firebase. Proof that travels.
+        {t("foot")}
       </footer>
     </>
   );

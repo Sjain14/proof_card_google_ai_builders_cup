@@ -3,6 +3,7 @@ import { api, CLIP_MAX_BYTES, uploadClip, type Card, type ClaimView, type Sessio
 import type { SignedIn } from "../auth";
 import { CardTile } from "../components/CardTile";
 import { captureTabAudio, openLive, youtubeId, type Capture, type LiveEvent } from "../live";
+import { t } from "../i18n";
 
 interface FeedItem {
   claim: ClaimView;
@@ -24,7 +25,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   const cap = useRef<Capture | null>(null);
 
   useEffect(() => {
-    if (user) void api.session(id).then(setSession, () => setNote("Couldn't load this brief."));
+    if (user) void api.session(id).then(setSession, () => setNote(t("live.loadFail")));
   }, [id, user]);
 
   useEffect(() => () => {
@@ -42,7 +43,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
 
   const onEvent = (e: LiveEvent) => {
     if (e.type === "heard") setHeard(e.text);
-    else if (e.type === "error") setNote(e.code === "audio_unavailable" ? "Live audio needs the cloud model. Type the line below instead." : "Something went wrong.");
+    else if (e.type === "error") setNote(e.code === "audio_unavailable" ? t("live.audioUnavailable") : t("live.wrong"));
     else if (e.type === "match" || e.type === "checking") {
       const claim: ClaimView = {
         id: e.claim_id, text: e.text, lang: "en", source: "live",
@@ -67,13 +68,13 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
       const sock = await openLive(id, onEvent);
       sock.onclose = (c) => {
         setMode("ended");
-        if (c.code === 4401) setNote("Sign in as the owner of this brief to go live.");
+        if (c.code === 4401) setNote(t("live.owner"));
       };
       ws.current = sock;
       return sock;
     } catch {
       setMode("idle");
-      setNote("Couldn't reach the live service.");
+      setNote(t("live.unreachable"));
       return null;
     }
   };
@@ -87,7 +88,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
       setMode("listening");
     } catch {
       setMode("idle");
-      setNote("Pick this tab and tick “Share tab audio” to listen.");
+      setNote(t("live.shareTab"));
     }
   };
 
@@ -101,14 +102,14 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     const file = ev.target.files?.[0];
     ev.target.value = "";
     if (!file) return;
-    if (file.size > CLIP_MAX_BYTES) return setNote("Clip is over 20 MB. Trim it and try again.");
-    setNote("Transcribing the clip and checking every line…");
+    if (file.size > CLIP_MAX_BYTES) return setNote(t("live.clipBig"));
+    setNote(t("live.clipWorking"));
     try {
       const r = await uploadClip(id, file);
       (r.events as LiveEvent[]).forEach(onEvent);
-      setNote(`Clip done: ${r.sentences} lines checked.`);
+      setNote(t("live.clipDone", { n: r.sentences }));
     } catch (e) {
-      setNote(e instanceof Error ? e.message : "Couldn't process the clip.");
+      setNote(e instanceof Error ? e.message : t("live.clipFail"));
     }
   };
 
@@ -123,7 +124,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     setLine("");
   };
 
-  if (!session) return <section className="panel narrow center"><p className="muted">{note || "Loading…"}</p></section>;
+  if (!session) return <section className="panel narrow center"><p className="muted">{note || t("live.loading")}</p></section>;
   const vid = session.youtube_url ? youtubeId(session.youtube_url) : null;
   const ready = session.claims.filter((c) => c.source === "predicted" && c.card_id).length;
   const hits = feed.filter((f) => f.prebunked);
@@ -133,13 +134,13 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     <section className="live">
       <div className="brief-head">
         <div>
-          <p className="eyebrow">Live · {ready} claims prebunked</p>
+          <p className="eyebrow">{t("live.eyebrow", { n: ready })}</p>
           <h1>{session.topic}</h1>
         </div>
         <div className="live-stats" aria-live="polite">
-          <span><b>{hits.length}</b> instant</span>
-          <span><b>{feed.length - hits.length}</b> checked live</span>
-          {fastest !== null && <span className="latency">fastest {fastest} ms</span>}
+          <span><b>{hits.length}</b> {t("live.instant")}</span>
+          <span><b>{feed.length - hits.length}</b> {t("live.checkedLive")}</span>
+          {fastest !== null && <span className="latency">{t("live.fastest", { ms: fastest })}</span>}
         </div>
       </div>
 
@@ -149,43 +150,43 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
             <iframe
               className="player"
               src={`https://www.youtube-nocookie.com/embed/${vid}?rel=0&playsinline=1`}
-              title="Video being fact checked"
+              title={t("live.videoTitle")}
               allow="autoplay; encrypted-media; picture-in-picture"
               allowFullScreen
             />
           ) : (
-            <div className="player empty"><p className="muted">No video on this brief. Play the stream in this tab, then listen.</p></div>
+            <div className="player empty"><p className="muted">{t("live.noVideo")}</p></div>
           )}
           <div className="controls">
             {mode === "listening" ? (
-              <button className="btn ghost" onClick={stop}><span className="rec" aria-hidden="true" /> Stop listening</button>
+              <button className="btn ghost" onClick={stop}><span className="rec" aria-hidden="true" /> {t("live.stop")}</button>
             ) : (
               <button className="btn" disabled={mode === "connecting"} onClick={() => void listen()}>
-                {mode === "connecting" ? "Connecting…" : "Start listening"}
+                {mode === "connecting" ? t("live.connecting") : t("live.start")}
               </button>
             )}
-            <p className="heard" aria-live="polite">{heard ? `Heard: “${heard}”` : "We listen to this tab only. Nothing is recorded."}</p>
+            <p className="heard" aria-live="polite">{heard ? t("live.heard", { text: heard }) : t("live.privacy")}</p>
           </div>
           <form className="line" onSubmit={(e) => void sendLine(e)}>
             <input
               value={line}
               onChange={(e) => setLine(e.target.value)}
-              placeholder="Or type a line the speaker said"
+              placeholder={t("live.linePh")}
               maxLength={600}
-              aria-label="Line the speaker said"
+              aria-label={t("live.lineLabel")}
             />
-            <button className="btn small" type="submit">Check</button>
+            <button className="btn small" type="submit">{t("live.check")}</button>
           </form>
           <label className="clip">
-            Or upload a recorded clip (audio, up to 15 min / 20 MB)
-            <input type="file" accept="audio/*" onChange={(e) => void sendClip(e)} aria-label="Recorded audio clip" />
+            {t("live.clip")}
+            <input type="file" accept="audio/*" onChange={(e) => void sendClip(e)} aria-label={t("live.clipLabel")} />
           </label>
           {note && <p className="note">{note}</p>}
         </div>
 
         <div className="feed">
           {feed.length === 0 && (
-            <div className="tile pending feed-empty"><p className="muted">Claims appear here the moment they're said. Prebunked ones arrive instantly.</p></div>
+            <div className="tile pending feed-empty"><p className="muted">{t("live.empty")}</p></div>
           )}
           {feed.map((f) => (
             <div className="feed-item" key={f.claim.id}>
