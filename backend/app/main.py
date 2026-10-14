@@ -93,14 +93,18 @@ def default_live(
     settings: Settings, deps: Deps
 ) -> tuple[LiveDeps, Transcriber | None]:  # pragma: no cover - prod wiring
     if settings.model_mode == "vertex":
-        loc = settings.gemini_region or settings.gcp_region
+        gen_loc = settings.gemini_region or settings.gcp_region
+        embed_loc = settings.embed_region or settings.gcp_region
         live = LiveDeps(
             deps,
-            VertexEmbedder(settings.gcp_project, loc, settings.embed_model),
-            VertexSpotter(settings.gcp_project, loc, settings.gemini_model),
+            VertexEmbedder(settings.gcp_project, embed_loc, settings.embed_model),
+            VertexSpotter(settings.gcp_project, gen_loc, settings.gemini_model),
             settings.live_threshold,
         )
-        return live, GeminiLiveTranscriber(settings.gcp_project, loc, settings.live_model)
+        transcriber = GeminiLiveTranscriber(
+            settings.gcp_project, settings.live_region, settings.live_model
+        )
+        return live, transcriber
     return LiveDeps(deps, HashEmbedder(), HeuristicSpotter(), settings.live_threshold), None
 
 

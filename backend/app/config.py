@@ -30,11 +30,19 @@ class Settings(BaseSettings):
 
     # Model + pipeline. stub = offline fixtures (tests, CI, local before GCP exists).
     model_mode: str = Field(default="stub", pattern="^(stub|vertex)$")
-    gcp_region: str = "asia-south1"
-    gemini_model: str = "gemini-2.5-flash"
-    gemini_region: str = ""  # empty = gcp_region
+    gcp_region: str = "asia-south1"  # Cloud Run, Cloud Tasks, Firestore, GCS
+    # Each model gets its own location: availability differs per model.
+    # gemini-2.5-flash retires on Vertex 20 Oct 2026, inside the scoring window; 3.5-flash is
+    # GA until at least May 2027. Docs (lifecycle + replacements):
+    # https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions
+    gemini_model: str = "gemini-3.5-flash"
+    gemini_region: str = "global"  # global endpoint: every GA Gemini model, best availability
+    # gemini-3.5-transcribe-live is served ONLY from global, us, eu (not asia-south1). Docs:
+    # https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-transcribe
     live_model: str = "gemini-3.5-transcribe-live"  # Live API transcription
+    live_region: str = Field(default="global", pattern="^(global|us|eu)$")
     embed_model: str = "gemini-embedding-001"
+    embed_region: str = ""  # empty = gcp_region (embedding-001 is regional, close to the API)
     live_origins: str = ""  # extra allowed websocket Origins, comma separated
     live_threshold: float = Field(default=0.80, ge=0.5, le=0.99)  # cosine for a PREBUNKED hit
     prebunk_claims: int = Field(default=12, ge=1, le=20)

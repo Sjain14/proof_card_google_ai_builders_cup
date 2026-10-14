@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.5.1 · fix/models-regions
+- Default model `gemini-3.5-flash` (GA, retires no sooner than May 2027) on the `global` endpoint; `gemini-2.5-flash` retires on Vertex 20 Oct 2026, the second day of scoring.
+- Separate locations per model: `PC_LIVE_REGION` (default `global`, validated to global / us / eu, the only places `gemini-3.5-transcribe-live` exists), `PC_EMBED_REGION` (default = `PC_GCP_REGION`). Before, all three models used `asia-south1`, where live transcription is not served.
+- Audit fixes #3, #4. No new dependencies. Docs touched: CHANGELOG, externals E10, backend/.env.example.
+
 ## 2026-10-14 · v0.5.0 · p5-live-bridge
 - Live bridge: `WS /api/live/:id` (first message auth, owner only, Origin allowlist), Gemini Live transcription relay with reconnect, claim spotting (filter + model), instant match on embeddings vs prebunked cards, cold path through the same `verify_claim()`; live claims stored with `matched_claim_id` + `latency_ms`.
 - Frontend `/s/:id/live`: YouTube player, tab audio capture (AudioWorklet, PCM16 16 kHz), typed line fallback, live feed with PREBUNKED / LIVE badges and latency chips; "Go live" on a ready brief.

@@ -108,6 +108,16 @@ def test_settings_reject_bad_env() -> None:
     assert Settings(telegram_bot_token=SecretStr("x")).telegram_bot_token.get_secret_value()
 
 
+def test_model_defaults_survive_the_scoring_window() -> None:
+    # gemini-2.5-flash retires on Vertex 20 Oct 2026; transcribe-live is global/us/eu only.
+    s = Settings(_env_file=None)
+    assert s.gemini_model == "gemini-3.5-flash"
+    assert s.gemini_region == "global"
+    assert s.live_region == "global"
+    with pytest.raises(ValidationError):
+        Settings(live_region="asia-south1")
+
+
 def test_claim_doc_validation_and_store() -> None:
     with pytest.raises(ValidationError):
         ClaimDoc(text="x", source=ClaimSource.LIVE, lang="fr")
