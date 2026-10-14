@@ -8,7 +8,7 @@ Locally they come from a gitignored .env that each developer fills with their ow
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     live_threshold: float = Field(default=0.80, ge=0.5, le=0.99)  # cosine for a PREBUNKED hit
     prebunk_claims: int = Field(default=12, ge=1, le=20)
     proof_bucket: str = ""  # empty = in memory snapshots (local only)
+
+    @field_validator("proof_bucket")
+    @classmethod
+    def _bare_bucket(cls, v: str) -> str:
+        # The storage client wants the bare name; E04 prints it as gs://name, so accept both.
+        return v.strip().removeprefix("gs://").rstrip("/")
 
     # Background jobs. inline = thread pool in process; cloudtasks = durable queue (prod).
     tasks_mode: str = Field(default="inline", pattern="^(inline|cloudtasks)$")

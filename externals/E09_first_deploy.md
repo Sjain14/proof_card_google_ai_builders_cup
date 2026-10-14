@@ -18,8 +18,11 @@ Secrets are pinned to version `1`, not `latest` (see `context/12_Engineering_Sta
 After it prints the service URL, set it as the task audience and the public base:
 ```bash
 URL=$(gcloud run services describe proofcard-api --region $R --format='value(status.url)')
-gcloud run services update proofcard-api --region $R --update-env-vars PC_SERVICE_URL=$URL,PC_PUBLIC_BASE_URL=https://<your-hosting-domain>,PC_LIVE_ORIGINS=https://$P.web.app,https://$P.firebaseapp.com
+gcloud run services update proofcard-api --region $R \
+  --update-env-vars "^@^PC_SERVICE_URL=$URL@PC_PUBLIC_BASE_URL=https://<your-hosting-domain>@PC_LIVE_ORIGINS=https://$P.web.app,https://$P.firebaseapp.com"
 ```
+`^@^` switches gcloud's list separator to `@`, because `PC_LIVE_ORIGINS` itself contains a comma ✅ [gcloud topic escaping](https://cloud.google.com/sdk/gcloud/reference/topic/escaping). Lock `PC_PUBLIC_BASE_URL` and `PC_TELEGRAM_BOT_USERNAME` before the first real card: both are printed on the card (QR + "forward to @bot" line), so changing them later makes older forwarded cards read ALTERED.
+
 `--timeout 3600` lets one live session run up to an hour (the socket ends at the request timeout ✅ [Cloud Run websockets](https://cloud.google.com/run/docs/triggering/websockets)). For the frontend build, also set `VITE_LIVE_ORIGIN=$URL` next to the `VITE_FIREBASE_*` values: the live socket connects to Cloud Run directly because Hosting rewrites stop at 60 s (DECISIONS D17).
 
 Create the job queue once (Cloud Tasks retries failed briefs with backoff) ✅ [Create queues](https://cloud.google.com/tasks/docs/creating-queues):
@@ -27,8 +30,11 @@ Create the job queue once (Cloud Tasks retries failed briefs with backoff) ✅ [
 gcloud tasks queues create prebunk --location=$R --max-concurrent-dispatches=4 --max-attempts=3
 gcloud iam service-accounts add-iam-policy-binding api-sa@$P.iam.gserviceaccount.com \
   --member=serviceAccount:api-sa@$P.iam.gserviceaccount.com --role=roles/iam.serviceAccountUser
+PN=$(gcloud projects describe $P --format='value(projectNumber)')
+gcloud iam service-accounts add-iam-policy-binding api-sa@$P.iam.gserviceaccount.com \
+  --member=serviceAccount:service-$PN@gcp-sa-cloudtasks.iam.gserviceaccount.com --role=roles/iam.serviceAccountUser
 ```
-(the second line lets the API mint the OIDC token for its own task calls ✅ [HTTP target tasks](https://cloud.google.com/tasks/docs/creating-http-target-tasks)).
+(the first binding lets the API attach api-sa to the tasks it creates; the second lets the Cloud Tasks service agent mint the OIDC token as api-sa when it calls us back ✅ [HTTP target tasks](https://cloud.google.com/tasks/docs/creating-http-target-tasks), "grant the Service Account User role to the Cloud Tasks primary service agent").
 
 ## 2. Frontend + rules to Firebase
 ```bash

@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.7.5 · p6-gemini-review-fixes
+- Review of Team lead's Gemini audit: kept the real findings, dropped the rest. `PC_PROOF_BUCKET` now accepts `gs://name` or `name` (validator in `config.py`, `tests/test_config.py`).
+- E09: Cloud Tasks service agent gets Service Account User on api-sa (docs require it for OIDC tasks); `--update-env-vars` uses `^@^` because `PC_LIVE_ORIGINS` contains a comma (old line failed to parse); lock base URL + bot username before the first card (both are printed on it, a later change reads ALTERED).
+- E02: removed the false "one config line" rename claim (no `brand.ts` / `PC_BRAND_NAME`).
+- Docs touched: E02, E09, SNAPSHOT, versions/v0.7.5, CHANGELOG.
+
 ## 2026-10-14 · v0.7.4 · p6-demo-inputs
 - `externals/inputs/demo_claims.md` (E02 step 4: lock table, 5+ timed claims, one cold claim, Agent dry run section) and `externals/inputs/e11_results.md` (5 VERIFIED + 5 ALTERED runs, inline share, pass count quoted on slide 12).
 - `context/demo/VO_SCRIPT.md`: 23 cues, 2:57, Hinglish VO + English caption + screen per cue, timed to the E12 beats, pace column, placeholders filled only from real runs. `context/demo/captions_en.srt`: same cues and times, ready for YouTube upload.

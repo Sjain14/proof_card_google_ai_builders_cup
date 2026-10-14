@@ -2,7 +2,7 @@
 
 **Deadline:** 14 Oct · **Unblocks:** P2 prebunk claim set, P4 live demo, benchmark numbers.
 
-Working name in code is **Proof Card**. Changing it later is a one line config change (`frontend/src/brand.ts`, `PC_BRAND_NAME`), so don't block on it, but lock it before the video.
+Working name in code is **Proof Card**. It is NOT one config line: it is drawn in `backend/app/card_image.py` and written in `frontend/index.html` + `frontend/src/i18n.ts` (there is no `brand.ts` / `PC_BRAND_NAME`). Keep **Proof Card**; a rename after cards exist breaks their ALTERED check.
 
 ## Steps
 1. **Name.** Pick one. Check the .com / .in quickly and search GitHub + Product Hunt for clashes. Default if you don't pick: Proof Card.
