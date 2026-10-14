@@ -45,6 +45,18 @@ export function CardTile({ claim, card }: { claim: ClaimView; card: Card | undef
       {card && (
         <>
           <p className="tile-why">{card.explanation}</p>
+          {card.search_suggestion_html && (
+            // Grounding terms: Google's suggestion chips stay visible next to the grounded
+            // text, unmodified. Its own document + sandbox; a tap opens Google directly.
+            <iframe
+              className="gsugg"
+              src={`/api/cards/${encodeURIComponent(claim.card_id)}/search-suggestion`}
+              sandbox="allow-popups allow-popups-to-escape-sandbox"
+              title="Google Search suggestions"
+              referrerPolicy="no-referrer"
+              loading="lazy"
+            />
+          )}
           <p className="tile-meta">
             {card.sources.map((s) => domain(s.url)).filter((d, i, a) => a.indexOf(d) === i).slice(0, 2).join(" · ")}
             {" · "}support {card.support_score.toFixed(2)}

@@ -2,6 +2,10 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-14 · v0.6.3 · feat/search-suggestions
+- Grounding with Google Search display rules: the assess call's `search_entry_point.rendered_content` is kept on the card (`search_suggestion_html`, outside the proof fingerprint) and shown, unmodified, next to the grounded explanation on `/v/:id` and on every brief tile. Served as its own document (`/api/cards/:id/search-suggestion`, no scripts, own CSP, frame-ancestors self) inside a sandboxed iframe; a tap opens the Google results page directly (popup escapes sandbox).
+- NOTICES gap closed. No new dependencies. Docs touched: CHANGELOG, NOTICES.
+
 ## 2026-10-14 · v0.6.2 · docs/readme-notices
 - README: how it works, stack, local run without GCP, benchmark, credits (audit §5). NOTICES.md: every backend / frontend dependency with its licence (read from package metadata), fonts (OFL), Google services, benchmark data sources, langextract considered and not used (dependency weight).
 - Flagged: Search grounding suggestions are not rendered on cards yet (grounding terms).

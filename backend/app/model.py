@@ -30,6 +30,9 @@ class PredictedClaim:
     why: str = ""
 
 
+SUGGESTION_MAX = 50_000  # chars; never truncate (that would modify it), drop if larger
+
+
 @dataclass(frozen=True)
 class Evidence:
     url: str
@@ -46,6 +49,9 @@ class Assessment:
     # The claim restated in English by the same call. Sources are mostly English, so a
     # Hindi / Hinglish claim is matched against pages through this (no extra model call).
     claim_en: str = ""
+    # Google Search suggestion chips (grounding_metadata.search_entry_point.rendered_content).
+    # Grounding terms: shown exactly as provided wherever the grounded explanation is shown.
+    search_suggestion_html: str = ""
 
 
 class ModelClient(Protocol):
@@ -204,7 +210,24 @@ class VertexModel:  # pragma: no cover - needs a GCP project; covered by the par
         )
         raw = resp.text or ""
         verdict, explanation = parse_assessment_text(raw)
-        return Assessment(verdict, explanation, evidence_from_grounding(resp), parse_claim_en(raw))
+        return Assessment(
+            verdict,
+            explanation,
+            evidence_from_grounding(resp),
+            parse_claim_en(raw),
+            search_suggestion_from(resp),
+        )
+
+
+def search_suggestion_from(resp: Any) -> str:
+    """rendered_content of the Search suggestion, untouched (we must not modify it).
+    Docs: https://cloud.google.com/vertex-ai/generative-ai/docs/grounding/grounding-search-suggestions"""
+    try:
+        sep = resp.candidates[0].grounding_metadata.search_entry_point
+        html = getattr(sep, "rendered_content", None) or ""
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    return html if isinstance(html, str) and len(html) <= SUGGESTION_MAX else ""
 
 
 def evidence_from_grounding(resp: Any) -> list[Evidence]:

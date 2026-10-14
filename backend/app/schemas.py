@@ -111,6 +111,9 @@ class CardDoc(Strict):
     support_score: Annotated[float, Field(ge=0.0, le=1.0)]
     card_sha256: Sha256Hex
     png_phash: Annotated[str, Field(pattern=r"^[0-9a-f]{16}$")] | None = None
+    # Google's Search suggestion HTML for the grounded explanation. Presentation, not proof:
+    # outside the fingerprint, served only inside a sandboxed frame.
+    search_suggestion_html: Annotated[str, Field(max_length=50_000)] | None = None
     created_at: datetime = Field(default_factory=_now)
 
 

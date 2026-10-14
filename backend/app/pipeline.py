@@ -102,7 +102,11 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
         "sources": [p.model_dump(mode="json") for p in proofs],
         "support_score": support,
     }
-    return CardDoc(card_sha256=card_fingerprint(fields), **fields)
+    return CardDoc(
+        card_sha256=card_fingerprint(fields),
+        search_suggestion_html=assessment.search_suggestion_html or None,
+        **fields,
+    )
 
 
 def verify_claim(session_id: str, claim_id: str, deps: Deps) -> str | None:

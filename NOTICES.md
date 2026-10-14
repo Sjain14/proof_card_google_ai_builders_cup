@@ -32,7 +32,7 @@ Proof Card uses the following third party software and services. Licences read f
 Noto Sans and Noto Sans Devanagari, SIL Open Font License 1.1, Google. Licence text: `backend/app/assets/fonts/OFL.txt`.
 
 ## Google services
-Vertex AI Gemini, Google Search grounding, Google Fact Check Tools API (optional), Firestore, Cloud Storage, Cloud Tasks, Cloud Run, Firebase Hosting and Authentication, under the Google Cloud and Google APIs terms. 🟡 Open: Grounding with Google Search terms ask apps to display the returned Search suggestions; cards don't render them yet.
+Vertex AI Gemini, Google Search grounding, Google Fact Check Tools API (optional), Firestore, Cloud Storage, Cloud Tasks, Cloud Run, Firebase Hosting and Authentication, under the Google Cloud and Google APIs terms. Grounded explanations show Google's Search suggestion chips exactly as returned, as the grounding display rules require.
 
 ## Data
 Benchmark labels in `backend/bench/h1_gold.jsonl` rest on public pages linked per row (mostly Wikipedia, CC BY-SA 4.0); we store only our own one line claims and the URLs, not page text. Snapshots fetched at runtime belong to their publishers and are kept only as evidence of what a page said at a time.

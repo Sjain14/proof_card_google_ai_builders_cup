@@ -40,6 +40,8 @@ export interface Card {
   sources: Source[];
   support_score: number;
   card_sha256: string;
+  // Google Search suggestion for the grounded explanation; shown via the sandboxed frame.
+  search_suggestion_html?: string | null;
   created_at: string;
 }
 

@@ -77,9 +77,12 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+FINGERPRINT_EXCLUDED = {"card_sha256", "png_phash", "search_suggestion_html"}
+
+
 def card_fingerprint(card_fields: dict[str, Any]) -> str:
     """sha256 over the canonical card record (excluding the hash itself and image fields)."""
-    body = {k: v for k, v in card_fields.items() if k not in {"card_sha256", "png_phash"}}
+    body = {k: v for k, v in card_fields.items() if k not in FINGERPRINT_EXCLUDED}
     return sha256_hex(canonical_json(body))
 
 

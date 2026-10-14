@@ -211,3 +211,36 @@ def test_snapshot_download_proves_the_hash(client: TestClient, store: InMemorySt
     assert client.get(f"/api/snapshots/{digest}").status_code == 404
     assert client.get("/api/snapshots/not-a-hash").status_code == 404
     assert client.get(f"/api/snapshots/{digest}").status_code == 429  # public limit, 3/min here
+
+
+CHIP = (
+    "<style>.chip{color:#1f1f1f}</style>"
+    '<a class="chip" href="https://www.google.com/search?q=22+languages">22 languages</a>'
+)
+
+
+def test_search_suggestion_frame_and_route(client: TestClient, store: InMemoryStore) -> None:
+    sid = client.post("/api/prebunk", json={"topic": "India"}, headers=ADMIN).json()["session_id"]
+    claim = next(c for _, c in store.list_claims(sid) if c.card_id)
+    cid = str(claim.card_id)
+    plain = store.cards[cid]
+    assert client.get(f"/api/cards/{cid}/search-suggestion").status_code == 404
+    assert 'class="gsugg"' not in client.get(f"/v/{cid}").text
+    store.cards[cid] = plain.model_copy(update={"search_suggestion_html": CHIP})
+    # presentation only: the proof fingerprint does not move
+    assert card_fingerprint(store.cards[cid].model_dump(mode="json")) == card_fingerprint(
+        plain.model_dump(mode="json")
+    )
+    r = client.get(f"/api/cards/{cid}/search-suggestion")
+    assert r.status_code == 200
+    assert CHIP in r.text  # byte for byte, unmodified
+    assert '<base target="_blank">' in r.text
+    assert "script-src" not in r.headers["content-security-policy"]
+    assert "frame-ancestors 'self'" in r.headers["content-security-policy"]
+    assert r.headers["x-frame-options"] == "SAMEORIGIN"
+    page = client.get(f"/v/{cid}")
+    assert f'src="/api/cards/{cid}/search-suggestion"' in page.text
+    assert 'sandbox="allow-popups allow-popups-to-escape-sandbox"' in page.text
+    assert "frame-src 'self'" in page.headers["content-security-policy"]
+    assert CHIP not in page.text  # never inline on our origin
+    assert client.get("/api/cards/bad!/search-suggestion").status_code == 404

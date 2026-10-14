@@ -366,6 +366,21 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         return card
 
+    @app.get("/api/cards/{card_id}/search-suggestion", include_in_schema=False)
+    def search_suggestion(card_id: str) -> HTMLResponse:
+        """Google's Search suggestion for a card, framed by the share page and the brief."""
+        card = app.state.store.get_card(card_id) if _valid_id(card_id) else None
+        if card is None or not card.search_suggestion_html:
+            raise HTTPException(status_code=404, detail="not found")
+        return HTMLResponse(
+            share_page.suggestion_doc(card.search_suggestion_html),
+            headers={
+                "Content-Security-Policy": share_page.SUGGESTION_CSP,
+                "X-Frame-Options": "SAMEORIGIN",
+                "Cache-Control": "public, max-age=3600",
+            },
+        )
+
     @app.get("/api/snapshots/{digest}")
     def get_snapshot(digest: str, request: Request) -> Response:
         """The exact bytes behind a proof, so anyone can recompute the sha256 on a card.

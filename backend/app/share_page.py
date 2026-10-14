@@ -22,7 +22,7 @@ LABEL = {
 
 CSP = (
     "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; "
-    "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    "frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 )
 
 CSS = """
@@ -42,6 +42,7 @@ button{background:#1F4FFF;color:#fff;border:0;border-radius:10px;padding:10px 16
 .r{border-radius:14px;padding:18px;margin:0 0 20px;font-weight:700}
 .VERIFIED{background:#ECFDF3;color:#15803D}.ALTERED{background:#FEF2F2;color:#B91C1C}
 .UNKNOWN{background:#F3F4F6;color:#374151}
+.gsugg{display:block;width:100%;height:76px;border:0;margin:4px 0 16px}
 """
 
 
@@ -73,6 +74,35 @@ def _check_banner(c: CheckResult) -> str:
     return f'<div class="r {c.result}" role="status">{escape(msg)}</div>'
 
 
+# The suggestion frame: Google's HTML runs on its own document (own CSP, no scripts,
+# sandboxed), never inline on our page. Popups escape the sandbox so a tap opens the
+# Google results page directly, as the grounding display rules require.
+SUGGESTION_SANDBOX = "allow-popups allow-popups-to-escape-sandbox"
+SUGGESTION_CSP = (
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; "
+    "font-src https: data:; frame-ancestors 'self'"
+)
+
+
+def suggestion_frame(card: CardDoc, card_id: str) -> str:
+    if not card.search_suggestion_html:
+        return ""
+    return (
+        f'<iframe class="gsugg" src="/api/cards/{escape(card_id)}/search-suggestion" '
+        f'sandbox="{SUGGESTION_SANDBOX}" title="Google Search suggestions" '
+        'referrerpolicy="no-referrer" loading="lazy"></iframe>'
+    )
+
+
+def suggestion_doc(html: str) -> str:
+    """Wrapper only: the suggestion markup itself goes in byte for byte."""
+    return (
+        '<!doctype html><html><head><meta charset="utf-8"><base target="_blank">'
+        "<style>html,body{margin:0;padding:0;background:transparent}</style></head>"
+        f"<body>{html}</body></html>"
+    )
+
+
 def card_page(
     card: CardDoc, card_id: str, base_url: str, bot: str = "", check: CheckResult | None = None
 ) -> str:
@@ -83,7 +113,8 @@ def card_page(
         f'<span class="pill" style="background:{colour}">{escape(en)}</span>'
         f'<span class="hi" style="color:{colour}">{escape(hi)}</span>'
         f'<h1>“{escape(card.claim)}”</h1><p class="why">{escape(card.explanation)}</p>'
-        f'<p class="meta">card {escape(card_id)} · support {card.support_score:.2f} · '
+        + suggestion_frame(card, card_id)
+        + f'<p class="meta">card {escape(card_id)} · support {card.support_score:.2f} · '
         f"issued {card.created_at:%d %b %Y %H:%M} UTC</p><section><h2>Proof</h2>"
     )
     for s in card.sources:
