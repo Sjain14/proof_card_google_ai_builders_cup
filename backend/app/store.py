@@ -35,6 +35,7 @@ def _apply[M: BaseModel](doc: M, changes: dict[str, Any]) -> M:
 class Store(Protocol):
     def create_session(self, doc: SessionDoc) -> str: ...
     def count_sessions_since(self, owner_uid: str, day: str) -> int: ...
+    def count_anon_sessions_today(self, day: str) -> int: ...
     def get_session(self, session_id: str) -> SessionDoc | None: ...
     def update_session(self, session_id: str, **changes: Any) -> None: ...
     def add_claim(self, session_id: str, doc: ClaimDoc) -> str: ...
@@ -67,6 +68,14 @@ class InMemoryStore:
             for d in self.sessions.values()
             if d.owner_uid == owner_uid and d.created_at.date().isoformat() >= day
         )
+
+    def count_anon_sessions_today(self, day: str) -> int:
+        with self._lock:
+            return sum(
+                1
+                for d in self.sessions.values()
+                if d.is_anonymous and d.created_at.date().isoformat() >= day
+            )
 
     def get_session(self, session_id: str) -> SessionDoc | None:
         return self.sessions.get(session_id)
@@ -124,7 +133,22 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
     def create_session(self, doc: SessionDoc) -> str:
         sid = new_id()
         self._session(sid).create(doc.model_dump(mode="json"))
+        if doc.is_anonymous:
+            from google.cloud import firestore
+
+            day = doc.created_at.date().isoformat()
+            self.db.collection("daily_stats").document(day).set(
+                {"anon_sessions": firestore.Increment(1)},
+                merge=True,
+            )
         return sid
+
+    def count_anon_sessions_today(self, day: str) -> int:
+        snap = self.db.collection("daily_stats").document(day).get()
+        if not snap.exists:
+            return 0
+        data = snap.to_dict() or {}
+        return int(data.get("anon_sessions", 0))
 
     def count_sessions_since(self, owner_uid: str, day: str) -> int:
         """Server side count (one aggregation read). created_at is stored as an ISO 8601

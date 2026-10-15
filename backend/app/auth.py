@@ -4,11 +4,14 @@ The verifier is injectable so tests never need real Google credentials.
 In prod it is firebase_admin.auth.verify_id_token with check_revoked=True.
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import Depends, Header, HTTPException, Request, status
+
+log = logging.getLogger("proofcard.auth")
 
 Verifier = Callable[[str], dict[str, Any]]
 
@@ -19,16 +22,25 @@ class Principal:
     is_anonymous: bool
 
 
-def firebase_verifier() -> Verifier:  # pragma: no cover - needs Google credentials
+AUTH_TOKEN_ERROR_NAMES = {
+    "RevokedIdTokenError",
+    "UserDisabledError",
+    "InvalidIdTokenError",
+    "ExpiredIdTokenError",
+}
+
+
+# pragma: no cover - needs Google credentials
+def firebase_verifier(project_id: str = "") -> Verifier:
     import firebase_admin
     from firebase_admin import auth
 
     if not firebase_admin._apps:
-        firebase_admin.initialize_app()  # uses the Cloud Run service account (ADC)
+        options = {"projectId": project_id} if project_id else None
+        firebase_admin.initialize_app(options=options)  # uses the Cloud Run service account (ADC)
 
     def _verify(token: str) -> dict[str, Any]:
-        claims: dict[str, Any] = auth.verify_id_token(token, check_revoked=True)
-        return claims
+        return cast(dict[str, Any], auth.verify_id_token(token, check_revoked=True))
 
     return _verify
 
@@ -53,7 +65,15 @@ def current_principal(
     try:
         claims = verifier(token)
     except Exception as exc:
-        raise _unauthorized() from exc
+        name = type(exc).__name__
+        if isinstance(exc, ValueError) or name in AUTH_TOKEN_ERROR_NAMES:
+            log.warning("token rejected (%s): %s", name, exc)
+            raise _unauthorized() from exc
+        log.exception("auth verification failed (%s): %s", name, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="auth verification failed",
+        ) from exc
     uid = claims.get("uid") or claims.get("sub")
     if not isinstance(uid, str) or not uid:
         raise _unauthorized()
@@ -62,7 +82,5 @@ def current_principal(
 
 
 def admin_principal(p: Annotated[Principal, Depends(current_principal)]) -> Principal:
-    """Admin actions (create session, start prebunk) need a real signed in user."""
-    if p.is_anonymous:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+    """Session actions (create session, start prebunk) accept signed-in and anonymous users."""
     return p

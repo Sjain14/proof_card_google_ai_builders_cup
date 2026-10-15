@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { api, ApiError } from "../api";
-import { signIn, type SignedIn } from "../auth";
+import { signIn, signInGuest, type SignedIn } from "../auth";
 import { navigate } from "../router";
 import { t } from "../i18n";
+
+import { useAppStore } from "../store";
 
 const SAMPLE = {
   topic: "Union Budget speech: fuel prices, digital India, languages and population",
@@ -10,10 +12,9 @@ const SAMPLE = {
 };
 
 export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
-  const [topic, setTopic] = useState("");
-  const [speaker, setSpeaker] = useState("");
-  const [youtube, setYoutube] = useState("");
-  const [links, setLinks] = useState("");
+  const draft = useAppStore((s) => s.draft);
+  const setDraft = useAppStore((s) => s.setDraft);
+  const clearDraft = useAppStore((s) => s.clearDraft);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -22,9 +23,14 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
       <section className="panel narrow center">
         <h1>{t("new.signInH")}</h1>
         <p className="muted">{t("new.signInBody")}</p>
-        <button className="btn" onClick={() => void signIn()}>
-          {t("new.signInBtn")}
-        </button>
+        <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
+          <button className="btn" onClick={() => void signIn()}>
+            {t("new.signInBtn")}
+          </button>
+          <button className="btn ghost" onClick={() => void signInGuest()}>
+            {t("new.guestBtn")}
+          </button>
+        </div>
       </section>
     );
   }
@@ -34,17 +40,18 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
     setError("");
     setBusy(true);
     try {
-      const context_links = links
+      const context_links = draft.links
         .split(/\s+/)
         .map((l) => l.trim())
         .filter(Boolean)
         .slice(0, 5);
       const { session_id } = await api.createBrief({
-        topic: topic.trim(),
-        ...(speaker.trim() && { speaker: speaker.trim() }),
-        ...(youtube.trim() && { youtube_url: youtube.trim() }),
+        topic: draft.topic.trim(),
+        ...(draft.speaker.trim() && { speaker: draft.speaker.trim() }),
+        ...(draft.youtube.trim() && { youtube_url: draft.youtube.trim() }),
         ...(context_links.length && { context_links }),
       });
+      clearDraft();
       navigate(`/s/${session_id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : t("new.network"));
@@ -60,8 +67,8 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
         <label>
           {t("new.topic")} <span className="req">{t("new.required")}</span>
           <textarea
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
+            value={draft.topic}
+            onChange={(e) => setDraft({ topic: e.target.value })}
             maxLength={500}
             rows={3}
             required
@@ -70,13 +77,17 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
         </label>
         <label>
           {t("new.speaker")}
-          <input value={speaker} onChange={(e) => setSpeaker(e.target.value)} maxLength={200} />
+          <input
+            value={draft.speaker}
+            onChange={(e) => setDraft({ speaker: e.target.value })}
+            maxLength={200}
+          />
         </label>
         <label>
           {t("new.youtube")}
           <input
-            value={youtube}
-            onChange={(e) => setYoutube(e.target.value)}
+            value={draft.youtube}
+            onChange={(e) => setDraft({ youtube: e.target.value })}
             type="url"
             inputMode="url"
             placeholder="https://youtu.be/…"
@@ -84,7 +95,11 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
         </label>
         <label>
           {t("new.links")} <span className="muted">{t("new.linksHint")}</span>
-          <input value={links} onChange={(e) => setLinks(e.target.value)} inputMode="url" />
+          <input
+            value={draft.links}
+            onChange={(e) => setDraft({ links: e.target.value })}
+            inputMode="url"
+          />
         </label>
         {error && (
           <p className="error" role="alert">
@@ -92,15 +107,14 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
           </p>
         )}
         <div className="row">
-          <button className="btn" disabled={busy || !topic.trim()}>
+          <button className="btn" disabled={busy || !draft.topic.trim()}>
             {busy ? t("new.starting") : t("new.generate")}
           </button>
           <button
             type="button"
             className="link"
             onClick={() => {
-              setTopic(SAMPLE.topic);
-              setSpeaker(SAMPLE.speaker);
+              setDraft({ topic: SAMPLE.topic, speaker: SAMPLE.speaker });
             }}
           >
             {t("new.sample")}

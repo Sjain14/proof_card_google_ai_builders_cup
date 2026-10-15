@@ -43,6 +43,7 @@ const en = {
   "new.signInH": "Sign in to create a brief",
   "new.signInBody": "Briefs are private to you. Cards you share are public.",
   "new.signInBtn": "Sign in with Google",
+  "new.guestBtn": "Continue as guest",
   "new.eyebrow": "New brief",
   "new.h1": "What's the speech about?",
   "new.topic": "Topic",
@@ -153,6 +154,7 @@ const hi: Record<Key, string> = {
   "new.signInH": "ब्रीफ़ बनाने के लिए साइन इन कीजिए",
   "new.signInBody": "ब्रीफ़ सिर्फ़ आपके लिए हैं। जो कार्ड आप शेयर करते हैं वे सार्वजनिक हैं।",
   "new.signInBtn": "Google से साइन इन",
+  "new.guestBtn": "अतिथि के रूप में जारी रखें",
   "new.eyebrow": "नया ब्रीफ़",
   "new.h1": "भाषण किस बारे में है?",
   "new.topic": "विषय",
@@ -226,15 +228,23 @@ export type Lang = "en" | "hi";
 export const DICTS: Record<Lang, Record<Key, string>> = { en, hi };
 const STORE_KEY = "pc.lang";
 
-export function initialLang(saved: string | null, browser: readonly string[]): Lang {
+export function initialLang(saved: string | null, browser: readonly string[] = []): Lang {
   if (saved === "en" || saved === "hi") return saved;
-  return browser.some((l) => l.toLowerCase().startsWith("hi")) ? "hi" : "en";
+  const primary = browser[0]?.toLowerCase() ?? "";
+  return primary.startsWith("hi") ? "hi" : "en";
 }
 
 let current: Lang = typeof window === "undefined" ? "en" : initialLang(safeGet(), navigator.languages ?? []);
 
 function safeGet(): string | null {
   try {
+    const raw = localStorage.getItem("proofcard_app_store");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.state?.lang === "hi" || parsed?.state?.lang === "en") {
+        return parsed.state.lang;
+      }
+    }
     return localStorage.getItem(STORE_KEY);
   } catch {
     return null;

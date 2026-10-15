@@ -168,7 +168,7 @@ def create_app(
     app.state.settings = settings
     if verifier is None and settings.auth_disabled:  # local dev only (prod refuses, config.py)
         verifier = dev_verifier
-    app.state.verifier = verifier or firebase_verifier()
+    app.state.verifier = verifier or firebase_verifier(settings.gcp_project)
     allowed_origins = {
         o.strip().rstrip("/")
         for o in [settings.public_base_url, *settings.live_origins.split(",")]
@@ -244,22 +244,33 @@ def create_app(
 
     @app.post("/api/prebunk", status_code=status.HTTP_201_CREATED)
     def prebunk(
-        body: PrebunkRequest, user: Annotated[Principal, Depends(admin_principal)]
+        body: PrebunkRequest,
+        user: Annotated[Principal, Depends(admin_principal)],
     ) -> dict[str, str]:
+        today = datetime.now(UTC).date().isoformat()
+        if not app.state.prebunk_limiter.allow(user.uid):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
+        if (
+            user.is_anonymous
+            and app.state.store.count_anon_sessions_today(today) >= settings.prebunk_anon_daily_cap
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="daily anonymous brief limit reached",
+            )
+        cap = 5 if user.is_anonymous else settings.prebunk_daily_cap
+        if app.state.store.count_sessions_since(user.uid, today) >= cap:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="daily brief limit reached"
+            )
         doc = SessionDoc(
             owner_uid=user.uid,
             topic=body.topic,
             speaker=body.speaker,
             youtube_url=str(body.youtube_url) if body.youtube_url else None,
             status="prebunking",
+            is_anonymous=user.is_anonymous,
         )
-        if not app.state.prebunk_limiter.allow(user.uid):
-            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
-        today = datetime.now(UTC).date().isoformat()
-        if app.state.store.count_sessions_since(user.uid, today) >= settings.prebunk_daily_cap:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="daily brief limit reached"
-            )
         sid = app.state.store.create_session(doc)
         log.info("session created", extra={"fields": {"session": sid}})
         n = settings.prebunk_claims
@@ -353,9 +364,8 @@ def create_app(
         except Exception:
             claims = {}
         uid = claims.get("uid") or claims.get("sub")
-        anon = (claims.get("firebase") or {}).get("sign_in_provider") == "anonymous"
         sess = app.state.store.get_session(session_id) if _valid_id(session_id) else None
-        if not uid or anon or sess is None or sess.owner_uid != uid:
+        if not uid or sess is None or sess.owner_uid != uid:
             await ws.close(code=4401)  # one code for every failure, like the HTTP 401/404
             return
         app.state.store.update_session(session_id, status="live")

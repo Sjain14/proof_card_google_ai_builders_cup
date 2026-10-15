@@ -21,3 +21,13 @@ context/Gemini_docs/
 context/Gemini_docs.zip
 **/06_CREDENTIALS_AND_ACCOUNTS_REGISTRY.md
 *CREDENTIALS*.md
+# local tool state and scratch (root only for notes)
+*.zip
+.firebase/
+.firebaserc
+.set
+screenshots/
+dev_log.md
+/brief*.md
+/gemini_reply*.md
+backend/uv.lock

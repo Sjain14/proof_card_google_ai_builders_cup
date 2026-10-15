@@ -27,6 +27,7 @@ Rule (AGENTS.md §3): every dependency pinned, licence checked, reason given. No
 | Package | Version | Licence | Why |
 |---|---|---|---|
 | react, react-dom | 19.3.0 | MIT | UI |
+| zustand | 5.0.3 | MIT | lightweight persistent client state management (language, user, brief draft caching) |
 | firebase | 13.0.0 | Apache-2.0 | Google sign in (modular SDK, only `app` + `auth` imported) |
 | @fontsource-variable/inter | 5.3.0 | OFL-1.1 | brand font, self hosted (no third party font requests) |
 | vite, @vitejs/plugin-react, typescript, vitest | 8.3.4, 6.1.2, 7.0.2, 5.0.4 | MIT / Apache-2.0 | build, typecheck, tests (dev only) |

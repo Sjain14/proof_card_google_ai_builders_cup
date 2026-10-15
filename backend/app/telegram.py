@@ -100,7 +100,7 @@ def result_text(r: CheckResult) -> str:
 HELP = (
     "Forward me any <b>Proof Card</b> image and I'll tell you if it's the original or "
     "<b>ALTERED</b>.\nYou can also send a card link. Share a card in any chat by typing "
-    "<code>@bot card-id</code>."
+    "<code>@ProofCardAgentBot card-id</code>."
 )
 
 

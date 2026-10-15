@@ -21,9 +21,13 @@ TOKENS: dict[str, dict[str, Any]] = {
 
 
 def fake_verifier(token: str) -> dict[str, Any]:
-    if token not in TOKENS:
-        raise ValueError("bad token")
-    return TOKENS[token]
+    if token in TOKENS:
+        return TOKENS[token]
+    if token.startswith("anon-"):
+        return {"uid": token, "firebase": {"sign_in_provider": "anonymous"}}
+    if token.startswith("user-"):
+        return {"uid": token, "firebase": {"sign_in_provider": "google.com"}}
+    raise ValueError("bad token")
 
 
 @pytest.fixture

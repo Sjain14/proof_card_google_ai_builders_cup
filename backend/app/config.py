@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # Each brief costs ~15 grounded Gemini calls: burst limit per user + durable daily cap.
     prebunk_per_min: int = Field(default=3, ge=1, le=60)
     prebunk_daily_cap: int = Field(default=20, ge=1, le=1_000)
+    prebunk_anon_daily_cap: int = Field(default=100, ge=1, le=10_000)
     max_body_bytes: int = Field(default=1_000_000, ge=1_024)
 
     # Model + pipeline. stub = offline fixtures (tests, CI, local before GCP exists).

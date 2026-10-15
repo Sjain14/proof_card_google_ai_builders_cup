@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.7 · p7-guest-caps
+- Anonymous auth & guest creation: "Continue as guest" on `/new`, backend accepts anonymous Firebase ID tokens for brief creation and live WebSocket sessions with strict owner isolation.
+- Abuse protection: Firestore global daily cap on anonymous briefs (`prebunk_anon_daily_cap=100`) + per-UID 5-brief daily cap. Spoofed `X-Forwarded-For` cannot bypass caps. Generic detail on 500 error (`auth verification failed`).
+- Frontend state: Zustand persistent app store for language and brief drafts.
+- Telegram bot: commands set (`/start`, `/check`), help text fixed to `@ProofCardAgentBot`.
+- Docs touched: skills.md, SNAPSHOT, versions/v0.7.7, CHANGELOG.
+
 ## 2026-10-14 · v0.7.6 · p6-repo-hygiene
 - `.gitignore`: local docs with account details never commit (`context/Gemini_docs/`, `context/Gemini_docs.zip`, any `06_CREDENTIALS_AND_ACCOUNTS_REGISTRY.md` / `*CREDENTIALS*.md`). Moves the protection from one laptop into the repo, so every clone has it.
 - One bucket name everywhere: `<project-id>-proofs` (E04 create, E08 `PROOF_BUCKET`, E09 `PC_PROOF_BUCKET`). Project ids are globally unique, so the bucket name is too, and the guide never mixes two names.

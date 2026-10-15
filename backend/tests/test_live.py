@@ -141,6 +141,27 @@ def test_live_rejects_bad_auth(settings: Settings, first: dict[str, str] | None)
     assert e.value.code == 4401
 
 
+def test_anonymous_cannot_connect_to_other_user_live_ws(settings: Settings) -> None:
+    c, _ = _client(settings)
+    sid = _session(c)  # created by admin-token
+    with c.websocket_connect(f"/api/live/{sid}") as ws:
+        ws.send_json({"type": "auth", "token": "anon-token"})
+        with pytest.raises(WebSocketDisconnect) as e:
+            ws.receive_json()
+    assert e.value.code == 4401
+
+
+def test_anonymous_can_connect_to_own_live_ws(settings: Settings) -> None:
+    c, _ = _client(settings)
+    hdr = {"Authorization": "Bearer anon-token"}
+    r = c.post("/api/prebunk", json={"topic": "India"}, headers=hdr)
+    sid = r.json()["session_id"]
+    with c.websocket_connect(f"/api/live/{sid}") as ws:
+        ws.send_json({"type": "auth", "token": "anon-token"})
+        msg = ws.receive_json()
+        assert msg["type"] == "ready"
+
+
 def test_live_rejects_other_users_session(settings: Settings) -> None:
     c, _ = _client(settings)
     for path in ["/api/live/doesnotexist1", "/api/live/bad"]:

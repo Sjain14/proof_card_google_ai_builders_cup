@@ -6,6 +6,7 @@ import {
   GoogleAuthProvider,
   getAuth,
   onAuthStateChanged,
+  signInAnonymously,
   signInWithPopup,
   signOut as fbSignOut,
   type Auth,
@@ -30,6 +31,7 @@ export const devMode = auth === null;
 export interface SignedIn {
   name: string;
   photo: string | null;
+  isAnonymous?: boolean;
 }
 
 export function watchUser(cb: (u: SignedIn | null) => void): () => void {
@@ -38,12 +40,24 @@ export function watchUser(cb: (u: SignedIn | null) => void): () => void {
     return () => {};
   }
   return onAuthStateChanged(auth, (u: User | null) =>
-    cb(u ? { name: u.displayName ?? u.email ?? "You", photo: u.photoURL } : null),
+    cb(
+      u
+        ? {
+            name: u.displayName ?? u.email ?? (u.isAnonymous ? "Guest" : "You"),
+            photo: u.photoURL,
+            isAnonymous: u.isAnonymous,
+          }
+        : null,
+    ),
   );
 }
 
 export async function signIn(): Promise<void> {
   if (auth) await signInWithPopup(auth, new GoogleAuthProvider());
+}
+
+export async function signInGuest(): Promise<void> {
+  if (auth) await signInAnonymously(auth);
 }
 
 export async function signOut(): Promise<void> {

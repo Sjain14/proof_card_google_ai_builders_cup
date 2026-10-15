@@ -1,10 +1,14 @@
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from app.model import StubModel
+from app.pipeline import Deps
+from app.proof import FixtureFetcher, InMemorySnapshots
 from app.schemas import CardDoc, SourceProof, Verdict
 from app.security import card_fingerprint, sha256_hex
 from app.store import InMemoryStore
@@ -52,8 +56,98 @@ def test_prebunk_rejects_bad_token(client: TestClient) -> None:
     assert r.json()["detail"] == "unauthorized"
 
 
-def test_prebunk_forbids_anonymous(client: TestClient) -> None:
-    assert client.post("/api/prebunk", json={"topic": "x"}, headers=ANON).status_code == 403
+def test_prebunk_allows_anonymous(client: TestClient) -> None:
+    r = client.post("/api/prebunk", json={"topic": "budget test"}, headers=ANON)
+    assert r.status_code == 201
+    assert "session_id" in r.json()
+
+
+def test_anonymous_cannot_get_other_user_session(client: TestClient) -> None:
+    r = client.post("/api/prebunk", json={"topic": "admin topic"}, headers=ADMIN)
+    assert r.status_code == 201
+    sid = r.json()["session_id"]
+    r_anon = client.get(f"/api/sessions/{sid}", headers=ANON)
+    assert r_anon.status_code == 404
+    assert r_anon.json()["detail"] == "not found"
+
+
+def test_anonymous_per_uid_cap_not_bypassed_by_fake_xff(client: TestClient) -> None:
+    client.app.state.prebunk_limiter.rate_per_min = 60  # type: ignore[attr-defined]
+    # Anonymous user gets 5 briefs per day
+    for i in range(5):
+        hdr = {**ANON, "X-Forwarded-For": f"192.168.1.{i}"}
+        r = client.post("/api/prebunk", json={"topic": f"topic {i}"}, headers=hdr)
+        assert r.status_code == 201
+
+    # 6th request with spoofed IP must still be blocked by per-uid daily cap
+    hdr_spoofed = {**ANON, "X-Forwarded-For": "203.0.113.195"}
+    r = client.post("/api/prebunk", json={"topic": "topic 5"}, headers=hdr_spoofed)
+    assert r.status_code == 429
+    assert r.json()["detail"] == "daily brief limit reached"
+
+
+def test_anonymous_global_daily_cap_not_bypassed_by_fake_xff(
+    settings: Settings, store: InMemoryStore
+) -> None:
+    settings.prebunk_anon_daily_cap = 2
+    deps = Deps(
+        store=store, model=StubModel(), fetcher=FixtureFetcher(), snapshots=InMemorySnapshots()
+    )
+    app = create_app(
+        settings=settings,
+        verifier=fake_verifier,
+        store=store,
+        deps=deps,
+        queue=SyncQueue(),
+        oidc_verifier=fake_oidc,
+    )
+    c = TestClient(app)
+    # Anon user 1 creates 1 brief with spoofed XFF
+    r1 = c.post(
+        "/api/prebunk",
+        json={"topic": "t1"},
+        headers={"Authorization": "Bearer anon-user-1", "X-Forwarded-For": "10.0.0.1"},
+    )
+    assert r1.status_code == 201
+
+    # Anon user 2 creates 1 brief with spoofed XFF
+    r2 = c.post(
+        "/api/prebunk",
+        json={"topic": "t2"},
+        headers={"Authorization": "Bearer anon-user-2", "X-Forwarded-For": "10.0.0.2"},
+    )
+    assert r2.status_code == 201
+
+    # Anon user 3 attempts with a different fake X-Forwarded-For -> hit global cap
+    r3 = c.post(
+        "/api/prebunk",
+        json={"topic": "t3"},
+        headers={"Authorization": "Bearer anon-user-3", "X-Forwarded-For": "10.0.0.3"},
+    )
+    assert r3.status_code == 429
+    assert r3.json()["detail"] == "daily anonymous brief limit reached"
+
+    # Authenticated user is NOT blocked by anonymous global cap
+    r_auth = c.post(
+        "/api/prebunk",
+        json={"topic": "auth topic"},
+        headers={**ADMIN, "X-Forwarded-For": "10.0.0.4"},
+    )
+    assert r_auth.status_code == 201
+
+
+def test_current_principal_unexpected_error_gives_500(
+    settings: Settings, store: InMemoryStore
+) -> None:
+    def broken_verifier(token: str) -> dict[str, Any]:
+        raise RuntimeError("Google IAM internal error")
+
+    app = create_app(settings=settings, verifier=broken_verifier, store=store)
+    c = TestClient(app)
+    hdr = {"Authorization": "Bearer any-token"}
+    r = c.post("/api/prebunk", json={"topic": "test"}, headers=hdr)
+    assert r.status_code == 500
+    assert "auth verification failed" in r.json()["detail"]
 
 
 def test_prebunk_creates_owned_session(client: TestClient, store: InMemoryStore) -> None:
