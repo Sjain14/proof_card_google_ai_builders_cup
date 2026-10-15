@@ -15,3 +15,14 @@ def test_search_suggestion_from_grounding() -> None:
     assert search_suggestion_from(resp("x" * (SUGGESTION_MAX + 1))) == ""  # dropped, not cut
     assert search_suggestion_from(Ns(candidates=[])) == ""
     assert search_suggestion_from(Ns(candidates=[Ns(grounding_metadata=None)])) == ""
+
+
+def test_predict_prompt_keeps_the_speakers_language() -> None:
+    # Live check 16 Oct: an English Trump brief came back 1/3 Hindi, 1/3 Hinglish, which
+    # can never match English speech. The prompt must tie language to the speaker.
+    from app.model import PREDICT_PROMPT
+
+    p = PREDICT_PROMPT.format(topic="t", speaker="s", n=12)
+    assert "language THIS speaker actually speaks" in p
+    assert "gets every claim in en" in p
+    assert "Never translate" in p

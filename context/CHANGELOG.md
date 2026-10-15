@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.12 · p7-bank-speaker-language
+- Prod live check (guest, wss, 16 Oct): English Trump brief bank came back 3/12 Hindi + Hinglish; "India per capita GDP is higher than Japan" was dropped by the pre filter (no digit, no superlative).
+- `app/model.py` PREDICT_PROMPT 2026-10-16.1: claims in the language the speaker actually speaks, never translated to pad; include the speaker's already-rated claims.
+- `app/live.py` `_NUMBERISH`: comparatives (higher/lower/more/fewer/worst/best/record/per capita/ahead of, zyada/kam/aage/peeche, Devanagari) reach the spotter.
+- Tests: `test_predict_prompt_keeps_the_speakers_language`, `test_heuristic_lets_comparatives_through`.
+
 ## 2026-10-16 · v0.7.9 · p7-live-fast-judge
 - `live.py`: `VertexJudge` (structured output `{same: bool}`, temperature 0) runs only for gray-zone candidates (`PC_LIVE_THRESHOLD` <= cosine < `PC_LIVE_INSTANT`, default 0.80/0.90). A no or a model error = cold check, never a wrong card.
 - Latency: raw sentence is matched in parallel with the spotter call; a strong match pushes before the spotter returns. `LiveEngine.warm()` embeds the prebunked claims when the websocket opens (was: during the first sentence). 15 Oct live run measured 9.4 to 10.8 s heard to card.

@@ -61,7 +61,7 @@ class ModelClient(Protocol):
 
 # ---------- prompts (kept here so they are versioned and reviewable) ----------
 
-PROMPT_VERSION = "2026-10-14.2"
+PROMPT_VERSION = "2026-10-16.1"
 
 PREDICT_PROMPT = """You are the research desk of an Indian fact-checking newsroom preparing
 for a live broadcast. Topic: {topic}
@@ -72,8 +72,13 @@ against public records (numbers, dates, rankings, official statistics, quotes of
 Rules:
 - One claim per item, a single sentence, as a speaker would actually say it.
 - Prefer claims with numbers. No opinions, predictions or claims about private people.
-- Write each claim in the language it is likely to be spoken in: en, hi (Devanagari) or
-  hi-Latn (Hinglish in Latin script).
+- Write each claim in the language THIS speaker actually speaks in public: en, hi
+  (Devanagari) or hi-Latn (Hinglish in Latin script). A speaker who speaks English (for
+  example a US or UK politician) gets every claim in en; only use hi / hi-Latn for a
+  speaker who really speaks Hindi or Hinglish. Never translate a claim into another
+  language to pad the list: a claim the speaker can't say in that language never matches.
+- Include claims this speaker has already made on this topic and that fact checkers have
+  rated, phrased the way they said them.
 - "why": one short line on why it is likely to come up.
 """
 

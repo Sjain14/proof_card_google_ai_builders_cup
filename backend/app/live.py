@@ -102,7 +102,12 @@ class VertexEmbedder:  # pragma: no cover - needs a GCP project
 
 _NUMBERISH = re.compile(
     r"\d|percent|%|crore|lakh|million|billion|first|largest|highest|lowest|"
-    r"pratishat|karod|sabse|pehla|pehli|प्रतिशत|करोड़|लाख|सबसे",
+    # comparatives (prod check 16 Oct: "per capita GDP is higher than Japan" never reached
+    # the spotter) and rate/record words that carry a checkable figure without a digit
+    r"\b(?:higher|lower|bigger|smaller|richer|poorer|more|less|fewer|worst|best|record|"
+    r"doubled|tripled|halved|per capita|ahead of|behind)\b|"
+    r"pratishat|karod|sabse|pehla|pehli|zyada|jyada|kam|aage|peeche|"
+    r"प्रतिशत|करोड़|लाख|सबसे|ज़्यादा|ज्यादा|कम|आगे|पीछे",
     re.IGNORECASE,
 )
 

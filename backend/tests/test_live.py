@@ -400,3 +400,12 @@ def test_dev_verifier_only_when_auth_disabled() -> None:
         .status_code
         == 201
     )
+
+
+def test_heuristic_lets_comparatives_through() -> None:
+    # Prod check 16 Oct: comparatives without a digit were dropped before the spotter.
+    assert heuristic_spot("India per capita GDP is higher than Japan")
+    assert heuristic_spot("We now have fewer jobs than China")
+    assert heuristic_spot("India ki GDP Japan se zyada hai ab")
+    assert not heuristic_spot("Thank you all for coming tonight")
+    assert not heuristic_spot("Good evening and welcome everyone")
