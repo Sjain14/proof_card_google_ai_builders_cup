@@ -170,6 +170,18 @@ class _Index:
     count: int = -1
     ids: list[str] = field(default_factory=list)
     vecs: list[list[float]] = field(default_factory=list)
+    nums: list[frozenset[str]] = field(default_factory=list)
+
+
+_NUM = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+def numbers(text: str) -> frozenset[str]:
+    """Digits a claim states ("4 percent", "2025", "12.5 crore"), commas dropped.
+    Two claims that state different numbers are different claims, however close their
+    embeddings: "repo rate 4% in 2025" must never borrow the "4th largest economy by 2025"
+    card (live run 15 Oct, cosine 0.806). A miss is safe: it falls through to a cold check."""
+    return frozenset(m.replace(",", "") for m in _NUM.findall(text))
 
 
 @dataclass
@@ -207,7 +219,8 @@ class LiveEngine:
         ]
         if len(claims) != self._index.count:
             vecs = self.live.embedder.embed([c.text for _, c in claims]) if claims else []
-            self._index = _Index(len(claims), [cid for cid, _ in claims], vecs)
+            nums = [numbers(c.text) for _, c in claims]
+            self._index = _Index(len(claims), [cid for cid, _ in claims], vecs, nums)
         return self._index
 
     def match(self, text: str) -> tuple[str | None, float]:
@@ -215,9 +228,15 @@ class LiveEngine:
         if not idx.ids:
             return None, 0.0
         [q] = self.live.embedder.embed([text])
-        best, sim = max(
-            zip(idx.ids, (cosine(q, v) for v in idx.vecs), strict=True), key=lambda p: p[1]
-        )
+        heard = numbers(text)
+        scored = [
+            (cid, cosine(q, v))
+            for cid, v, n in zip(idx.ids, idx.vecs, idx.nums, strict=True)
+            if n == heard  # same stated numbers, or none on both sides
+        ]
+        if not scored:
+            return None, 0.0
+        best, sim = max(scored, key=lambda p: p[1])
         return (best, sim) if sim >= self.live.threshold else (None, sim)
 
     async def on_sentence(self, sentence: str, heard_at: float | None = None) -> None:

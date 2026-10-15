@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.8 · p7-live-match-number-guard (#30, with #28)
+- `live.py`: a prebunked claim is a match candidate only if it states the same set of numbers as the heard claim (or both none). Fixes the 15 Oct live run where "repo rate 4% in 2025" borrowed the "4th largest economy by 2025" card (cosine 0.806) and "per capita GDP" borrowed a population card (0.846). A guard miss falls through to a cold check, never a wrong verdict.
+- `pipeline.py` (#28): every source skip and every "no proof" logs a reason, so COULDN'T CHECK has a root cause in Cloud Logging.
+- Docs touched: SNAPSHOT, versions/v0.7.8, CHANGELOG.
+
 ## 2026-10-16 · v0.7.7 · p7-guest-caps
 - Anonymous auth & guest creation: "Continue as guest" on `/new`, backend accepts anonymous Firebase ID tokens for brief creation and live WebSocket sessions with strict owner isolation.
 - Abuse protection: Firestore global daily cap on anonymous briefs (`prebunk_anon_daily_cap=100`) + per-UID 5-brief daily cap. Spoofed `X-Forwarded-For` cannot bypass caps. Generic detail on 500 error (`auth verification failed`).

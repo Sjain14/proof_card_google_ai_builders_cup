@@ -16,15 +16,18 @@ from app.live import (
     HashEmbedder,
     HeuristicSpotter,
     LiveDeps,
+    LiveEngine,
     cosine,
     final_text,
     heuristic_spot,
+    numbers,
     vocabulary_for,
 )
 from app.main import create_app
 from app.model import StubModel
 from app.pipeline import Deps
 from app.proof import FixtureFetcher, InMemorySnapshots
+from app.schemas import ClaimDoc, ClaimSource, ClaimStatus, SessionDoc
 from app.store import InMemoryStore
 from app.tasks import SyncQueue
 from tests.conftest import fake_oidc, fake_verifier
@@ -84,6 +87,53 @@ def test_hash_embedder_separates_restatement_from_other_claim() -> None:
     )
     assert cosine(a, same) > 0.95
     assert cosine(a, other) < 0.3
+
+
+def test_numbers() -> None:
+    assert numbers("RBI ne repo rate 2025 me 4 percent kar diya") == {"2025", "4"}
+    assert numbers("1,40,000 log") == {"140000"}
+    assert numbers("12.5 crore, 140 crore") == {"12.5", "140"}
+    assert numbers("India chauthi sabse badi economy") == frozenset()
+
+
+class _SameVec:
+    """Every text embeds to the same vector: cosine 1.0, so only the number guard decides."""
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0] for _ in texts]
+
+
+def test_match_never_borrows_a_card_with_different_numbers() -> None:
+    # Live run 15 Oct: "repo rate 4% in 2025" took the "4th largest economy by 2025" card
+    # (cosine 0.806) and "per capita GDP" took a population card. Same numbers or no match.
+    store = InMemoryStore()
+    sid = store.create_session(SessionDoc(owner_uid="u", topic="t"))
+    texts = {
+        "econ": "India will become the fourth largest economy by 2025",
+        "pop": "Japan has 12.5 crore people and India 140 crore",
+    }
+    ids = {
+        k: store.add_claim(
+            sid,
+            ClaimDoc(
+                text=t,
+                source=ClaimSource.PREDICTED,
+                status=ClaimStatus.PROVED,
+                card_id="card-" + k,
+            ),
+        )
+        for k, t in texts.items()
+    }
+    deps = Deps(store, StubModel(), FixtureFetcher(), InMemorySnapshots())
+
+    async def emit(ev: dict[str, Any]) -> None:
+        return None
+
+    eng = LiveEngine(sid, LiveDeps(deps, _SameVec(), HeuristicSpotter()), emit)
+    assert eng.match("RBI cut the repo rate to 4 percent in 2025")[0] is None
+    assert eng.match("India per capita GDP is higher than Japan")[0] is None
+    assert eng.match("IMF says India is the fourth largest economy in 2025")[0] == ids["econ"]
+    assert eng.match("India 140 crore, Japan 12.5 crore log")[0] == ids["pop"]
 
 
 # ---------- websocket ----------
