@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from app.model import Assessment, ModelClient
 from app.proof import (
@@ -62,6 +63,17 @@ def support_for(claim: str, a: Assessment, snippet: str, text: str) -> tuple[str
     return passage, score
 
 
+def _host(url: str) -> str:
+    return urlsplit(url).hostname or "?"
+
+
+def _skip(url: str, reason: str, **more: object) -> None:
+    """One log line per dropped source, so a claim that ends as COULDN'T CHECK says why."""
+    log.info(
+        "source skipped", extra={"fields": {"host": _host(url), "reason": reason[:80], **more}}
+    )
+
+
 def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None:
     proofs: list[SourceProof] = []
     scores: list[float] = []
@@ -72,14 +84,19 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
         try:
             fetched = deps.fetcher.fetch(ev.url)
         except FetchError as exc:
-            log.info("source skipped", extra={"fields": {"reason": str(exc)[:80]}})
+            _skip(ev.url, str(exc))
             continue
         if fetched.final_url in seen:
+            _skip(fetched.final_url, "duplicate")
             continue
         seen.add(fetched.final_url)
         text = extract_text(fetched.body, fetched.content_type)
+        if not text:
+            _skip(fetched.final_url, "no text", content_type=fetched.content_type)
+            continue
         passage, score = support_for(claim, assessment, ev.model_snippet, text)
         if score < MIN_PASSAGE_SCORE or not passage:
+            _skip(fetched.final_url, "low support", score=round(score, 3))
             continue
         digest = snapshot(fetched, deps.snapshots)
         proofs.append(
@@ -92,6 +109,15 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
         )
         scores.append(score)
     if not proofs:
+        log.info(
+            "no proof",
+            extra={
+                "fields": {
+                    "evidence": len(assessment.evidence),
+                    "model_verdict": str(assessment.verdict),
+                }
+            },
+        )
         return None
     support = round(sum(scores) / len(scores), 3)
     verdict = gate_verdict(assessment.verdict, support)

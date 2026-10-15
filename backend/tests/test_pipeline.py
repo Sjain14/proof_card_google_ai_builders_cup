@@ -303,6 +303,25 @@ def test_build_card_no_sources_returns_none() -> None:
     assert build_card("claim", d.model.assess(""), d) is None
 
 
+def test_build_card_logs_why_each_source_was_dropped(caplog: pytest.LogCaptureFixture) -> None:
+    # COULDN'T CHECK cards must be debuggable from Cloud Logging: host + reason per source.
+    pages = {"https://w.org/off": "<p>Cricket scores from last night.</p>", "https://e.org/x": ""}
+    urls = ["https://gone.org/a", "https://w.org/off", "https://w.org/off", "https://e.org/x"]
+    d = deps(InMemoryStore(), FakeModel(Verdict.TRUE, urls), MapFetcher(pages))
+    with caplog.at_level("INFO", logger="proofcard.pipeline"):
+        assert build_card("India has 22 languages", d.model.assess(""), d) is None
+    skips = [r.fields for r in caplog.records if r.msg == "source skipped"]  # type: ignore[attr-defined]
+    assert [(s["host"], s["reason"]) for s in skips] == [
+        ("gone.org", "nope"),
+        ("w.org", "low support"),
+        ("w.org", "duplicate"),
+        ("e.org", "no text"),
+    ]
+    assert isinstance(skips[1]["score"], float)
+    done = [r.fields for r in caplog.records if r.msg == "no proof"]  # type: ignore[attr-defined]
+    assert done == [{"evidence": 4, "model_verdict": str(Verdict.TRUE)}]
+
+
 def test_verify_claim_failure_marks_failed() -> None:
     store = InMemoryStore()
     sid = store.create_session(SessionDoc(owner_uid="u", topic="t"))
