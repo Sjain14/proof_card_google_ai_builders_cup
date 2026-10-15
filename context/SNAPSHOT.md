@@ -2,7 +2,7 @@
 
 Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versions/`.
 
-**As of:** 16 Oct 2026 IST · **Version:** v0.7.8 · **Phase:** P7 Live testing & guest mode
+**As of:** 16 Oct 2026 IST · **Version:** v0.7.9 · **Phase:** P7 Live testing & guest mode
 
 ## Done
 - v0.1.0 to v0.5.0: backend spine, prebunk pipeline, proof snapshots, Cloud Tasks, card image + ALTERED check, `/v/:id`, Telegram bot, React frontend, live bridge.
@@ -15,6 +15,7 @@ Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versi
 - v0.7.4: `externals/inputs/` templates (demo claims, E11 results), demo VO script + English `.srt` (`context/demo/`).
 - v0.7.7 (#29): Guest mode ("Continue as guest"), Firestore global daily cap on anonymous briefs + per-UID 5-brief daily cap, Zustand persistent store, Telegram bot commands & help text fix.
 - v0.7.8 (#28, #30): skip-reason logs for COULDN'T CHECK; live match needs the same stated numbers (15 Oct live run: 2 of 3 Hinglish lines borrowed a wrong card).
+- v0.7.9: live gray-zone matches (0.80 to 0.90 cosine) need a Gemini "same claim?" judge; strong matches (>= 0.90, same numbers) push at once in parallel with the spotter; prebunk index embedded when the socket opens; a prebunked card shows once per session.
 - Gates: backend ruff, format, mypy strict, pytest (149 passed, coverage 97.94%), pip-audit; frontend tsc strict, vitest (11 passed), build, npm audit; Firestore rules tests.
 
 ## Not built (never claim, see SUBMISSION_DRAFT.md §4)

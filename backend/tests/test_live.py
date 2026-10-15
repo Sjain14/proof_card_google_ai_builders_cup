@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Awaitable, Callable, Sequence
 from types import SimpleNamespace
 from typing import Any
@@ -134,6 +135,73 @@ def test_match_never_borrows_a_card_with_different_numbers() -> None:
     assert eng.match("India per capita GDP is higher than Japan")[0] is None
     assert eng.match("IMF says India is the fourth largest economy in 2025")[0] == ids["econ"]
     assert eng.match("India 140 crore, Japan 12.5 crore log")[0] == ids["pop"]
+
+
+class _Judge:
+    def __init__(self, same: bool) -> None:
+        self.same, self.calls = same, 0
+
+    def same_claim(self, heard: str, checked: str) -> bool:
+        self.calls += 1
+        return self.same
+
+
+class _Vec:
+    """Cosine set per text: 'gray' texts score 0.85 against everything, others 1.0."""
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[0.85, math.sqrt(1 - 0.85**2)] if "gray" in t else [1.0, 0.0] for t in texts]
+
+
+def _engine(judge: Any, embedder: Any = None) -> tuple[LiveEngine, list[dict[str, Any]], str]:
+    store = InMemoryStore()
+    sid = store.create_session(SessionDoc(owner_uid="u", topic="t"))
+    pid = store.add_claim(
+        sid,
+        ClaimDoc(
+            text="India has 22 scheduled languages",
+            source=ClaimSource.PREDICTED,
+            status=ClaimStatus.PROVED,
+            card_id="card-1",
+        ),
+    )
+    deps = Deps(store, StubModel(), FixtureFetcher(), InMemorySnapshots())
+    events: list[dict[str, Any]] = []
+
+    async def emit(ev: dict[str, Any]) -> None:
+        events.append(ev)
+
+    live = LiveDeps(deps, embedder or _Vec(), HeuristicSpotter(), judge=judge)
+    return LiveEngine(sid, live, emit), events, pid
+
+
+def test_gray_zone_match_needs_the_judge() -> None:
+    no = _Judge(False)
+    eng, events, _ = _engine(no)
+    asyncio.run(eng.warm())
+    asyncio.run(eng.on_sentence("gray zone: India has 22 official languages in total"))
+    asyncio.run(eng.drain())
+    kinds = [e["type"] for e in events]
+    assert "match" not in kinds
+    assert "checking" in kinds
+    assert no.calls == 1
+
+    yes = _Judge(True)
+    eng, events, _ = _engine(yes)
+    asyncio.run(eng.on_sentence("gray zone: India has 22 official languages in total"))
+    hit = next(e for e in events if e["type"] == "match")
+    assert hit["card_id"] == "card-1"
+    assert yes.calls == 1
+
+
+def test_strong_match_is_instant_and_shown_once() -> None:
+    judge = _Judge(False)  # never consulted above the instant threshold
+    eng, events, _ = _engine(judge)
+    asyncio.run(eng.on_sentence("India has 22 scheduled languages, everyone knows"))
+    asyncio.run(eng.on_sentence("as I said, India has 22 scheduled languages for sure"))
+    asyncio.run(eng.drain())
+    assert [e["type"] for e in events].count("match") == 1
+    assert judge.calls == 0
 
 
 # ---------- websocket ----------

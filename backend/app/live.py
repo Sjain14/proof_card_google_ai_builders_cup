@@ -20,6 +20,7 @@ import hashlib
 import logging
 import math
 import re
+import threading
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
@@ -31,6 +32,7 @@ from app.schemas import ClaimDoc, ClaimSource, ClaimStatus
 log = logging.getLogger("proofcard.live")
 
 MATCH_THRESHOLD = 0.80  # cosine; calibrated in tests/test_live.py, re-check on the demo clip
+INSTANT_THRESHOLD = 0.90  # at or above (same numbers): card at once, no judge call
 MAX_SENTENCE_CHARS = 600
 EMBED_DIMS = 768
 
@@ -162,6 +164,60 @@ class VertexSpotter:  # pragma: no cover - needs a GCP project
         return [str(c).strip() for c in items if str(c).strip()][:3]
 
 
+# ---------- match judge ----------
+
+
+class Judge(Protocol):
+    def same_claim(self, heard: str, checked: str) -> bool: ...
+
+
+JUDGE_PROMPT = """Two claims. A was just heard on air. B was already fact checked.
+Answer same=true only if B's fact check fully decides whether A is true: same subject,
+same measure or quantity, same place and same time period. Same topic is NOT enough
+(GDP rank vs GDP per capita, population vs economy, repo rate vs growth rate = false).
+Claims can be English, Hindi or Hinglish.
+A: "{heard}"
+B: "{checked}"
+"""
+
+
+class VertexJudge:  # pragma: no cover - needs a GCP project
+    """Gray zone check (threshold <= cosine < instant): retrieve by embedding, then verify,
+    like Full Fact's claim matching: one fact check must apply to both claims.
+    https://fullfact.org/blog/2021/oct/towards-common-definition-claim-matching/
+    Any model error = not the same claim, so the cold check runs: never a wrong card."""
+
+    def __init__(self, project: str, location: str, model: str) -> None:
+        from google import genai
+
+        self.client = genai.Client(vertexai=True, project=project, location=location)
+        self.model = model
+
+    def same_claim(self, heard: str, checked: str) -> bool:
+        import json
+
+        from google.genai import types
+
+        try:
+            resp = self.client.models.generate_content(
+                model=self.model,
+                contents=JUDGE_PROMPT.format(heard=heard, checked=checked),
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "OBJECT",
+                        "properties": {"same": {"type": "BOOLEAN"}},
+                        "required": ["same"],
+                    },
+                ),
+            )
+            return bool(json.loads(resp.text or "{}").get("same", False))
+        except Exception:
+            log.warning("match judge failed, treating as a miss", exc_info=True)
+            return False
+
+
 # ---------- matching engine ----------
 
 
@@ -190,6 +246,8 @@ class LiveDeps:
     embedder: Embedder
     spotter: Spotter
     threshold: float = MATCH_THRESHOLD
+    judge: Judge | None = None  # None = trust the cosine (tests, stub mode)
+    instant: float = INSTANT_THRESHOLD
 
 
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
@@ -204,7 +262,9 @@ class LiveEngine:
         self.emit = emit
         self._index = _Index()
         self._seen: set[str] = set()
+        self._shown: set[str] = set()  # prebunked claim ids already pushed this session
         self._tasks: set[asyncio.Task[None]] = set()
+        self._lock = threading.Lock()  # match() runs in worker threads, two at a time
 
     def _refresh(self) -> _Index:
         """Index of prebunked claims that already have a card; rebuilt only when it grew.
@@ -212,6 +272,10 @@ class LiveEngine:
         shortcut: in process cosine over one session's claims (<= 20, sub millisecond);
         switch to Firestore find_nearest if a session ever holds hundreds.
         """
+        with self._lock:
+            return self._refresh_locked()
+
+    def _refresh_locked(self) -> _Index:
         claims = [
             (cid, c)
             for cid, c in self.live.deps.store.list_claims(self.sid)
@@ -239,13 +303,27 @@ class LiveEngine:
         best, sim = max(scored, key=lambda p: p[1])
         return (best, sim) if sim >= self.live.threshold else (None, sim)
 
+    async def warm(self) -> None:
+        """Embed the prebunked claims before the first sentence, not during it."""
+        try:
+            await asyncio.to_thread(self._refresh)
+        except Exception:
+            log.warning("live index warm up failed", exc_info=True)
+
     async def on_sentence(self, sentence: str, heard_at: float | None = None) -> None:
         t0 = heard_at or time.monotonic()
         sentence = sentence.strip()[:MAX_SENTENCE_CHARS]
         if not sentence:
             return
         await self.emit({"type": "heard", "text": sentence})
-        claims = await asyncio.to_thread(self.live.spotter.spot_claims, sentence)
+        # Fast path in parallel with the spotter model call: a sentence that is itself a
+        # strong match (same numbers, cosine >= instant) shows its card without waiting.
+        spot = asyncio.create_task(asyncio.to_thread(self.live.spotter.spot_claims, sentence))
+        if heuristic_spot(sentence):
+            hit, sim = await asyncio.to_thread(self.match, sentence)
+            if hit and sim >= self.live.instant and hit not in self._shown:
+                await self._push_match(sentence, hit, sim, t0)
+        claims = await spot
         for text in claims:
             key = text.lower()
             if key in self._seen:  # the speaker repeated it: one card is enough
@@ -256,38 +334,56 @@ class LiveEngine:
     async def _handle_claim(self, text: str, t0: float) -> None:
         store = self.live.deps.store
         hit, sim = await asyncio.to_thread(self.match, text)
-        pre = store.get_claim(self.sid, hit) if hit else None
-        if hit and pre is not None and pre.card_id:
-            latency = int((time.monotonic() - t0) * 1000)
-            cid = store.add_claim(
-                self.sid,
-                ClaimDoc(
-                    text=text,
-                    source=ClaimSource.LIVE,
-                    status=ClaimStatus.PROVED,
-                    card_id=pre.card_id,
-                    verdict=pre.verdict,
-                    matched_claim_id=hit,
-                    latency_ms=latency,
-                ),
-            )
-            await self.emit(
-                {
-                    "type": "match",
-                    "claim_id": cid,
-                    "text": text,
-                    "card_id": pre.card_id,
-                    "verdict": pre.verdict,
-                    "similarity": round(sim, 3),
-                    "latency_ms": latency,
-                }
-            )
+        if hit and hit in self._shown:  # same prebunked claim, already on screen
+            return
+        if hit and sim < self.live.instant and self.live.judge is not None:
+            pre = store.get_claim(self.sid, hit)
+            judge = self.live.judge
+            same = pre is not None and await asyncio.to_thread(judge.same_claim, text, pre.text)
+            if not same:
+                log.info("judge rejected match", extra={"fields": {"sim": round(sim, 3)}})
+                hit = None
+        if hit and await self._push_match(text, hit, sim, t0):
             return
         cid = store.add_claim(self.sid, ClaimDoc(text=text, source=ClaimSource.LIVE))
         await self.emit({"type": "checking", "claim_id": cid, "text": text})
         task = asyncio.create_task(self._cold(cid, text, t0))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    async def _push_match(self, text: str, hit: str, sim: float, t0: float) -> bool:
+        """Store a LIVE claim pointing at the prebunked card and push it. False if the
+        prebunked claim has no card (cannot happen for indexed claims, kept defensive)."""
+        store = self.live.deps.store
+        pre = store.get_claim(self.sid, hit)
+        if pre is None or not pre.card_id:
+            return False
+        self._shown.add(hit)
+        latency = int((time.monotonic() - t0) * 1000)
+        cid = store.add_claim(
+            self.sid,
+            ClaimDoc(
+                text=text,
+                source=ClaimSource.LIVE,
+                status=ClaimStatus.PROVED,
+                card_id=pre.card_id,
+                verdict=pre.verdict,
+                matched_claim_id=hit,
+                latency_ms=latency,
+            ),
+        )
+        await self.emit(
+            {
+                "type": "match",
+                "claim_id": cid,
+                "text": text,
+                "card_id": pre.card_id,
+                "verdict": pre.verdict,
+                "similarity": round(sim, 3),
+                "latency_ms": latency,
+            }
+        )
+        return True
 
     async def _cold(self, cid: str, text: str, t0: float) -> None:
         card_id = await asyncio.to_thread(verify_claim, self.sid, cid, self.live.deps)

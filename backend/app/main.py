@@ -47,6 +47,7 @@ from app.live import (
     LiveEngine,
     Transcriber,
     VertexEmbedder,
+    VertexJudge,
     VertexSpotter,
     vocabulary_for,
 )
@@ -115,6 +116,8 @@ def default_live(
             VertexEmbedder(settings.gcp_project, embed_loc, settings.embed_model),
             VertexSpotter(settings.gcp_project, gen_loc, settings.gemini_model),
             settings.live_threshold,
+            judge=VertexJudge(settings.gcp_project, gen_loc, settings.gemini_model),
+            instant=settings.live_instant,
         )
         transcriber = GeminiLiveTranscriber(
             settings.gcp_project, settings.live_region, settings.live_model
@@ -333,6 +336,7 @@ def create_app(
         app.state.store.update_session(session_id, status="live")
         try:
             engine = LiveEngine(session_id, app.state.live, collect)
+            await engine.warm()
             for line in lines:
                 await engine.on_sentence(line)
             await engine.drain()
@@ -379,6 +383,7 @@ def create_app(
                 log.debug("live emit dropped, socket closed")
 
         engine = LiveEngine(session_id, app.state.live, emit)
+        warm = asyncio.create_task(engine.warm())  # index ready before the first sentence
         audio: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=LIVE_AUDIO_QUEUE)
         stt: asyncio.Task[None] | None = None
         await emit({"type": "ready", "audio": app.state.transcriber is not None})
@@ -427,6 +432,7 @@ def create_app(
                     await asyncio.wait_for(stt, timeout=15)
                 except Exception:
                     stt.cancel()
+            warm.cancel()
             await engine.drain()
             app.state.store.update_session(session_id, status="ready")
             with contextlib.suppress(Exception):  # already closed by the client

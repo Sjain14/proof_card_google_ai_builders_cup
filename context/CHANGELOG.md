@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.9 · p7-live-fast-judge
+- `live.py`: `VertexJudge` (structured output `{same: bool}`, temperature 0) runs only for gray-zone candidates (`PC_LIVE_THRESHOLD` <= cosine < `PC_LIVE_INSTANT`, default 0.80/0.90). A no or a model error = cold check, never a wrong card.
+- Latency: raw sentence is matched in parallel with the spotter call; a strong match pushes before the spotter returns. `LiveEngine.warm()` embeds the prebunked claims when the websocket opens (was: during the first sentence). 15 Oct live run measured 9.4 to 10.8 s heard to card.
+- `_shown`: one prebunked card per session, however it is reworded.
+- Docs touched: SNAPSHOT, versions/v0.7.9, CHANGELOG.
+
 ## 2026-10-16 · v0.7.8 · p7-live-match-number-guard (#30, with #28)
 - `live.py`: a prebunked claim is a match candidate only if it states the same set of numbers as the heard claim (or both none). Fixes the 15 Oct live run where "repo rate 4% in 2025" borrowed the "4th largest economy by 2025" card (cosine 0.806) and "per capita GDP" borrowed a population card (0.846). A guard miss falls through to a cold check, never a wrong verdict.
 - `pipeline.py` (#28): every source skip and every "no proof" logs a reason, so COULDN'T CHECK has a root cause in Cloud Logging.

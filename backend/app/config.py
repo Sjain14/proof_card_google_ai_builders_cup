@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     embed_region: str = ""  # empty = gcp_region (embedding-001 is regional, close to the API)
     live_origins: str = ""  # extra allowed websocket Origins, comma separated
     live_threshold: float = Field(default=0.80, ge=0.5, le=0.99)  # cosine for a PREBUNKED hit
+    live_instant: float = Field(default=0.90, ge=0.5, le=1.0)  # at/above: no judge call
     prebunk_claims: int = Field(default=12, ge=1, le=20)
     proof_bucket: str = ""  # empty = in memory snapshots (local only)
 
