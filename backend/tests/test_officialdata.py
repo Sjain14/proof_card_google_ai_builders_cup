@@ -152,3 +152,12 @@ def test_hindi_gdp_card_proves_whatever_the_restatement() -> None:
         "India: GDP (current US$), 2025: 3.9\nUnited States: GDP (current US$), 2025: 30.7"
     )
     assert official_proof(url, text)[1] == 1.0
+
+
+def test_worldbank_row_is_not_proof_of_a_different_figure() -> None:
+    # replay 7dhIVHRKhvo: "8.2% now maybe 7.4%" (IMF 2022 forecast) got a 2025 WB growth
+    # row as its proof. Only a figure-less comparison takes the WB rows as proof outright.
+    from app.proof import is_comparison
+
+    assert not is_comparison("If it was with 8.2% now it's maybe a 7.4%.")
+    assert is_comparison("India ki GDP America se badi hai.")

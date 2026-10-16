@@ -150,15 +150,41 @@ def test_clock_parsing() -> None:
     assert parse_clock(None) is None
     lines = timed_from_json(
         [
-            {"start": "0:40", "text": "second line is here"},
-            {"start": "0:05", "text": "first line is here"},
-            {"start": "x", "text": "dropped no time"},
-            {"start": "0:09", "text": "hi"},
+            {"start": "0:40", "text": "second line is here."},
+            {"start": "0:05", "text": "first line is here."},
+            {"start": "x", "text": "dropped no time."},
+            {"start": "0:09", "text": "hi."},
             "junk",
         ]
     )
-    assert lines == [(5.0, "first line is here"), (40.0, "second line is here")]
+    assert lines == [(5.0, "first line is here."), (40.0, "second line is here.")]
     assert timed_from_json({"not": "a list"}) == []
+
+
+def test_timed_fragments_join_into_sentences() -> None:
+    # replay 7dhIVHRKhvo (Sitharaman, Lok Sabha): the model returned phrases, the claim
+    # was split across items and never checked.
+    lines = timed_from_json(
+        [
+            {"start": "3:20", "text": "India also has been reduced in terms of growth,"},
+            {"start": "3:24", "text": "but even after that, we remain"},
+            {"start": "3:27", "text": "the fastest growing major economy."},
+            {"start": "3:31", "text": "Delta wave, Omicron wave,"},
+            {"start": "3:33", "text": "ठीक है जी।"},
+        ]
+    )
+    assert lines[0][0] == 200.0
+    assert lines[0][1].endswith("we remain the fastest growing major economy.")
+    assert lines[1] == (211.0, "Delta wave, Omicron wave, ठीक है जी।")
+
+
+def test_unpunctuated_transcript_is_capped() -> None:
+    from app.clip import MAX_JOINED_WORDS
+
+    items = [{"start": f"0:{i:02d}", "text": "one two three four five"} for i in range(40)]
+    lines = timed_from_json(items)
+    assert all(len(x.split()) <= MAX_JOINED_WORDS for _, x in lines)
+    assert len(lines) > 1
 
 
 def test_clip_cors_only_for_our_origins(settings: Settings, store: InMemoryStore) -> None:

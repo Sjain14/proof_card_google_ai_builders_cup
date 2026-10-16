@@ -66,21 +66,48 @@ def parse_clock(v: object) -> float | None:
     return f if f >= 0 else None
 
 
-def timed_from_json(items: object) -> list[TimedLine]:
-    """Model output [{"start": "MM:SS", "text": ...}] -> sorted, cleaned timed sentences."""
+_END = re.compile("[.!?\u0964]['\"\u201d\u2019)]*$")
+MAX_JOINED_WORDS = 60
+
+
+def join_fragments(lines: list[TimedLine]) -> list[TimedLine]:
+    """The model often returns phrases, not sentences ("Because whether it was in 2008",
+    "or before that", "we've never seen"). A claim split across items is never checked
+    and never matches the bank (replay 7dhIVHRKhvo: 35 items, 0 bank matches). Join items
+    until one ends a sentence; the joined line keeps the first item's start time. Cap at
+    MAX_JOINED_WORDS so an unpunctuated transcript can't become one line."""
     out: list[TimedLine] = []
+    start: float | None = None
+    buf: list[str] = []
+    for t, text in lines:
+        if start is None:
+            start = t
+        buf.append(text)
+        if _END.search(text) or len(" ".join(buf).split()) >= MAX_JOINED_WORDS:
+            out.append((start, " ".join(buf)))
+            start, buf = None, []
+    if buf and start is not None:
+        out.append((start, " ".join(buf)))
+    return out
+
+
+def timed_from_json(items: object) -> list[TimedLine]:
+    """Model output [{"start": "MM:SS", "text": ...}] -> sorted, whole timed sentences."""
+    raw: list[TimedLine] = []
     for it in items if isinstance(items, list) else []:
         if not isinstance(it, dict):
             continue
         t, text = parse_clock(it.get("start")), str(it.get("text") or "").strip()
-        if t is not None and len(text.split()) >= 3:
-            out.append((t, text))
-    return sorted(out, key=lambda p: p[0])[:MAX_SENTENCES]
+        if t is not None and text:
+            raw.append((t, text))
+    joined = join_fragments(sorted(raw, key=lambda p: p[0]))
+    return [(t, x) for t, x in joined if len(x.split()) >= 3][:MAX_SENTENCES]
 
 
 TIMED_PROMPT = """Transcribe this audio verbatim, one item per sentence, in the language
 spoken (English, Hindi or Hinglish; Hinglish in Latin script). For each sentence give the
-time it starts as MM:SS. Do not summarise, translate or skip anything.
+time it starts as MM:SS. One item = one complete sentence ending in . ? ! or ।; never
+split a sentence across items. Do not summarise, translate or skip anything.
 Names and terms that may occur: {vocab}
 """
 

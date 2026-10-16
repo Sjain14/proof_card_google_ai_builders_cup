@@ -146,7 +146,12 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
         if not text:
             _skip(fetched.final_url, "no text", content_type=fetched.content_type)
             continue
-        if is_worldbank(fetched.final_url):
+        if is_worldbank(fetched.final_url) and (
+            is_comparison(claim) or is_comparison(assessment.claim_en)
+        ):
+            # "X ka GDP Y se bada": both figures are the proof. A claim WITH a figure
+            # ("8.2% now 7.4%") still has to match its number (replay 7dhIVHRKhvo showed a
+            # 2025 growth row as proof of a 2022 IMF forecast).
             passage, score = official_proof(fetched.final_url, text)
         else:
             passage, score = support_for(claim, assessment, ev.model_snippet, text)
