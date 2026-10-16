@@ -564,3 +564,19 @@ def test_prebunk_stalled_reads_the_beat() -> None:
     assert not prebunk_stalled(s, now + PREBUNK_STALE - timedelta(seconds=1))
     assert prebunk_stalled(s, now + PREBUNK_STALE + timedelta(seconds=1))
     assert not prebunk_stalled(s.model_copy(update={"status": "ready"}), now + 2 * PREBUNK_STALE)
+
+
+def test_pulse_beats_while_a_long_step_runs() -> None:
+    import time as _t
+
+    from app.pipeline import _pulse
+
+    store = InMemoryStore()
+    sid = store.create_session(SessionDoc(owner_uid="u", topic="t", status="prebunking"))
+    deps = Deps(store, StubModel(), FixtureFetcher(), InMemorySnapshots())
+    with _pulse(sid, deps, every=0.02):
+        _t.sleep(0.15)
+    first = store.sessions[sid].prebunk_beat
+    assert first is not None
+    _t.sleep(0.06)
+    assert store.sessions[sid].prebunk_beat == first  # stopped with the step

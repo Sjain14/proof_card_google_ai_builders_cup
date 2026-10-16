@@ -6,9 +6,11 @@ produce identical, comparable cards.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -593,6 +595,29 @@ def _beat(session_id: str, deps: Deps) -> None:
     deps.store.update_session(session_id, prebunk_beat=datetime.now(UTC))
 
 
+PULSE_SECONDS = 60.0
+
+
+@contextlib.contextmanager
+def _pulse(session_id: str, deps: Deps, every: float = PULSE_SECONDS) -> Iterator[None]:
+    stop = threading.Event()
+
+    def loop() -> None:
+        while not stop.wait(every):
+            try:
+                _beat(session_id, deps)
+            except Exception:  # a missed beat only risks one early re-queue
+                log.warning("prebunk beat failed", exc_info=True)
+
+    t = threading.Thread(target=loop, name=f"pulse-{session_id}", daemon=True)
+    t.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        t.join(timeout=5)
+
+
 def _verify_and_beat(session_id: str, claim_id: str, deps: Deps) -> None:
     verify_claim(session_id, claim_id, deps)
     _beat(session_id, deps)
@@ -607,7 +632,10 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
         return {"predicted": 0, "proved": 0}
     deps.store.update_session(session_id, status="prebunking", prebunk_beat=datetime.now(UTC))
     if deps.facts is not None and not session.fact_bank_key:
-        session = _with_fact_bank(session_id, session, deps, deps.facts)
+        # Fact research is the one long silent step (12 angles + ~140 page reads): pulse
+        # the beat while it runs, so only a dead instance ever looks stalled.
+        with _pulse(session_id, deps):
+            session = _with_fact_bank(session_id, session, deps, deps.facts)
         _beat(session_id, deps)
     bank = [
         (cid, c)

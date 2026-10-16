@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.33 · p33-prebunk-pulse
+Prod rerun after p26 (date-anchored bank, 12 angles): fact research ran past 12 min, the stall window p31 uses, so a session read could re-queue a healthy prebunk (double research).
+- `pipeline._pulse()`: a daemon thread stamps `prebunk_beat` every 60 s while `_with_fact_bank` runs; it stops with the step.
+- Test: beats during the step, stops after it.
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.32 · p32-clip-job
 Demo (16 Oct): a 9 min clip upload died in the browser with "Failed to fetch"; the whole clip ran inside one request (~25 min), past the Hosting/proxy timeout.
 - `POST /api/sessions/:id/clip` stores the audio (GCS `clips/`, never served, deleted when the job ends), sets `SessionDoc.clip_job`, enqueues `/tasks/clip` (Cloud Tasks, OIDC) and answers 202. A second upload while one runs = 409.
