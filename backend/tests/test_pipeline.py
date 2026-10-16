@@ -641,3 +641,61 @@ def test_unverifiable_card_is_not_cached() -> None:
     cid = store.add_claim(sid, ClaimDoc(text="India has 22 languages", source=ClaimSource.LIVE))
     verify_claim(sid, cid, d)
     assert claim_key("India has 22 languages") not in store.claim_cards
+
+
+# ---------- brief budget (p39) ----------
+
+
+def test_brief_turns_ready_while_a_slow_claim_keeps_checking() -> None:
+    import threading
+    import time
+    from dataclasses import replace
+
+    gate = threading.Event()
+
+    class Slow(FakeModel):
+        def assess(self, claim: str, hint: str = "") -> Assessment:
+            if "slow" in claim:
+                gate.wait(5)
+            return super().assess(claim, hint)
+
+    store = InMemoryStore()
+    sid = store.create_session(SessionDoc(owner_uid="u", topic="t"))
+    for text in ["India has 22 languages in the Eighth Schedule", "slow: 22 languages"]:
+        store.add_claim(sid, ClaimDoc(text=text, source=ClaimSource.PREDICTED))
+    d = replace(
+        deps(
+            store, Slow(Verdict.TRUE, ["https://x.gov/a"]), MapFetcher({"https://x.gov/a": EIGHTH})
+        ),
+        brief_budget_s=0.3,
+        brief_hard_cap_s=5.0,
+    )
+    seen: list[str] = []
+    t = threading.Thread(target=lambda: seen.append(str(run_prebunk(sid, d))))
+    t.start()
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        s = store.get_session(sid)
+        if s is not None and s.status == "ready":
+            break
+        time.sleep(0.05)
+    s = store.get_session(sid)
+    assert s is not None
+    assert s.status == "ready"
+    assert not seen  # still running: the straggler is still being checked
+    gate.set()
+    t.join(5)
+    statuses = {c.text: c.status for _, c in store.list_claims(sid)}
+    assert statuses["slow: 22 languages"] in (ClaimStatus.PROVED, ClaimStatus.FAILED)
+
+
+def test_brief_never_pulls_a_live_session_back_to_ready() -> None:
+    from app.pipeline import _ready_if_prebunking
+
+    store = InMemoryStore()
+    sid = store.create_session(SessionDoc(owner_uid="u", topic="t"))
+    store.update_session(sid, status="live")
+    _ready_if_prebunking(sid, deps(store))
+    s = store.get_session(sid)
+    assert s is not None
+    assert s.status == "live"

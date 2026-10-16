@@ -16,7 +16,7 @@ import time
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
@@ -68,7 +68,9 @@ class Deps:
     fetcher: Fetcher
     snapshots: SnapshotStore
     max_sources: int = 3
-    workers: int = 6  # brief claims checked at once (12 at 4: ~16 min, run 6)
+    workers: int = 12  # one per brief claim (12 at 6: ~9 min of verify, run 7)
+    brief_budget_s: float = 240.0  # then the brief is ready; stragglers keep checking
+    brief_hard_cap_s: float = 600.0
     # YouTube URL -> video title, so the bank is predicted for THIS video, not the topic in
     # general. None = off (tests, stub). Prod: youtube_title() below.
     video_title: Callable[[str], str] | None = None
@@ -669,6 +671,13 @@ def _pulse(session_id: str, deps: Deps, every: float = PULSE_SECONDS) -> Iterato
         t.join(timeout=5)
 
 
+def _ready_if_prebunking(session_id: str, deps: Deps) -> None:
+    """ready, unless the owner already went live (never pull a live session back)."""
+    s = deps.store.get_session(session_id)
+    if s is not None and s.status == "prebunking":
+        deps.store.update_session(session_id, status="ready")
+
+
 def _verify_and_beat(session_id: str, claim_id: str, deps: Deps) -> None:
     verify_claim(session_id, claim_id, deps)
     _beat(session_id, deps)
@@ -711,13 +720,25 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
         pool.shutdown(wait=False)
     _beat(session_id, deps)
     todo = [cid for cid, c in bank if c.status not in (ClaimStatus.PROVED, ClaimStatus.FAILED)]
-    with ThreadPoolExecutor(max_workers=deps.workers) as pool:
-        list(pool.map(lambda cid: _verify_and_beat(session_id, cid, deps), todo))
+    pool = ThreadPoolExecutor(max_workers=max(1, deps.workers), thread_name_prefix="brief")
+    try:
+        futs = [pool.submit(_verify_and_beat, session_id, cid, deps) for cid in todo]
+        # The brief is usable once most claims are settled: run 7 (16 Oct) had 10 of 12
+        # settled at ~3 min and sat "prebunking" to 11 min on two slow lines. After the
+        # budget the session turns ready; stragglers keep running in this same request
+        # (CPU stays allocated) and their cards still land on the claim.
+        _, late = wait(futs, timeout=deps.brief_budget_s)
+        if late:
+            _ready_if_prebunking(session_id, deps)
+            log.info("brief ready, claims still checking", extra={"fields": {"late": len(late)}})
+            wait(late, timeout=deps.brief_hard_cap_s)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     proved = sum(
         1
         for _, c in deps.store.list_claims(session_id)
         if c.source == ClaimSource.PREDICTED and c.status == ClaimStatus.PROVED
     )
-    deps.store.update_session(session_id, status="ready")
+    _ready_if_prebunking(session_id, deps)
     log.info("prebunk done", extra={"fields": {"predicted": len(bank), "proved": proved}})
     return {"predicted": len(bank), "proved": proved}
