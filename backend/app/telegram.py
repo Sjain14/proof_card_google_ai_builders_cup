@@ -75,9 +75,13 @@ class BotDeps:
     # any other text that reads like a claim -> queued for a full check, the result is sent
     # back by send_claim_result(). Calls ack() before the job is queued (so "checking" is
     # always the first reply), returns "queued", "limit" or "off" (no checker wired).
-    check_claim: Callable[[str, int, Callable[[], None]], str] = field(
+    check_claim: Callable[[list[str], int, Callable[[], None]], str] = field(
         default=lambda t, c, ack: "off"
     )
+    # a long forward -> its checkable claims (max MAX_FORWARD_CLAIMS), [] = check it whole
+    split_claims: Callable[[str], list[str]] = field(default=lambda t: [])
+    # a screenshot / news graphic that is not a Proof Card -> the claims written on it
+    read_image: Callable[[bytes], list[str]] = field(default=lambda b: [])
 
 
 def _open_button(base_url: str, card_id: str) -> dict[str, Any]:
@@ -109,6 +113,8 @@ def result_text(r: CheckResult) -> str:
 HELP = (
     "Send me a <b>claim</b> (a line from a speech, a forward, a headline) and I'll check it "
     "against official data and trusted sources, with the exact passage as proof.\n"
+    "Forward a whole message or a <b>screenshot</b> and I'll check each claim in it.\n"
+    "Add me to a group: I stay quiet and check forwards, or anything you tag me in.\n"
     "Forward a <b>Proof Card</b> image and I'll tell you if it's the original or "
     "<b>ALTERED</b>.\nShare a card in any chat: <code>@ProofCardAgentBot card-id</code>."
 )
@@ -121,7 +127,14 @@ NO_PROOF = (
     "⚪ <b>UNVERIFIABLE</b>\n“{claim}”\n\nNo trusted source we could open backs or "
     "refutes this exactly, so I won't call it true or false."
 )
+CHECKING_MANY = (
+    "🔎 Found {n} checkable claims in this {what}. Checking each against official data "
+    "and trusted sources; the verdicts come here one by one."
+)
 MIN_CLAIM_WORDS = 4
+MAX_FORWARD_CLAIMS = 3
+GROUP_TYPES = ("group", "supergroup")
+MENTION_RE = re.compile(r"^/check(?:@\w+)?\s*|@\w+bot\b", re.IGNORECASE)
 MIN_CLAIM_CHARS = 20
 
 
@@ -171,6 +184,8 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
     chat = m.chat.id
     log.info("tg message", extra={"fields": {"chat": pseudonymize(chat)}})
 
+    group = m.chat.type in GROUP_TYPES
+    forwarded = m.forward_origin is not None
     file_id = None
     if m.photo:
         file_id = max(m.photo, key=lambda p: p.file_size or 0).file_id
@@ -178,11 +193,21 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
         file_id = m.document.file_id
 
     if file_id:
+        data = b""
         try:
-            r = d.check_image(d.api.download(file_id))
+            data = d.api.download(file_id)
+            r = d.check_image(data)
         except ValueError as exc:
             r = CheckResult("UNKNOWN", str(exc))
         d.log_check(r, "telegram")
+        if r.result == "UNKNOWN" and r.card_id is None and data:
+            # Not a Proof Card: a screenshot of a forward or a news graphic. Read the
+            # claims written on it and check them like a typed claim.
+            claims = _image_claims(d, data)
+            if claims and _check(d, m.message_id, chat, claims, "image"):
+                return
+            if group and not forwarded:
+                return  # a group's ordinary photo is not ours to answer
         payload: dict[str, Any] = {"chat_id": chat, "text": result_text(r), "parse_mode": "HTML"}
         if r.card_id and r.result != "UNKNOWN" and d.get_card(r.card_id):
             payload["reply_markup"] = _open_button(d.base_url, r.card_id)
@@ -190,7 +215,10 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
         d.api.call("sendMessage", payload)
         return
 
-    text = m.text or m.caption or ""
+    text = raw = m.text or m.caption or ""
+    addressed = not group or forwarded or MENTION_RE.search(text) is not None
+    if group:
+        text = MENTION_RE.sub(" ", text).strip()
     if (alert := ALERT_START_RE.match(text)) is not None:
         topic = d.link_alerts(alert.group(1), chat)
         msg = (
@@ -201,7 +229,7 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
         )
         d.api.call("sendMessage", {"chat_id": chat, "text": msg, "parse_mode": "HTML"})
         return
-    ref = CARD_REF_RE.search(text)
+    ref = CARD_REF_RE.search(raw)
     card = d.get_card(ref.group(1)) if ref else None
     if ref and card:
         d.api.call(
@@ -215,21 +243,43 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
             },
         )
         return
-    if not ref and looks_like_claim(text):
-
-        def say(msg: str) -> None:
-            d.api.call(
-                "sendMessage",
-                {"chat_id": chat, "text": msg, "reply_parameters": {"message_id": m.message_id}},
-            )
-
-        state = d.check_claim(text.strip(), chat, lambda: say(CHECKING))
-        if state == "limit":
-            say(LIMIT)
-        if state != "off":
+    if not ref and addressed and looks_like_claim(text):
+        try:
+            claims = d.split_claims(text.strip())[:MAX_FORWARD_CLAIMS]
+        except Exception:
+            log.warning("forward split failed, checking it whole", exc_info=True)
+            claims = []
+        if _check(d, m.message_id, chat, claims or [text.strip()], "forward"):
             return
+    if group:
+        return  # never post help or errors into someone's group chat
     msg = "That card id doesn't exist." if ref else HELP
     d.api.call("sendMessage", {"chat_id": chat, "text": msg, "parse_mode": "HTML"})
+
+
+def _image_claims(d: BotDeps, data: bytes) -> list[str]:
+    try:
+        claims = [c.strip() for c in d.read_image(data) if c.strip()]
+    except Exception:
+        log.warning("image claim read failed", exc_info=True)
+        return []
+    return [c for c in claims if looks_like_claim(c)][:MAX_FORWARD_CLAIMS]
+
+
+def _check(d: BotDeps, message_id: int, chat: int, claims: list[str], what: str) -> bool:
+    """Queue the claims; True when the bot answered (queued or over the limit)."""
+
+    def say(msg: str) -> None:
+        d.api.call(
+            "sendMessage",
+            {"chat_id": chat, "text": msg, "reply_parameters": {"message_id": message_id}},
+        )
+
+    ack = CHECKING if len(claims) == 1 else CHECKING_MANY.format(n=len(claims), what=what)
+    state = d.check_claim(claims, chat, lambda: say(ack))
+    if state == "limit":
+        say(LIMIT)
+    return state != "off"
 
 
 def _inline(u: TgUpdate, d: BotDeps) -> None:

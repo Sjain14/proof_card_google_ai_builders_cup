@@ -410,6 +410,8 @@ class TgMessage(BaseModel):
     caption: Annotated[str, Field(max_length=4_096)] | None = None
     photo: list[TgPhotoSize] | None = None
     document: TgDocument | None = None
+    # set on forwarded messages (Bot API 7.0+); its content is never read, only its presence
+    forward_origin: dict[str, Any] | None = None
 
 
 class TgInlineQuery(BaseModel):

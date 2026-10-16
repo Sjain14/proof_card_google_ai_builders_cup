@@ -167,6 +167,52 @@ Sentence: "{sentence}"
 """
 
 
+IMAGE_PROMPT = """This image was sent to a fact checking bot: a forwarded WhatsApp message,
+a screenshot of a post or a news graphic. Return the factual claims written on it that a
+fact checker can verify against public records (numbers, dates, rankings, official
+statistics, things said to have already happened). Copy each claim as written as one full
+sentence, keep its language (English, Hindi or Hinglish), most important first, at most 3.
+Return [] for a photo with no such claim, opinions, jokes and promises about the future.
+"""
+
+
+def image_mime(data: bytes) -> str:
+    if data.startswith(b"\x89PNG"):
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/jpeg"
+
+
+class VertexImageReader:  # pragma: no cover - needs a GCP project
+    """Claims written on a forwarded image (the bot's screenshot path)."""
+
+    def __init__(self, project: str, location: str, model: str) -> None:
+        self.client = vertex_client(project, location, FAST_TIMEOUT_S * 2)
+        self.model = model
+
+    def __call__(self, data: bytes) -> list[str]:
+        import json
+
+        from google.genai import types
+
+        resp = self.client.models.generate_content(
+            model=self.model,
+            contents=[types.Part.from_bytes(data=data, mime_type=image_mime(data)), IMAGE_PROMPT],
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                response_mime_type="application/json",
+                response_schema={"type": "ARRAY", "items": {"type": "STRING"}},
+                thinking_config=_fast_thinking(),
+            ),
+        )
+        try:
+            items = json.loads(resp.text or "[]")
+        except ValueError:
+            return []
+        return [str(c).strip() for c in items if str(c).strip()][:3]
+
+
 class VertexSpotter:  # pragma: no cover - needs a GCP project
     """Model spotting behind the heuristic pre filter, so chit chat never costs a call."""
 

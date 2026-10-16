@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Annotated
@@ -49,8 +50,10 @@ from app.live import (
     HeuristicSpotter,
     LiveDeps,
     LiveEngine,
+    Spotter,
     Transcriber,
     VertexEmbedder,
+    VertexImageReader,
     VertexJudge,
     VertexSpotter,
     vocabulary_for,
@@ -101,6 +104,7 @@ from app.telegram import (
 
 log = logging.getLogger("proofcard")
 BOT_DAILY_CHECKS = 10  # claim checks per Telegram chat per UTC day (Vertex cost guard)
+FORWARD_SPLIT_CHARS = 240  # longer bot texts are forwards: split into their claims
 
 LIVE_AUTH_TIMEOUT_S = 5.0
 LIVE_MAX_FRAME = 64_000  # 2 s of PCM16 16 kHz mono; the client sends ~100 ms frames
@@ -205,6 +209,7 @@ def create_app(
     transcriber: Transcriber | None = None,
     clip_transcriber: ClipTranscriber | None = None,
     clip_store: InMemorySnapshots | GcsSnapshots | None = None,
+    image_reader: Callable[[bytes], list[str]] | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging()
@@ -235,6 +240,13 @@ def create_app(
     if live is None:
         live, transcriber = default_live(settings, app.state.deps)
     app.state.live, app.state.transcriber = live, transcriber
+    if image_reader is None and settings.model_mode == "vertex":  # pragma: no cover
+        image_reader = VertexImageReader(
+            settings.gcp_project,
+            settings.gemini_region or settings.gcp_region,
+            settings.gemini_model,
+        )
+    app.state.image_reader = image_reader
     if clip_transcriber is None and settings.model_mode == "vertex":  # pragma: no cover
         clip_transcriber = GeminiClipTranscriber(
             settings.gcp_project,
@@ -834,17 +846,33 @@ def create_app(
         claims = store.list_claims(session_id)
         if not claims:
             return
-        cid, claim = claims[0]
-        card_id = claim.card_id or verify_claim(
-            session_id, cid, app.state.deps, Trace(), race_hint=True
-        )
-        card = store.get_card(card_id) if card_id else None
-        store.update_session(session_id, status="closed")
-        send_claim_result(
-            app.state.bot_api, s.alert_chat_id, claim.text, card, card_id, settings.public_base_url
-        )
 
-    def check_claim(text: str, chat_id: int, ack: Callable[[], None]) -> str:
+        def one(item: tuple[str, ClaimDoc]) -> tuple[str, str | None]:
+            cid, claim = item
+            card_id = claim.card_id or verify_claim(
+                session_id, cid, app.state.deps, Trace(), race_hint=True
+            )
+            return claim.text, card_id
+
+        # A forward with several claims: all checked at once, verdicts sent in order.
+        with ThreadPoolExecutor(max_workers=len(claims), thread_name_prefix="botcheck") as pool:
+            results = list(pool.map(one, claims))
+        store.update_session(session_id, status="closed")
+        for text, card_id in results:
+            card = store.get_card(card_id) if card_id else None
+            send_claim_result(
+                app.state.bot_api, s.alert_chat_id, text, card, card_id, settings.public_base_url
+            )
+
+    def split_claims(text: str) -> list[str]:
+        """A short line is one claim; a long forward is split into its checkable claims."""
+        if len(text) <= FORWARD_SPLIT_CHARS:
+            return []
+        spotter: Spotter = app.state.live.spotter
+        return spotter.spot_claims(text[:3_000])
+
+    def check_claim(claims: list[str], chat_id: int, ack: Callable[[], None]) -> str:
+        text = claims[0]
         today = datetime.now(UTC).date().isoformat()
         owner = f"tg:{pseudonymize(chat_id)}"
         if app.state.store.count_sessions_since(owner, today) >= BOT_DAILY_CHECKS:
@@ -852,9 +880,10 @@ def create_app(
         sid = app.state.store.create_session(
             SessionDoc(owner_uid=owner, topic=text[:500], status="live", alert_chat_id=chat_id)
         )
-        app.state.store.add_claim(
-            sid, ClaimDoc(text=text[:4_000], lang=claim_lang(text), source=ClaimSource.LIVE)
-        )
+        for c in claims:
+            app.state.store.add_claim(
+                sid, ClaimDoc(text=c[:4_000], lang=claim_lang(c), source=ClaimSource.LIVE)
+            )
         log.info("bot claim queued", extra={"fields": {"session": sid}})
         ack()
         app.state.queue.enqueue_check(sid, lambda: run_bot_check(sid))
@@ -903,6 +932,8 @@ def create_app(
             log_check=log_check,
             link_alerts=link_alerts,
             check_claim=check_claim,
+            split_claims=split_claims,
+            read_image=app.state.image_reader or (lambda b: []),
         )
         try:
             await run_in_threadpool(handle_update, update, bot)

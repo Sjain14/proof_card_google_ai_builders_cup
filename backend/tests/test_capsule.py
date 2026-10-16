@@ -360,3 +360,102 @@ def test_tg_no_message_is_noop(cards: InMemoryStore) -> None:
     deps = BotDeps(bot, cards.get_card, lambda b: alter.CheckResult("UNKNOWN", ""), BASE)
     handle_update(TgUpdate(update_id=1), deps)
     assert bot.calls == []
+
+
+# ---------- bot automation (p40) ----------
+
+
+def _bot(**kw: Any) -> tuple[FakeBot, BotDeps, list[list[str]]]:
+    seen: list[list[str]] = []
+
+    def check(claims: list[str], chat: int, ack: Any) -> str:
+        seen.append(claims)
+        ack()
+        return "queued"
+
+    bot = FakeBot(b"\x89PNG not a card")
+    deps = BotDeps(
+        bot,
+        lambda cid: None,
+        lambda b: alter.CheckResult("UNKNOWN", "no QR"),
+        BASE,
+        check_claim=check,
+        **kw,
+    )
+    return bot, deps, seen
+
+
+def _msg(chat_type: str = "private", **kw: Any) -> TgUpdate:
+    m = {"message_id": 7, "chat": {"id": 42, "type": chat_type}, **kw}
+    return TgUpdate.model_validate({"update_id": 1, "message": m})
+
+
+GDP = "India's GDP grew 8.2 percent in 2023-24 says the statistics ministry"
+CPI = "Retail inflation in India fell to 4.8 percent in May 2024"
+
+
+def test_tg_long_forward_is_split_into_its_claims() -> None:
+    bot, deps, seen = _bot(split_claims=lambda t: [GDP, CPI, "hi"])
+    handle_update(_msg(text=f"{GDP}. {CPI}. Forward to everyone!"), deps)
+    assert seen == [[GDP, CPI, "hi"]]
+    assert "Found 3 checkable claims in this forward" in bot.calls[-1][1]["text"]
+
+
+def test_tg_split_failure_checks_the_forward_whole() -> None:
+    def boom(t: str) -> list[str]:
+        raise RuntimeError("model down")
+
+    _, deps, seen = _bot(split_claims=boom)
+    handle_update(_msg(text=GDP), deps)
+    assert seen == [[GDP]]
+
+
+def test_tg_screenshot_claims_are_read_and_checked() -> None:
+    photo = [{"file_id": "a", "file_unique_id": "u", "width": 1, "height": 1}]
+    bot, deps, seen = _bot(read_image=lambda b: [GDP, "lol"])
+    handle_update(_msg(photo=photo), deps)
+    assert seen == [[GDP]]  # "lol" is not a claim
+    assert "Checking this claim" in bot.calls[-1][1]["text"]
+    # nothing readable -> the old answer
+    bot, deps, seen = _bot(read_image=lambda b: [])
+    handle_update(_msg(photo=photo), deps)
+    assert not seen
+    assert "Can't check" in bot.calls[-1][1]["text"]
+    # reader crash -> the old answer, never a crash
+    bot, deps, seen = _bot(read_image=lambda b: 1 / 0)
+    handle_update(_msg(photo=photo), deps)
+    assert "Can't check" in bot.calls[-1][1]["text"]
+
+
+def test_tg_group_stays_quiet_unless_addressed(cards: InMemoryStore) -> None:
+    photo = [{"file_id": "a", "file_unique_id": "u", "width": 1, "height": 1}]
+    bot, deps, seen = _bot()
+    handle_update(_msg("group", text="hi all"), deps)
+    handle_update(_msg("group", text=GDP), deps)
+    handle_update(_msg("supergroup", photo=photo), deps)
+    assert bot.calls == []
+    assert seen == []
+    handle_update(_msg("group", text=f"@ProofCardAgentBot {GDP}"), deps)
+    handle_update(_msg("group", text=f"/check@ProofCardAgentBot {CPI}"), deps)
+    handle_update(_msg("group", text=GDP, forward_origin={"type": "user"}), deps)
+    assert seen == [[GDP], [CPI], [GDP]]
+    cid, _ = first(cards)
+    bot2, deps2, _ = _bot()
+    deps2.get_card = cards.get_card
+    handle_update(_msg("group", text=f"/check {cid}"), deps2)
+    assert cid in bot2.calls[-1][1]["text"]
+
+
+def test_tg_forward_through_the_app_sends_one_verdict_per_claim(
+    http: tuple[TestClient, FakeBot],
+) -> None:
+    c, bot = http
+    a = "India has 22 languages in the Eighth Schedule of the Constitution"
+    b = "India's GDP grew 8.2 percent in 2023-24 says the statistics ministry"
+    long = f"{a}. {b}. " + "Share this with every family group before it gets deleted. " * 3
+    c.app.state.live.spotter.spot_claims = lambda t: [a, b]  # type: ignore[attr-defined]
+    n = len(bot.calls)
+    tg(c, {"message": {**MSG, "chat": {"id": 4242, "type": "private"}, "text": long}})
+    out = bot.calls[n:]
+    assert "Found 2 checkable claims" in out[0][1]["text"]
+    assert len(out) == 3  # ack + one verdict per claim
