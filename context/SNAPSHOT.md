@@ -24,6 +24,7 @@ Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versi
 - v0.7.17: read only viewer link `/watch/:id` (owner opt in, public polled feed) + live socket auto-reconnect with resume.
 - v0.7.18: a comparison stated in ONE sentence (both figures) also counts as proof.
 - v0.7.19: live fit check fixes: bank match recall through the judge, own cold check pool + parallel hint pass, failure reasons + stage times on live events, UNVERIFIABLE cards on reputable sources only, bank predicted from the video title.
+- v0.7.21: research fact bank (50-100 source verified facts per topic + speaker, stored in `fact_banks`, reused for 7 days, JSON at `/api/sessions/:id/facts`); every claim is ruled against it before the web check.
 - Gates: backend ruff, format, mypy strict, pytest (171 passed, coverage 97.89%), pip-audit; frontend tsc strict, vitest (11 passed), build, npm audit; Firestore rules tests.
 
 ## Not built (never claim, see SUBMISSION_DRAFT.md §4)

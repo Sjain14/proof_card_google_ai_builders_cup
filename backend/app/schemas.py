@@ -94,6 +94,9 @@ class SessionDoc(Strict):
     tg_link_exp: datetime | None = None
     alert_chat_id: int | None = None
     alerts_sent: int = 0
+    fact_bank_key: str | None = (
+        None  # fact_banks/{key}: researched facts this session checks against
+    )
 
 
 class ClaimDoc(Strict):
@@ -107,8 +110,40 @@ class ClaimDoc(Strict):
     matched_claim_id: str | None = None  # live claim answered instantly by a prebunked one
     latency_ms: Annotated[int, Field(ge=0)] | None = None  # live: heard to card shown
     t_offset_s: Annotated[float, Field(ge=0)] | None = None  # replay: second in the video
+    fact_ids: Annotated[list[int], Field(max_length=8)] = []  # fact bank facts that decided it
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime | None = None  # set by the store on every update (feed cursor)
+
+
+class Fact(Strict):
+    """One researched fact, kept only after its source page was fetched and a passage on it
+    backed the statement (app/facts.py). trigger = a line a speaker could say that this fact
+    decides (true, exaggerated or wrong), so the bank reads like a fact checker's desk."""
+
+    id: Annotated[int, Field(ge=0)]
+    statement: LongText
+    value: Annotated[str, Field(max_length=200)] = ""
+    as_of: Annotated[str, Field(max_length=100)] = ""
+    angle: Annotated[str, Field(max_length=200)] = ""
+    trigger: Annotated[str, Field(max_length=1_000)] = ""
+    source_url: AnyHttpUrl
+    passage: LongText
+    support: Annotated[float, Field(ge=0.0, le=1.0)]
+    official: bool = False
+
+
+class FactBankDoc(Strict):
+    """fact_banks/{key}, key = topic + speaker. Reused by every later session on the same
+    topic and speaker until it is older than facts.MAX_AGE (Team lead VN, 16 Oct 2026)."""
+
+    schema_version: int = SCHEMA_VERSION
+    key: Annotated[str, Field(pattern=r"^[a-z0-9-]{1,120}$")]
+    topic: ShortText
+    speaker: str = ""
+    prompt_version: str
+    researched: Annotated[int, Field(ge=0)] = 0  # candidates before source verification
+    facts: Annotated[list[Fact], Field(max_length=200)] = []
+    created_at: datetime = Field(default_factory=_now)
 
 
 class CardDoc(Strict):
@@ -178,6 +213,7 @@ class ClaimView(BaseModel):
     matched_claim_id: str | None = None
     t_offset_s: float | None = None
     matched: bool = False  # live claim answered by a prebunked card
+    fact_ids: list[int] = []  # fact bank facts that decided it (app/facts.py)
 
 
 class SessionView(BaseModel):
@@ -204,6 +240,7 @@ class SessionView(BaseModel):
                 matched_claim_id=c.matched_claim_id,
                 t_offset_s=c.t_offset_s,
                 matched=c.matched_claim_id is not None,
+                fact_ids=c.fact_ids,
             )
             for cid, c in claims
         ]

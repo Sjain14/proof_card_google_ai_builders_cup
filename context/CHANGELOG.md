@@ -2,6 +2,15 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.21 · p21-fact-bank
+Team lead (LC voice, 16 Oct): accuracy first, live speed later. Research 50-100 facts per topic as JSON, each with a source, store them separately and reuse them, and catch a false line against them. Weak sources fixed through research. Bank match was 0/6 on replay 7dhIVHRKhvo because spoken lines are worded differently from predicted claims.
+- `app/facts.py` (new): research fact bank. Plan 10 angles, then 10 parallel grounded Gemini calls at 12 facts each (statement, value, as_of, source_url, trigger). A fact is kept only when its source page (the model's URL, or a grounding chunk whose segment overlaps the fact) is fetched, a passage on it scores >= 0.45, and the figure is in that passage. Official first, capped at 100.
+- Stored as `fact_banks/{topic+speaker key}` and reused while it is under 7 days old with >= 20 facts. `GET /api/sessions/:id/facts` returns it as JSON (owner only).
+- `app/pipeline.py` `verify_claim`: rules the line against the session's fact bank first. The judge picks the 1-3 facts that decide it (same measure, place, period), and the card cites those facts' pages through the same proof gate. No deciding fact, and the web check runs as before. `run_prebunk` attaches the bank before any claim is checked. A research failure costs the bank, never the brief.
+- `ClaimDoc.fact_ids` and the live `proved` event carry `facts` (the deciding fact ids). `SessionDoc.fact_bank_key` links the bank.
+- Tests: test_facts (build, verify, reuse, ruling guard, fact-first + fallback, prebunk attach, endpoint).
+- Docs touched: SNAPSHOT, CHANGELOG, ARCHITECTURE, DECISIONS.
+
 ## 2026-10-16 · v0.7.20 · p20-predict-fallback
 - Prod replay (Sitharaman, after #54): 2 of 3 briefs failed with 0 claims (80 s, 95 s), because the predict call hit the 40 s cap from #53.
 - `app/pipeline.py` `_predict`: tries topic + video title with the speaker, then the bare topic with the speaker, then the bare topic alone. `app/model.py` PREDICT_TIMEOUT_S goes from 40 to 60.

@@ -39,6 +39,7 @@ from app.clip import (
 from app.clip import sentences as clip_sentences
 from app.config import Settings, get_settings
 from app.factcheck import FactCheckClient, FactCheckedModel
+from app.facts import VertexFactDesk
 from app.live import (
     Alert,
     GeminiLiveTranscriber,
@@ -63,6 +64,7 @@ from app.schemas import (
     CheckTextRequest,
     CheckTextResponse,
     ClaimSource,
+    FactBankDoc,
     FeedView,
     PrebunkRequest,
     SessionDoc,
@@ -106,7 +108,18 @@ def default_deps(settings: Settings, store: Store) -> Deps:  # pragma: no cover 
         model, fetcher = StubModel(), FixtureFetcher()
     snaps = GcsSnapshots(settings.proof_bucket) if settings.proof_bucket else InMemorySnapshots()
     title = youtube_title if settings.model_mode == "vertex" else None
-    return Deps(store=store, model=model, fetcher=fetcher, snapshots=snaps, video_title=title)
+    facts = (
+        VertexFactDesk(
+            settings.gcp_project,
+            settings.gemini_region or settings.gcp_region,
+            settings.gemini_model,
+        )
+        if settings.model_mode == "vertex"
+        else None
+    )
+    return Deps(
+        store=store, model=model, fetcher=fetcher, snapshots=snaps, video_title=title, facts=facts
+    )
 
 
 def default_live(
@@ -306,6 +319,19 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         claims = app.state.store.list_claims(session_id)
         return SessionView.build(session_id, s, claims)
+
+    @app.get("/api/sessions/{session_id}/facts")
+    def session_facts(
+        session_id: str, user: Annotated[Principal, Depends(admin_principal)]
+    ) -> FactBankDoc:
+        """The researched fact bank this session checks against, as JSON (export / reuse)."""
+        s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
+        if s is None or s.owner_uid != user.uid or not s.fact_bank_key:
+            raise HTTPException(status_code=404, detail="not found")
+        bank: FactBankDoc | None = app.state.store.get_fact_bank(s.fact_bank_key)
+        if bank is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return bank
 
     @app.post("/api/sessions/{session_id}/share")
     def share_session(

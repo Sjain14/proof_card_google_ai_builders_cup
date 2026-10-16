@@ -17,7 +17,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel
 
-from app.schemas import CardDoc, CheckDoc, ClaimDoc, SessionDoc
+from app.schemas import CardDoc, CheckDoc, ClaimDoc, FactBankDoc, SessionDoc
 
 
 def new_id() -> str:
@@ -46,6 +46,8 @@ class Store(Protocol):
     def get_card(self, card_id: str) -> CardDoc | None: ...
     def put_card(self, card_id: str, doc: CardDoc) -> None: ...
     def add_check(self, doc: CheckDoc) -> None: ...
+    def get_fact_bank(self, key: str) -> FactBankDoc | None: ...
+    def put_fact_bank(self, doc: FactBankDoc) -> None: ...
 
 
 class InMemoryStore:
@@ -54,6 +56,7 @@ class InMemoryStore:
         self.claims: dict[str, dict[str, ClaimDoc]] = {}
         self.cards: dict[str, CardDoc] = {}
         self.checks: list[CheckDoc] = []
+        self.fact_banks: dict[str, FactBankDoc] = {}
         self._lock = Lock()
 
     def create_session(self, doc: SessionDoc) -> str:
@@ -118,6 +121,13 @@ class InMemoryStore:
     def add_check(self, doc: CheckDoc) -> None:
         with self._lock:
             self.checks.append(doc)
+
+    def get_fact_bank(self, key: str) -> FactBankDoc | None:
+        return self.fact_banks.get(key)
+
+    def put_fact_bank(self, doc: FactBankDoc) -> None:
+        with self._lock:
+            self.fact_banks[doc.key] = doc
 
 
 class FirestoreStore:  # pragma: no cover - exercised against the emulator / prod
@@ -211,3 +221,11 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
 
     def add_check(self, doc: CheckDoc) -> None:
         self.db.collection("checks").document(new_id()).create(doc.model_dump(mode="json"))
+
+    def get_fact_bank(self, key: str) -> FactBankDoc | None:
+        snap = self.db.collection("fact_banks").document(key).get()
+        return FactBankDoc.model_validate(snap.to_dict()) if snap.exists else None
+
+    def put_fact_bank(self, doc: FactBankDoc) -> None:
+        # set(), not create(): a stale bank is replaced by a fresh one under the same key.
+        self.db.collection("fact_banks").document(doc.key).set(doc.model_dump(mode="json"))

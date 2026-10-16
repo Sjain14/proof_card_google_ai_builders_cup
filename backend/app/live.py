@@ -535,6 +535,7 @@ class LiveEngine:
                 "verdict": claim.verdict if claim else None,
                 "latency_ms": latency,
                 "stages": trace.stages,
+                "facts": claim.fact_ids if claim else [],
             }
         )
         if claim is not None:

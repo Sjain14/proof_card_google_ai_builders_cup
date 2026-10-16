@@ -36,6 +36,7 @@ context/            docs, dev memory, versions/
 | `GET /api/health` (+ `/healthz` local) | none | liveness; probe `/api/health` on Cloud Run (paths ending in z are reserved there) |
 | `POST /api/prebunk` | Firebase user (not anonymous) | create session, enqueue prebunk job |
 | `GET /api/sessions/:id` | owner only (404 otherwise) | session + claims + counts |
+| `GET /api/sessions/:id/facts` | owner only (404 otherwise) | the session's research fact bank as JSON |
 | `GET /api/cards/:id` | public | one immutable card |
 | `POST /api/check` | public, rate limited | text compare with word diff |
 | `POST /tasks/prebunk` | Google OIDC for api-sa only | run the prebunk job |
@@ -49,8 +50,11 @@ context/            docs, dev memory, versions/
 ```
 browser ─POST /api/prebunk─▶ main (auth) ─▶ Firestore sessions/{sid}
                                    └─enqueue─▶ Cloud Tasks ─OIDC─▶ /tasks/prebunk
+run_prebunk: fact bank (app/facts.py) ─▶ fact_banks/{topic+speaker}: reuse if < 7 days, else
+  10 angles ─▶ 10 grounded Gemini calls ─▶ ~120 facts ─▶ fetch each source, keep if passage + figure match
 run_prebunk: Gemini predict N claims ─▶ claims/{cid} queued
-  for each claim (4 parallel): Gemini + Google Search grounding ─▶ evidence URLs
+  for each claim (4 parallel): fact bank ruling first (judge picks deciding facts ─▶ their pages)
+    else Gemini + Google Search grounding ─▶ evidence URLs
     ─▶ our fetch (SSRF check every hop) ─▶ passage match ─▶ sha256 ─▶ GCS snapshots/<sha>
     ─▶ gate_verdict ─▶ cards/{id} (create only) ─▶ claim proved + verdict
 browser reads session via /api/sessions/:id (or Firestore listener, rules owner only)

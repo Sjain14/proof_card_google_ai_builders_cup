@@ -16,6 +16,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+from app.facts import FactDesk, Ruling, ensure_bank
 from app.govsources import search_hint
 from app.model import Assessment, Evidence, ModelClient, PredictedClaim
 from app.officialdata import is_worldbank, official_evidence, official_proof
@@ -37,6 +38,7 @@ from app.schemas import (
     ClaimDoc,
     ClaimSource,
     ClaimStatus,
+    SessionDoc,
     SourceProof,
     Verdict,
     gate_verdict,
@@ -64,6 +66,8 @@ class Deps:
     # YouTube URL -> video title, so the bank is predicted for THIS video, not the topic in
     # general. None = off (tests, stub). Prod: youtube_title() below.
     video_title: Callable[[str], str] | None = None
+    # Research fact bank (app/facts.py): checked first on every claim. None = off.
+    facts: FactDesk | None = None
 
 
 @dataclass
@@ -364,6 +368,36 @@ def _attempt(text: str, hint: str, deps: Deps, trace: Trace, name: str) -> CardD
         trace.add(f"{name}_fetch", t1)
 
 
+def _fact_attempt(
+    text: str, key: str, deps: Deps, trace: Trace
+) -> tuple[CardDoc | None, list[int]]:
+    """Rule the line against the session's fact bank; a deciding ruling becomes a card
+    citing those facts' pages, through the same proof gate as any card."""
+    if deps.facts is None:
+        return None, []
+    t0 = time.monotonic()
+    bank = deps.store.get_fact_bank(key)
+    ruling: Ruling | None = deps.facts.rule(text, bank.facts) if bank and bank.facts else None
+    trace.add("facts_rule", t0)
+    if ruling is None or bank is None:
+        trace.skip("no_fact")
+        return None, []
+    by_id = {f.id: f for f in bank.facts}
+    chosen = [by_id[i] for i in ruling.fact_ids if i in by_id]
+    evidence = [Evidence(str(f.source_url), f.angle, f.statement, 1.0) for f in chosen]
+    t1 = time.monotonic()
+    try:
+        card = build_card(
+            text,
+            Assessment(ruling.verdict, ruling.explanation, evidence, ruling.claim_en),
+            deps,
+            trace,
+        )
+    finally:
+        trace.add("facts_fetch", t1)
+    return (card, [f.id for f in chosen]) if card else (None, [])
+
+
 def verify_claim(
     session_id: str,
     claim_id: str,
@@ -383,10 +417,14 @@ def verify_claim(
     if claim is None:
         return None
     deps.store.update_claim(session_id, claim_id, status=ClaimStatus.CHECKING)
+    fact_ids: list[int] = []
     try:
         session = deps.store.get_session(session_id)
         hint = search_hint(session.speaker if session else "", claim.text)
-        if race_hint and hint:
+        card = None
+        if session is not None and session.fact_bank_key:
+            card, fact_ids = _fact_attempt(claim.text, session.fact_bank_key, deps, trace)
+        if card is None and race_hint and hint:
             plain_t, hint_t = Trace(), Trace()
             pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="race")
             try:
@@ -402,7 +440,7 @@ def verify_claim(
             trace.stages.update(hint_t.stages)
             trace.reason = used.reason or plain_t.reason
             trace.skips = used.skips
-        else:
+        elif card is None:
             card = _attempt(claim.text, "", deps, trace, "plain")
             if card is None and hint:
                 first = trace.reason
@@ -423,6 +461,7 @@ def verify_claim(
         status=ClaimStatus.PROVED,
         card_id=card_id,
         verdict=card.verdict,
+        fact_ids=fact_ids,
     )
     return card_id
 
@@ -457,6 +496,25 @@ def _predict(
     raise AssertionError("unreachable")
 
 
+def _with_fact_bank(session_id: str, session: SessionDoc, deps: Deps, desk: FactDesk) -> SessionDoc:
+    """Attach the topic + speaker fact bank (reused when fresh) before any claim is
+    checked, so the brief bank is ruled against it too. A research failure costs the
+    bank, never the brief."""
+    about = session.topic
+    if session.youtube_url and deps.video_title is not None:
+        title = deps.video_title(session.youtube_url)
+        about = f"{about}. Video: {title}" if title else about
+    try:
+        key = ensure_bank(deps.store, desk, deps.fetcher, session.topic, session.speaker, about)
+    except Exception:
+        log.exception("fact bank failed, brief continues without it")
+        return session
+    if key is None:
+        return session
+    deps.store.update_session(session_id, fact_bank_key=key)
+    return deps.store.get_session(session_id) or session
+
+
 def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
     """Build the brief bank. Never leaves a session stuck in "prebunking": a model failure
     ends it as "failed" (the UI says so). Idempotent: a Cloud Tasks retry (instance died,
@@ -465,6 +523,8 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
     if session is None:
         return {"predicted": 0, "proved": 0}
     deps.store.update_session(session_id, status="prebunking")
+    if deps.facts is not None and not session.fact_bank_key:
+        session = _with_fact_bank(session_id, session, deps, deps.facts)
     bank = [
         (cid, c)
         for cid, c in deps.store.list_claims(session_id)
