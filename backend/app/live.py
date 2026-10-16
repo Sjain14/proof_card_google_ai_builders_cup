@@ -256,7 +256,21 @@ class LiveDeps:
 
 
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
-Alert = Callable[[str, str, Any, str], bool]  # (session, card, verdict, text), app/alerts.py
+
+
+class Alert(Protocol):
+    """(session, card, verdict, text, t) -> sent. t = seconds into the speech video, when
+    known, so the alert can link the exact moment. Implementation: app/alerts.py."""
+
+    def __call__(
+        self,
+        session_id: str,
+        card_id: str,
+        verdict: Any,
+        text: str,
+        t: float | None = None,
+        /,
+    ) -> bool: ...
 
 
 class LiveEngine:
@@ -431,7 +445,7 @@ class LiveEngine:
                 "t": t_offset,
             }
         )
-        self._notify(pre.card_id, pre.verdict, text)
+        self._notify(pre.card_id, pre.verdict, text, t_offset)
         return True
 
     async def _cold(self, cid: str, text: str, t0: float) -> None:
@@ -458,9 +472,9 @@ class LiveEngine:
             }
         )
         if claim is not None:
-            self._notify(card_id, claim.verdict, text)
+            self._notify(card_id, claim.verdict, text, claim.t_offset_s)
 
-    def _notify(self, card_id: str, verdict: Any, text: str) -> None:
+    def _notify(self, card_id: str, verdict: Any, text: str, t: float | None = None) -> None:
         """Telegram alert off the hot path: the feed never waits on the Bot API."""
         if self.alert is None:
             return
@@ -468,7 +482,7 @@ class LiveEngine:
 
         async def run() -> None:
             try:
-                await asyncio.to_thread(alert, self.sid, card_id, verdict, text)
+                await asyncio.to_thread(alert, self.sid, card_id, verdict, text, t)
             except Exception:
                 log.warning("telegram alert failed", exc_info=True)
 

@@ -132,7 +132,7 @@ def test_engine_alerts_on_false_match() -> None:
     )
     sent: list[tuple[str, str, Any, str]] = []
 
-    def alert(s: str, c: str, v: Any, t: str) -> bool:
+    def alert(s: str, c: str, v: Any, t: str, at: float | None = None) -> bool:
         sent.append((s, c, v, t))
         return True
 

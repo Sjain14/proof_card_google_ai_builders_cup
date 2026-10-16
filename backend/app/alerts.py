@@ -18,8 +18,10 @@ import hashlib
 import hmac
 import html
 import logging
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlsplit
 
 from app.card_image import share_url
 from app.schemas import SessionDoc
@@ -34,6 +36,37 @@ SECRET_LEN = 22
 LINK_TTL = timedelta(minutes=15)
 MAX_ALERTS = 10
 ALERT_VERDICTS = frozenset({"FALSE", "MISLEADING"})
+_YT_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
+def youtube_moment(url: str | None, t: float | None) -> str | None:
+    """https://youtu.be/<id>?t=<s> for the speech video at the moment the claim was said.
+    None when there is no YouTube link or the id can't be read. No t: the video start."""
+    if not url:
+        return None
+    u = urlsplit(url)
+    host = (u.hostname or "").lower().removeprefix("www.").removeprefix("m.")
+    vid = ""
+    if host == "youtu.be":
+        vid = u.path.strip("/").split("/")[0]
+    elif host == "youtube.com":
+        parts = [p for p in u.path.split("/") if p]
+        if parts[:1] == ["watch"]:
+            vid = (parse_qs(u.query).get("v") or [""])[0]
+        elif len(parts) >= 2 and parts[0] in ("shorts", "live", "embed"):
+            vid = parts[1]
+    if not _YT_ID.match(vid):
+        return None
+    if t is None or t < 0:
+        return f"https://youtu.be/{vid}"
+    return f"https://youtu.be/{vid}?t={int(t)}"
+
+
+def _clock(t: float) -> str:
+    s = int(t)
+    if s >= 3600:
+        return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}"
+    return f"{s // 60}:{s % 60:02d}"
 
 
 def _hash(secret: str) -> str:
@@ -79,7 +112,9 @@ class Alerter:
     def __init__(self, api: BotApi, store: Store, base_url: str) -> None:
         self.api, self.store, self.base_url = api, store, base_url
 
-    def alert(self, session_id: str, card_id: str, verdict: object, text: str) -> bool:
+    def alert(
+        self, session_id: str, card_id: str, verdict: object, text: str, t: float | None = None
+    ) -> bool:
         label = _verdict(verdict)
         if label not in ALERT_VERDICTS:
             return False
@@ -92,6 +127,11 @@ class Alerter:
             f"“{html.escape(text[:300])}”\n"
             "Forward this card anywhere: send it back to me and I'll say if it was edited."
         )
+        buttons = [{"text": "Open proof", "url": share_url(self.base_url, card_id)}]
+        moment = youtube_moment(s.youtube_url, t)
+        if moment:
+            label_t = f"Watch at {_clock(t)}" if t is not None and t >= 0 else "Watch speech"
+            buttons.append({"text": label_t, "url": moment})
         self.api.call(
             "sendPhoto",
             {
@@ -99,11 +139,7 @@ class Alerter:
                 "photo": f"{self.base_url.rstrip('/')}/v/{card_id}.png",
                 "caption": caption,
                 "parse_mode": "HTML",
-                "reply_markup": {
-                    "inline_keyboard": [
-                        [{"text": "Open proof", "url": share_url(self.base_url, card_id)}]
-                    ]
-                },
+                "reply_markup": {"inline_keyboard": [buttons]},
             },
         )
         log.info("alert sent", extra={"fields": {"n": s.alerts_sent + 1}})
