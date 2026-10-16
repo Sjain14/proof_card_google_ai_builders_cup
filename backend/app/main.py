@@ -55,9 +55,17 @@ from app.live import (
     VertexSpotter,
     vocabulary_for,
 )
-from app.logging_setup import configure_logging
+from app.logging_setup import configure_logging, pseudonymize
 from app.model import ModelClient, StubModel, VertexModel
-from app.pipeline import Deps, prebunk_stalled, run_prebunk, youtube_published, youtube_title
+from app.pipeline import (
+    Deps,
+    Trace,
+    prebunk_stalled,
+    run_prebunk,
+    verify_claim,
+    youtube_published,
+    youtube_title,
+)
 from app.proof import FixtureFetcher, GcsSnapshots, HttpFetcher, InMemorySnapshots
 from app.schemas import (
     CardDoc,
@@ -65,6 +73,7 @@ from app.schemas import (
     CheckImageResponse,
     CheckTextRequest,
     CheckTextResponse,
+    ClaimDoc,
     ClaimSource,
     ClipJob,
     ClipJobView,
@@ -81,9 +90,17 @@ from app.schemas import (
 from app.security import TokenBucket, sha256_hex, telegram_secret_ok
 from app.store import FirestoreStore, InMemoryStore, Store
 from app.tasks import CloudTasksQueue, InlineQueue, OidcVerifier, TaskQueue, google_oidc_verifier
-from app.telegram import BotApi, BotDeps, HttpBotApi, handle_update
+from app.telegram import (
+    BotApi,
+    BotDeps,
+    HttpBotApi,
+    claim_lang,
+    handle_update,
+    send_claim_result,
+)
 
 log = logging.getLogger("proofcard")
+BOT_DAILY_CHECKS = 10  # claim checks per Telegram chat per UTC day (Vertex cost guard)
 
 LIVE_AUTH_TIMEOUT_S = 5.0
 LIVE_MAX_FRAME = 64_000  # 2 s of PCM16 16 kHz mono; the client sends ~100 ms frames
@@ -798,6 +815,58 @@ def create_app(
         )
         return HTMLResponse(html, headers={"Content-Security-Policy": share_page.CSP})
 
+    def run_bot_check(session_id: str) -> None:
+        """Telegram claim check job: verify the one claim, send the verdict to the chat."""
+        store = app.state.store
+        s = store.get_session(session_id)
+        if s is None or s.alert_chat_id is None or app.state.bot_api is None:
+            return
+        if s.status == "closed":  # a Cloud Tasks retry after the verdict went out
+            return
+        claims = store.list_claims(session_id)
+        if not claims:
+            return
+        cid, claim = claims[0]
+        card_id = claim.card_id or verify_claim(
+            session_id, cid, app.state.deps, Trace(), race_hint=True
+        )
+        card = store.get_card(card_id) if card_id else None
+        store.update_session(session_id, status="closed")
+        send_claim_result(
+            app.state.bot_api, s.alert_chat_id, claim.text, card, card_id, settings.public_base_url
+        )
+
+    def check_claim(text: str, chat_id: int, ack: Callable[[], None]) -> str:
+        today = datetime.now(UTC).date().isoformat()
+        owner = f"tg:{pseudonymize(chat_id)}"
+        if app.state.store.count_sessions_since(owner, today) >= BOT_DAILY_CHECKS:
+            return "limit"
+        sid = app.state.store.create_session(
+            SessionDoc(owner_uid=owner, topic=text[:500], status="live", alert_chat_id=chat_id)
+        )
+        app.state.store.add_claim(
+            sid, ClaimDoc(text=text[:4_000], lang=claim_lang(text), source=ClaimSource.LIVE)
+        )
+        log.info("bot claim queued", extra={"fields": {"session": sid}})
+        ack()
+        app.state.queue.enqueue_check(sid, lambda: run_bot_check(sid))
+        return "queued"
+
+    @app.post("/tasks/check", include_in_schema=False)
+    def task_check(
+        body: TaskPrebunk, authorization: Annotated[str | None, Header()] = None
+    ) -> dict[str, str]:
+        verify = app.state.oidc
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        try:
+            if verify is None or not token:
+                raise ValueError("no task auth")
+            verify(token)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="not found") from exc
+        run_bot_check(body.session_id)
+        return {"ok": "done"}
+
     def link_alerts(payload: str, chat_id: int) -> str | None:
         s = alerts.redeem(app.state.store, payload, chat_id)
         return s.topic if s is not None else None
@@ -825,6 +894,7 @@ def create_app(
             base_url=settings.public_base_url,
             log_check=log_check,
             link_alerts=link_alerts,
+            check_claim=check_claim,
         )
         try:
             await run_in_threadpool(handle_update, update, bot)

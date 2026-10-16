@@ -27,6 +27,7 @@ OidcVerifier = Callable[[str], dict[str, Any]]
 class TaskQueue(Protocol):
     def enqueue_prebunk(self, session_id: str, job: Job) -> None: ...
     def enqueue_clip(self, session_id: str, job: Job) -> None: ...
+    def enqueue_check(self, session_id: str, job: Job) -> None: ...
 
 
 class InlineQueue:
@@ -38,6 +39,9 @@ class InlineQueue:
         self.futures.append(self.pool.submit(job))
 
     def enqueue_clip(self, session_id: str, job: Job) -> None:
+        self.futures.append(self.pool.submit(job))
+
+    def enqueue_check(self, session_id: str, job: Job) -> None:
         self.futures.append(self.pool.submit(job))
 
     def drain(self) -> None:
@@ -53,6 +57,9 @@ class SyncQueue:
         job()
 
     def enqueue_clip(self, session_id: str, job: Job) -> None:
+        job()
+
+    def enqueue_check(self, session_id: str, job: Job) -> None:
         job()
 
 
@@ -72,6 +79,9 @@ class CloudTasksQueue:  # pragma: no cover - needs GCP
 
     def enqueue_clip(self, session_id: str, job: Job) -> None:
         self._enqueue("clip", session_id)
+
+    def enqueue_check(self, session_id: str, job: Job) -> None:
+        self._enqueue("check", session_id)
 
     def _enqueue(self, kind: str, session_id: str) -> None:
         from google.cloud import tasks_v2

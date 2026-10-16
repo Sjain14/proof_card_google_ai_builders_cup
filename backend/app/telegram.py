@@ -72,6 +72,12 @@ class BotDeps:
     log_check: Callable[[CheckResult, str], None] = field(default=lambda r, ch: None)
     # "/start alert..." deep link from the live page -> session topic, None if invalid
     link_alerts: Callable[[str, int], str | None] = field(default=lambda p, c: None)
+    # any other text that reads like a claim -> queued for a full check, the result is sent
+    # back by send_claim_result(). Calls ack() before the job is queued (so "checking" is
+    # always the first reply), returns "queued", "limit" or "off" (no checker wired).
+    check_claim: Callable[[str, int, Callable[[], None]], str] = field(
+        default=lambda t, c, ack: "off"
+    )
 
 
 def _open_button(base_url: str, card_id: str) -> dict[str, Any]:
@@ -101,10 +107,55 @@ def result_text(r: CheckResult) -> str:
 
 
 HELP = (
-    "Forward me any <b>Proof Card</b> image and I'll tell you if it's the original or "
-    "<b>ALTERED</b>.\nYou can also send a card link. Share a card in any chat by typing "
-    "<code>@ProofCardAgentBot card-id</code>."
+    "Send me a <b>claim</b> (a line from a speech, a forward, a headline) and I'll check it "
+    "against official data and trusted sources, with the exact passage as proof.\n"
+    "Forward a <b>Proof Card</b> image and I'll tell you if it's the original or "
+    "<b>ALTERED</b>.\nShare a card in any chat: <code>@ProofCardAgentBot card-id</code>."
 )
+CHECKING = (
+    "🔎 Checking this claim against official data and trusted sources. "
+    "The verdict comes here with its proof, usually within a minute."
+)
+LIMIT = "You've hit today's limit of claim checks. Try again tomorrow."
+NO_PROOF = (
+    "⚪ <b>UNVERIFIABLE</b>\n“{claim}”\n\nNo trusted source we could open backs or "
+    "refutes this exactly, so I won't call it true or false."
+)
+MIN_CLAIM_WORDS = 4
+MIN_CLAIM_CHARS = 20
+
+
+def looks_like_claim(text: str) -> bool:
+    t = text.strip()
+    return not t.startswith("/") and len(t) >= MIN_CLAIM_CHARS and len(t.split()) >= MIN_CLAIM_WORDS
+
+
+def claim_lang(text: str) -> str:
+    return "hi" if re.search(r"[\u0900-\u097F]", text) else "en"
+
+
+def send_claim_result(
+    api: BotApi, chat_id: int, claim: str, card: CardDoc | None, card_id: str | None, base: str
+) -> None:
+    """Verdict for a claim sent to the bot: the card PNG + proof button, or a plain
+    UNVERIFIABLE when no source could prove it either way."""
+    if card is None or card_id is None:
+        text = NO_PROOF.format(claim=html.escape(claim[:300]))
+        api.call("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+        return
+    caption = card_text(card, card_id)
+    if len(caption) > 1000:  # sendPhoto caption cap is 1024
+        caption = caption[:997] + "…"
+    api.call(
+        "sendPhoto",
+        {
+            "chat_id": chat_id,
+            "photo": f"{base.rstrip('/')}/v/{card_id}.png",
+            "caption": caption,
+            "parse_mode": "HTML",
+            "reply_markup": _open_button(base, card_id),
+        },
+    )
 
 
 def handle_update(u: TgUpdate, d: BotDeps) -> None:
@@ -164,6 +215,19 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
             },
         )
         return
+    if not ref and looks_like_claim(text):
+
+        def say(msg: str) -> None:
+            d.api.call(
+                "sendMessage",
+                {"chat_id": chat, "text": msg, "reply_parameters": {"message_id": m.message_id}},
+            )
+
+        state = d.check_claim(text.strip(), chat, lambda: say(CHECKING))
+        if state == "limit":
+            say(LIMIT)
+        if state != "off":
+            return
     msg = "That card id doesn't exist." if ref else HELP
     d.api.call("sendMessage", {"chat_id": chat, "text": msg, "parse_mode": "HTML"})
 

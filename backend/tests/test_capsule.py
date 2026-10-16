@@ -273,7 +273,54 @@ def test_tg_text_lookup_and_help(http: tuple[TestClient, FakeBot], cards: InMemo
     tg(c, {"message": {**MSG, "text": "/start nope-nope-nope"}})
     assert "doesn't exist" in bot.calls[-1][1]["text"]
     tg(c, {"message": {**MSG, "text": "hi"}})
-    assert "Forward me" in bot.calls[-1][1]["text"]
+    assert "Send me a <b>claim</b>" in bot.calls[-1][1]["text"]
+
+
+def test_tg_claim_text_is_checked_and_answered(
+    http: tuple[TestClient, FakeBot], cards: InMemoryStore
+) -> None:
+    c, bot = http
+    claim = "India's GDP grew 8.2 percent in 2023-24 says the statistics ministry"
+    tg(c, {"message": {**MSG, "text": claim}})
+    sent = [m for m, _ in bot.calls]
+    assert sent[-2] == "sendMessage"
+    assert "Checking this claim" in bot.calls[-2][1]["text"]
+    assert bot.calls[-2][1]["reply_parameters"] == {"message_id": 7}
+    method, payload = bot.calls[-1]
+    assert payload["chat_id"] == 42
+    if method == "sendPhoto":
+        assert payload["photo"].endswith(".png")
+        assert payload["reply_markup"]["inline_keyboard"][0][0]["text"] == "Open proof"
+    else:
+        assert "UNVERIFIABLE" in payload["text"]
+
+
+def test_tg_claim_daily_limit(http: tuple[TestClient, FakeBot]) -> None:
+    from app import main as main_mod
+
+    c, bot = http
+    for _ in range(main_mod.BOT_DAILY_CHECKS):
+        tg(c, {"message": {**MSG, "text": "Petrol costs 50 rupees a litre in Delhi today"}})
+    tg(c, {"message": {**MSG, "text": "Petrol costs 50 rupees a litre in Delhi today"}})
+    assert "today's limit" in bot.calls[-1][1]["text"]
+
+
+def test_tg_claim_result_helpers(cards: InMemoryStore) -> None:
+    from app.telegram import claim_lang, looks_like_claim, send_claim_result
+
+    assert claim_lang("भारत की जीडीपी बड़ी है") == "hi"
+    assert claim_lang("GDP grew") == "en"
+    assert not looks_like_claim("/start abc def ghi jkl mno")
+    assert not looks_like_claim("too short")
+    bot = FakeBot()
+    send_claim_result(bot, 1, "<x> claim", None, None, BASE)
+    assert "UNVERIFIABLE" in bot.calls[-1][1]["text"]
+    assert "&lt;x&gt;" in bot.calls[-1][1]["text"]
+    cid, card = first(cards)
+    long = card.model_copy(update={"explanation": "y" * 2000})
+    send_claim_result(bot, 1, "c", long, cid, BASE)
+    assert bot.calls[-1][0] == "sendPhoto"
+    assert len(bot.calls[-1][1]["caption"]) <= 1000
 
 
 def test_tg_inline_and_callback(http: tuple[TestClient, FakeBot], cards: InMemoryStore) -> None:
