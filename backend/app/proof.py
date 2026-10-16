@@ -66,6 +66,9 @@ class FixtureFetcher:
 
 HTML_TYPES = frozenset({"text/html", "text/plain", "application/xhtml+xml"})
 PDF_TYPE = "application/pdf"
+JSON_TYPE = "application/json"
+# JSON only from official statistics APIs we render ourselves (app/officialdata.py).
+JSON_HOSTS = frozenset({"api.worldbank.org"})
 MAX_PDF_BYTES = 10_000_000  # official statistics (MoSPI, RBI, PIB) are mostly PDFs
 MAX_PDF_PAGES = 60
 
@@ -119,6 +122,8 @@ class HttpFetcher:
                         cap = MAX_BYTES
                     elif ctype == PDF_TYPE:
                         cap = MAX_PDF_BYTES
+                    elif ctype == JSON_TYPE and httpx.URL(current).host in JSON_HOSTS:
+                        cap = MAX_BYTES
                     else:
                         raise FetchError(f"unsupported content type {ctype}")
                     buf = bytearray()

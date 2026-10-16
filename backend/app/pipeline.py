@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from app.model import Assessment, Evidence, ModelClient
+from app.officialdata import is_worldbank, official_evidence
+from app.officialdata import render as render_official
 from app.proof import (
     Fetched,
     Fetcher,
@@ -125,14 +127,21 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
     proofs: list[SourceProof] = []
     scores: list[float] = []
     seen: set[str] = set()
-    for ev, fetched in fetch_all(assessment.evidence, deps.fetcher):
+    # Official statistics first when the claim names a country figure (app/officialdata.py).
+    official = official_evidence(claim, assessment.claim_en)
+    known = {e.url for e in official}
+    evidence = official + [e for e in assessment.evidence if e.url not in known]
+    for ev, fetched in fetch_all(evidence, deps.fetcher):
         if len(proofs) >= deps.max_sources:
             break
         if fetched.final_url in seen:
             _skip(fetched.final_url, "duplicate")
             continue
         seen.add(fetched.final_url)
-        text = extract_text(fetched.body, fetched.content_type)
+        if is_worldbank(fetched.final_url):
+            text = render_official(fetched.body)
+        else:
+            text = extract_text(fetched.body, fetched.content_type)
         if not text:
             _skip(fetched.final_url, "no text", content_type=fetched.content_type)
             continue
@@ -155,7 +164,7 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
             "no proof",
             extra={
                 "fields": {
-                    "evidence": len(assessment.evidence),
+                    "evidence": len(evidence),
                     "model_verdict": str(assessment.verdict),
                 }
             },
