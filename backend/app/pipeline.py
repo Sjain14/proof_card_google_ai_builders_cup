@@ -119,7 +119,10 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
             },
         )
         return None
-    support = round(sum(scores) / len(scores), 3)
+    # The gate needs ONE snapshotted source that backs the verdict, not an average:
+    # a second, weaker source used to drag a well proven TRUE claim under the gate
+    # (prod verify rev00012: 10 of 11 brief claims ended UNVERIFIABLE, true ones too).
+    support = round(max(scores), 3)
     verdict = gate_verdict(assessment.verdict, support)
     fields = {
         "claim": claim,

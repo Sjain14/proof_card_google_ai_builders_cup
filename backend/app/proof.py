@@ -225,12 +225,31 @@ class Match:
     conflict: bool  # the claim's number is absent and the passage states other numbers
 
 
+_NUM_WORDS = {
+    "two": "2", "three": "3", "four": "4", "five": "5", "six": "6",
+    "seven": "7", "eight": "8", "nine": "9", "ten": "10", "eleven": "11", "twelve": "12",
+    "twenty": "20", "thirty": "30", "forty": "40", "fifty": "50", "sixty": "60",
+    "seventy": "70", "eighty": "80", "ninety": "90", "hundred": "100",
+}  # fmt: skip
+# Same fact, different word: "highest in 40 years" vs "a four-decade high" vs "largest".
+_SAME = {
+    "largest": "highest", "biggest": "highest", "high": "highest", "record": "highest",
+    "smallest": "lowest", "low": "lowest",
+    "pct": "percent", "per cent": "percent",
+}  # fmt: skip
+_DECADE = re.compile(r"\b(\d+)[\s-]*decades?\b")
+
+
 def _norm(s: str) -> str:
-    return unicodedata.normalize("NFKC", s).lower().translate(_DIGITS)
+    s = unicodedata.normalize("NFKC", s).lower().translate(_DIGITS)
+    s = s.replace("%", " percent ").replace("per cent", "percent")
+    s = re.sub(r"[a-z]+", lambda m: _NUM_WORDS.get(m.group(), m.group()), s)
+    # "four-decade high" -> "40 years highest": the claim usually says "in 40 years".
+    return _DECADE.sub(lambda m: f"{int(m.group(1)) * 10} years", s)
 
 
 def tokens(s: str) -> list[str]:
-    return [t for t in _TOKEN.findall(_norm(s)) if t not in _STOP]
+    return [_SAME.get(t, t) for t in _TOKEN.findall(_norm(s)) if t not in _STOP]
 
 
 def _sentences(text: str) -> list[str]:
