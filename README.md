@@ -1,6 +1,6 @@
 # Proof Card
 
-Prebunk a stream's likely claims before it starts, and turn every verdict into a tamper evident proof card people can verify on Telegram after it ends.
+An authenticity checker for what leaders say. AI can fake a speech, an anchor or a headline in seconds; Proof Card checks what a politician, a news clip or a forward actually claims against official data, shows the exact passage that decides it, and turns every verdict into a tamper evident card anyone can verify on Telegram. Not a transcription tool: transcription is only the input, the product is the proof.
 
 Google Cloud AI Builder Cup 2026 · Media, Content & Digital Experiences track.
 
@@ -12,7 +12,8 @@ Google Cloud AI Builder Cup 2026 · Media, Content & Digital Experiences track.
 1. **Prebunk.** Give a topic and speaker. Gemini predicts the claims likely to come up and checks each with Google Search grounding (and, if `PC_FACTCHECK_API_KEY` is set, published fact checks from the Fact Check Tools API first).
 2. **Own proof.** We fetch every cited page ourselves, extract the main text (trafilatura, PDFs via pypdf), find the passage that supports or contradicts the claim (Hindi, Hinglish and English), and store the exact bytes under their sha256. No passage, no hard verdict: the card says UNVERIFIABLE.
 3. **Live.** During the stream, live transcription feeds claim spotting; a sentence that matches a prebunked claim gets its card instantly, new claims go down the cold path.
-4. **Proof capsule.** Every card is an image with a QR. Forward it anywhere; anyone can send it to the Telegram bot or `/v/<id>` to get VERIFIED or ALTERED (which part was edited), and download any source page (`/api/snapshots/<sha256>`) to recompute its hash.
+4. **Ask the bot.** Send any claim or forward to the Telegram bot: it runs the same check and answers with the verdict, the source passage and a shareable card.
+5. **Proof capsule.** Every card is an image with a QR. Forward it anywhere; anyone can send it to the Telegram bot or `/v/<id>` to get VERIFIED or ALTERED (which part was edited), and download any source page (`/api/snapshots/<sha256>`) to recompute its hash.
 
 ## Stack
 FastAPI on Cloud Run · Vertex AI Gemini (`gemini-3.5-flash`, live `gemini-3.5-transcribe-live`, `gemini-embedding-001`) · Firestore · Cloud Storage · Cloud Tasks · Firebase Hosting + Auth · React + Vite · Telegram Bot API.

@@ -259,3 +259,139 @@ div.player > * { width: 100%; height: 100%; border: 0; border-radius: var(--radi
 .more summary { cursor: pointer; padding: 12px 0; font-weight: 600; color: var(--ink-2); }
 .more[open] { padding-bottom: 14px; }
 .more label + label { margin-top: 14px; }
+
+
+/* ---------- landing v2: "truth needs a receipt" ---------- */
+.serif { font-family: "Instrument Serif", "Noto Serif Devanagari", Georgia, serif; font-weight: 400; letter-spacing: -0.02em; }
+.mono { font-family: "JetBrains Mono Variable", ui-monospace, monospace; font-size: 12px; letter-spacing: 0; }
+.hero h1.serif { font-size: clamp(52px, 7.6vw, 104px); line-height: 0.95; font-weight: 400; letter-spacing: -0.03em; }
+.hero h1.serif em { font-style: italic; }
+.reveal { opacity: 0; transform: translateY(28px); transition: opacity 800ms cubic-bezier(0.2, 0.7, 0.2, 1), transform 800ms cubic-bezier(0.2, 0.7, 0.2, 1); }
+.reveal.in { opacity: 1; transform: none; }
+
+/* hero live proof */
+.live {
+  position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 26px 26px 22px;
+  box-shadow: 0 30px 80px -40px rgb(17 24 39 / 0.45), var(--shadow); min-height: 380px; display: flex; flex-direction: column; gap: 14px;
+  background-image: radial-gradient(circle at 1px 1px, rgb(17 24 39 / 0.05) 1px, transparent 0); background-size: 18px 18px;
+}
+.live-top { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--false); box-shadow: 0 0 0 0 rgb(185 28 28 / 0.5); animation: ping 1.6s infinite; }
+@keyframes ping { 70% { box-shadow: 0 0 0 9px rgb(185 28 28 / 0); } 100% { box-shadow: 0 0 0 0 rgb(185 28 28 / 0); } }
+.live-ill { margin-left: auto; font-weight: 600; color: var(--muted); font-size: 10px; }
+.live-src { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+.live-claim { font-family: "Instrument Serif", "Noto Serif Devanagari", Georgia, serif; font-size: clamp(26px, 2.6vw, 34px); line-height: 1.12; min-height: 2.3em; margin: 0; }
+.caret { display: inline-block; width: 2px; height: 0.9em; background: var(--brand); margin-left: 2px; vertical-align: -0.1em; animation: blink 0.9s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.live-step { opacity: 0.18; transform: translateY(6px); transition: opacity 420ms, transform 420ms; display: grid; gap: 8px; }
+.live-step.on { opacity: 1; transform: none; }
+.bar { display: block; height: 3px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
+.bar::after { content: ""; position: absolute; inset: 0; width: 0; background: var(--brand); }
+.bar.run::after { animation: fill 1.4s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.bar.full::after { width: 100%; background: var(--ink); }
+@keyframes fill { to { width: 100%; } }
+.passage .label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
+.passage mark { background: none; color: var(--ink); font-size: 15px; line-height: 1.5; border-left: 3px solid var(--brand); padding: 2px 0 2px 12px; font-style: italic; }
+.live-verdict { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 14px; border-top: 1px dashed var(--line); opacity: 0; }
+.live-verdict.on { opacity: 1; }
+.live-verdict.on .stamp { animation: stamp 420ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+@keyframes stamp { from { transform: scale(1.8) rotate(-8deg); opacity: 0; } to { transform: scale(1) rotate(-2deg); opacity: 1; } }
+.stamp { display: inline-block; transform: rotate(-2deg); }
+.stamp .pill { font-size: 15px; padding: 9px 16px; }
+.fp { color: var(--muted); }
+
+/* source marquee */
+.marquee { overflow: hidden; border-block: 1px solid var(--line); padding: 16px 0; margin: 8px 0 0; mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); }
+.marquee-track { display: flex; gap: 56px; width: max-content; animation: slide 38s linear infinite; }
+.marquee-track span { font-family: "Instrument Serif", Georgia, serif; font-size: 26px; color: var(--ink-2); white-space: nowrap; }
+@keyframes slide { to { transform: translateX(-50%); } }
+
+/* need */
+.big { font-size: clamp(36px, 5.4vw, 68px); line-height: 1.02; max-width: 15em; }
+.need { padding: 96px 0 24px; }
+.need-list { list-style: none; padding: 0; margin: 48px 0 0; counter-reset: need; }
+.need-list li { counter-increment: need; display: grid; grid-template-columns: 72px 1fr; align-items: baseline; padding: 26px 0; border-top: 1px solid var(--line); font-size: clamp(19px, 2.1vw, 24px); line-height: 1.4; color: var(--ink-2); }
+.need-list li::before { content: "0" counter(need); font-family: "JetBrains Mono Variable", monospace; font-size: 13px; color: var(--false); }
+
+/* how: pinned visual + scrolling steps */
+.how { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; padding: 40px 0 64px; }
+.how-pin { position: relative; }
+.how-frame { position: sticky; top: calc(50vh - 240px); height: 480px; }
+.how-vis { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transform: translateY(18px) scale(0.98); transition: opacity 500ms, transform 500ms; pointer-events: none; }
+.how-vis.on { opacity: 1; transform: none; }
+.how-step { min-height: 46vh; display: flex; flex-direction: column; justify-content: center; opacity: 0.42; transition: opacity 400ms; }
+.how-step.on { opacity: 1; }
+.how-step h3 { font-family: "Instrument Serif", "Noto Serif Devanagari", Georgia, serif; font-weight: 400; font-size: clamp(36px, 4vw, 54px); margin: 10px 0 12px; }
+.how-step p { font-size: 18px; line-height: 1.55; color: var(--ink-2); max-width: 30em; }
+.step-n { color: var(--brand); }
+.how-inline { display: none; }
+.vis { width: min(480px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 22px; box-shadow: var(--shadow); display: grid; gap: 12px; }
+.vis-url { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; color: var(--ink-2); }
+.vis-cap { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 650; margin: 4px 0 0; }
+.vis-row { display: flex; gap: 10px; font-size: 15px; line-height: 1.35; padding: 8px 0; border-top: 1px solid var(--line); }
+.how-vis.on .vis-row { animation: rise 500ms both; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+.vis-check { color: var(--true); font-weight: 800; }
+.vis-line { font-size: 16px; line-height: 1.5; }
+.vis-line.dim { color: var(--muted); }
+.vis-line.hot { background: rgb(180 83 9 / 0.08); border-left: 3px solid var(--mislead); padding: 10px 12px; border-radius: 6px; display: grid; gap: 8px; justify-items: start; }
+.receipt { position: relative; background: #fffdf7; border-radius: 6px; padding-bottom: 28px;
+  -webkit-mask: radial-gradient(circle 7px at 50% 100%, transparent 98%, #000) 0 0 / 22px 100% repeat-x; mask: radial-gradient(circle 7px at 50% 100%, transparent 98%, #000) 0 0 / 22px 100% repeat-x; }
+.vis-claim { font-family: "Instrument Serif", "Noto Serif Devanagari", Georgia, serif; font-size: 26px; line-height: 1.15; margin: 0; }
+.qr { width: 84px; height: 84px; color: var(--ink); }
+.tg { background: #e9eef4; }
+.bubble { max-width: 88%; padding: 10px 14px; border-radius: 16px; font-size: 15px; line-height: 1.4; display: grid; gap: 6px; }
+.bubble.me { justify-self: end; background: #dcf3c7; border-bottom-right-radius: 4px; }
+.bubble.bot { justify-self: start; background: #fff; border-bottom-left-radius: 4px; justify-items: start; }
+.tg-btn { justify-self: stretch; text-align: center; color: #2a7ab0; font-weight: 600; border-top: 1px solid #e5e7eb; padding-top: 8px; margin-top: 2px; }
+.how-vis.on .bubble.bot { animation: rise 500ms 500ms both; }
+
+/* tamper demo */
+.tamper { display: grid; grid-template-columns: 1fr 0.9fr; gap: 64px; align-items: center; padding: 96px 0; }
+.tamper-card { padding: 30px; overflow-wrap: anywhere; border: 1px solid var(--line); box-shadow: 0 30px 80px -40px rgb(17 24 39 / 0.4); display: grid; gap: 14px; overflow: hidden; }
+.tamper-v { position: relative; height: 36px; }
+.tamper-v > span { position: absolute; left: 0; top: 0; }
+.tamper-v .now { opacity: 0; }
+.tamper-card .fp.bad { color: var(--false); opacity: 0; max-height: 0; margin: 0; overflow: hidden; }
+.altered {
+  position: absolute; right: 20px; top: 22px; border: 4px solid var(--false); color: var(--false); font-weight: 900; font-size: 34px;
+  letter-spacing: 0.12em; padding: 2px 14px; font-size: 28px; border-radius: 8px; transform: rotate(-12deg) scale(2); opacity: 0; background: rgb(255 255 255 / 0.85);
+}
+.tamper-card.in .was { animation: out 300ms 1100ms both; }
+.tamper-card.in .now { animation: inn 300ms 1300ms both; }
+.tamper-card.in .fp.ok { animation: strike 400ms 2100ms both; }
+.tamper-card.in .fp.bad { animation: appear 400ms 2300ms both; }
+.tamper-card.in .altered { animation: slam 380ms 2500ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+@keyframes out { to { opacity: 0; transform: translateY(-10px); } }
+@keyframes inn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes strike { to { text-decoration: line-through; opacity: 0.45; } }
+@keyframes appear { to { opacity: 1; max-height: 3em; } }
+@keyframes slam { to { opacity: 1; transform: rotate(-12deg) scale(1); } }
+
+.trust h2.serif { font-size: clamp(34px, 4.4vw, 56px); font-weight: 400; }
+.vision { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 48px; align-items: end; padding: 104px 0 56px; }
+.vision-card { background: var(--ink); color: #f3f4f6; border-radius: var(--radius); padding: 34px; }
+.vision-card .eyebrow { color: #9db1ff; }
+.vision-card .muted { color: #9ca3af; }
+.vision-line { font-size: 30px; line-height: 1.2; margin: 0 0 18px; }
+.small { font-size: 13px; }
+.cta-band { text-align: center; padding: 72px 24px 64px; }
+.cta-band h2 { font-size: clamp(40px, 5vw, 64px); margin-bottom: 28px; }
+.row.center { justify-content: center; }
+
+@media (max-width: 900px) {
+  .how, .tamper, .vision { grid-template-columns: 1fr; gap: 32px; }
+  .how-pin { display: none; }
+  .how-step { min-height: 0; opacity: 1; padding: 28px 0; border-top: 1px solid var(--line); }
+  .how-inline { display: block; margin-top: 18px; }
+  .how-inline .vis-row, .how-inline .bubble { animation: none; }
+}
+@media (max-width: 560px) {
+  .need-list li { grid-template-columns: 40px 1fr; }
+  .live { min-height: 340px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal, .live-step, .how-vis, .how-step { opacity: 1; transform: none; transition: none; }
+  .marquee-track, .live-dot, .caret { animation: none; }
+  .tamper-card.in * { animation-duration: 1ms !important; animation-delay: 0ms !important; }
+}

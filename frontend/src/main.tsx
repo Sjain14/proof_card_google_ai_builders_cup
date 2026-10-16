@@ -1,4 +1,7 @@
 import "@fontsource-variable/inter";
+import "@fontsource/instrument-serif/400.css";
+import "@fontsource/instrument-serif/400-italic.css";
+import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
