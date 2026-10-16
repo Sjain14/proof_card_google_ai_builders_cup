@@ -70,6 +70,7 @@ from app.pipeline import (
     youtube_title,
 )
 from app.proof import FixtureFetcher, GcsSnapshots, HttpFetcher, InMemorySnapshots
+from app.reuse import SimilarCards
 from app.schemas import (
     CardDoc,
     CheckDoc,
@@ -144,6 +145,23 @@ def default_deps(settings: Settings, store: Store) -> Deps:  # pragma: no cover 
         if settings.model_mode == "vertex"
         else None
     )
+    similar = (
+        SimilarCards(
+            store,
+            VertexEmbedder(
+                settings.gcp_project,
+                settings.embed_region or settings.gcp_region,
+                settings.embed_model,
+            ),
+            VertexJudge(
+                settings.gcp_project,
+                settings.gemini_region or settings.gcp_region,
+                settings.gemini_model,
+            ),
+        )
+        if settings.model_mode == "vertex"
+        else None
+    )
     return Deps(
         store=store,
         model=model,
@@ -152,6 +170,7 @@ def default_deps(settings: Settings, store: Store) -> Deps:  # pragma: no cover 
         video_title=title,
         video_date=published,
         facts=facts,
+        similar=similar,
     )
 
 

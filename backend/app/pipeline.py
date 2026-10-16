@@ -19,6 +19,7 @@ from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 from urllib.parse import urlsplit
 
 from app.facts import FactDesk, Ruling, ensure_bank
@@ -62,6 +63,13 @@ MIN_PASSAGE_SCORE = 0.35
 FETCH_BUDGET_S = 25.0
 
 
+class Similar(Protocol):
+    """app/reuse.SimilarCards: the same claim in other words, proved this week."""
+
+    def lookup(self, text: str, context: str) -> tuple[str, float] | None: ...
+    def add(self, key: str, text: str, context: str, card_id: str) -> None: ...
+
+
 @dataclass(frozen=True)
 class Deps:
     store: Store
@@ -80,6 +88,8 @@ class Deps:
     video_date: Callable[[str], str] | None = None
     # Research fact bank (app/facts.py): checked first on every claim. None = off.
     facts: FactDesk | None = None
+    # Similar-claim reuse over saved cards (app/reuse.py). None = exact wording only.
+    similar: Similar | None = None
 
 
 @dataclass
@@ -253,10 +263,24 @@ def claim_key(text: str, context: str = "") -> str:
 def cached_card(text: str, context: str, deps: Deps) -> tuple[str, CardDoc] | None:
     """A card already proved for this exact claim (in this speech) within the week."""
     hit = deps.store.get_claim_card(claim_key(text, context))
-    if hit is None or datetime.now(UTC) - hit[1] > CLAIM_CACHE_AGE:
+    if hit is not None and datetime.now(UTC) - hit[1] <= CLAIM_CACHE_AGE:
+        card = deps.store.get_card(hit[0])
+        if card is not None:
+            return hit[0], card
+    if deps.similar is None:
         return None
-    card = deps.store.get_card(hit[0])
-    return (hit[0], card) if card is not None else None
+    try:
+        near = deps.similar.lookup(text, context)
+    except Exception:  # reuse is an optimisation: never fails a check
+        log.warning("similar lookup failed", exc_info=True)
+        return None
+    if near is None:
+        return None
+    card = deps.store.get_card(near[0])
+    if card is None:
+        return None
+    log.info("similar card reused", extra={"fields": {"cosine": round(near[1], 3)}})
+    return near[0], card
 
 
 def said_on(session: SessionDoc, deps: Deps) -> str:
@@ -614,7 +638,10 @@ def verify_claim(
     card_id = new_card_id()
     deps.store.put_card(card_id, card)
     if card.verdict != Verdict.UNVERIFIABLE:  # a later run may still find the proof
-        deps.store.put_claim_card(claim_key(claim.text, context), card_id)
+        key = claim_key(claim.text, context)
+        deps.store.put_claim_card(key, card_id, claim.text, context)
+        if deps.similar is not None:
+            deps.similar.add(key, claim.text, context, card_id)
     deps.store.update_claim(
         session_id,
         claim_id,

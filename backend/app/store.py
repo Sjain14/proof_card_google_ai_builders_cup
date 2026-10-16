@@ -11,6 +11,7 @@ model before anything is written, so a partial update can never break the schema
 from __future__ import annotations
 
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import Lock
 from typing import Any, Protocol
@@ -49,7 +50,19 @@ class Store(Protocol):
     def get_fact_bank(self, key: str) -> FactBankDoc | None: ...
     def put_fact_bank(self, doc: FactBankDoc) -> None: ...
     def get_claim_card(self, key: str) -> tuple[str, datetime] | None: ...
-    def put_claim_card(self, key: str, card_id: str) -> None: ...
+    def put_claim_card(self, key: str, card_id: str, text: str = "", context: str = "") -> None: ...
+    def recent_claim_cards(self, since: datetime, limit: int) -> list[ClaimCardRow]: ...
+
+
+@dataclass(frozen=True)
+class ClaimCardRow:
+    """One proved claim as said: what app/reuse.py indexes for similar claims."""
+
+    key: str
+    card_id: str
+    text: str
+    context: str
+    at: datetime
 
 
 class InMemoryStore:
@@ -60,6 +73,7 @@ class InMemoryStore:
         self.checks: list[CheckDoc] = []
         self.fact_banks: dict[str, FactBankDoc] = {}
         self.claim_cards: dict[str, tuple[str, datetime]] = {}
+        self.claim_texts: dict[str, tuple[str, str]] = {}
         self._lock = Lock()
 
     def create_session(self, doc: SessionDoc) -> str:
@@ -135,9 +149,19 @@ class InMemoryStore:
     def get_claim_card(self, key: str) -> tuple[str, datetime] | None:
         return self.claim_cards.get(key)
 
-    def put_claim_card(self, key: str, card_id: str) -> None:
+    def put_claim_card(self, key: str, card_id: str, text: str = "", context: str = "") -> None:
         with self._lock:
             self.claim_cards[key] = (card_id, datetime.now(UTC))
+            self.claim_texts[key] = (text, context)
+
+    def recent_claim_cards(self, since: datetime, limit: int) -> list[ClaimCardRow]:
+        with self._lock:
+            rows = [
+                ClaimCardRow(k, cid, *self.claim_texts.get(k, ("", "")), at)
+                for k, (cid, at) in self.claim_cards.items()
+                if at >= since
+            ]
+        return sorted(rows, key=lambda r: r.at, reverse=True)[:limit]
 
 
 class FirestoreStore:  # pragma: no cover - exercised against the emulator / prod
@@ -250,7 +274,34 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
             return None
         return d["card_id"], at
 
-    def put_claim_card(self, key: str, card_id: str) -> None:
+    def put_claim_card(self, key: str, card_id: str, text: str = "", context: str = "") -> None:
         self.db.collection("claim_cards").document(key).set(
-            {"card_id": card_id, "at": datetime.now(UTC)}
+            {"card_id": card_id, "at": datetime.now(UTC), "text": text, "context": context}
         )
+
+    def recent_claim_cards(self, since: datetime, limit: int) -> list[ClaimCardRow]:
+        """Single-field range + order on `at`: Firestore's automatic index, no composite."""
+        from google.cloud.firestore_v1 import FieldFilter, Query
+
+        q = (
+            self.db.collection("claim_cards")
+            .where(filter=FieldFilter("at", ">=", since))
+            .order_by("at", direction=Query.DESCENDING)
+            .limit(limit)
+        )
+        out: list[ClaimCardRow] = []
+        for snap in q.stream():
+            d = snap.to_dict() or {}
+            cid, at = d.get("card_id"), d.get("at")
+            if isinstance(cid, str) and isinstance(at, datetime):
+                text, ctx = d.get("text"), d.get("context")
+                out.append(
+                    ClaimCardRow(
+                        snap.id,
+                        cid,
+                        text if isinstance(text, str) else "",
+                        ctx if isinstance(ctx, str) else "",
+                        at,
+                    )
+                )
+        return out
