@@ -106,7 +106,8 @@ from app.telegram import (
 )
 
 log = logging.getLogger("proofcard")
-BOT_DAILY_CHECKS = 10  # claim checks per Telegram chat per UTC day (Vertex cost guard)
+BOT_DAILY_CHECKS = 40  # claim checks per Telegram chat per UTC day (Vertex cost guard;
+# 10 was hit by one demo run of 4 claims + a 3-claim forward + retries, 16 Oct)
 CLIP_TRIES = 3  # transcription attempts per clip (transient Gemini 429/503)
 CLIP_BACKOFF_S = 8.0
 FORWARD_SENTENCES = 8  # sentences of a forward read by the spotter, at most

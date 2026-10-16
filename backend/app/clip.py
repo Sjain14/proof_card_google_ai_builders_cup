@@ -20,10 +20,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 # Inline request data stays well under the Gemini request size limit; ~15 min of mp3 at
 # 128 kbps is ~14 MB. Larger files: trim or re-encode before upload.
 MAX_CLIP_BYTES = 20 * 1024 * 1024
-CLIP_BATCH = 5  # lines per saved step of a clip job: a resumed job redoes at most these
-# A job that saved nothing for this long lost its instance (one batch of 5 cold checks plus
-# a 9 min clip's transcription stay well under it) and is re-queued on the next poll.
-CLIP_STALE = timedelta(minutes=8)
+CLIP_BATCH = 10  # lines per saved step of a clip job: a resumed job redoes at most these.
+# Each step waits for its slowest check (drain), so 5 made a 9-line clip 2 serial waits
+# (prod e2e 16 Oct: 635 s for a 2 min clip); 10 (< the 12 cold workers) runs a short
+# clip in one parallel step.
+# A job that saved nothing for this long lost its instance (one batch of 10 parallel cold checks
+# plus a 9 min clip's transcription stay under it) and is re-queued on the next poll.
+CLIP_STALE = timedelta(minutes=15)
 
 if TYPE_CHECKING:
     from app.schemas import ClipJob
