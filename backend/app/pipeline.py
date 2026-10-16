@@ -39,6 +39,7 @@ from app.proof import (
     reports_claim,
     snapshot,
 )
+from app.quotes import attribution, surname
 from app.schemas import (
     CardDoc,
     ClaimDoc,
@@ -438,6 +439,70 @@ def build_card(
     )
 
 
+QUOTE_SAID = 0.6  # the quote's own words on a page that names the speaker: "said it"
+QUOTE_HINT = (
+    "This line puts words in a named person's mouth. Find where they actually said it, "
+    "or the closest thing they really said: the official transcript, their own site or "
+    "channel, a full speech text or a reputable report quoting the speech. Fake quotes "
+    "on photos and cloned voices are common: say so if no record exists."
+)
+
+
+def check_quote(text: str, deps: Deps, trace: Trace) -> CardDoc | None:
+    """ "X said '...'": did X say it? TRUE = the words are on record (says nothing about
+    whether the statement itself is true), MISLEADING = on record but in other words
+    (twisted), None = no record found: the normal check of the content runs."""
+    att = attribution(text)
+    if att is None:
+        return None
+    who = surname(att.speaker)
+    t0 = time.monotonic()
+    found = deps.model.assess(f'Did {att.speaker} actually say: "{att.quote}"?', QUOTE_HINT)
+    trace.add("quote_assess", t0)
+    best: tuple[float, Fetched, str] | None = None
+    for _ev, fetched in fetch_all(found.evidence, deps.fetcher, trace=trace):
+        page = extract_text(fetched.body, fetched.content_type)
+        if not page or (who and who not in page.lower()):
+            continue
+        m = best_match(att.quote, page)
+        if m.passage and (best is None or m.score > best[0]):
+            best = (m.score, fetched, m.passage)
+        if best is not None and best[0] >= QUOTE_SAID:
+            break
+    if best is None or best[0] < MIN_PASSAGE_SCORE:
+        trace.skip("quote_not_found")
+        return None
+    score, fetched, passage = best
+    host = urlsplit(fetched.final_url).hostname or "the source"
+    if score >= QUOTE_SAID:
+        verdict = Verdict.TRUE
+        why = (
+            f"On record: {att.speaker} did say this ({host}). This card proves the quote, "
+            "not the statement inside it."
+        )
+    else:
+        verdict = Verdict.MISLEADING
+        why = (
+            f"Twisted quote: no record of {att.speaker} saying these words. The closest "
+            f"thing on record ({host}) says something different; read the passage."
+        )
+    proof = SourceProof(
+        url=fetched.final_url,
+        snippet=passage,
+        snapshot_sha256=snapshot(fetched, deps.snapshots),
+        fetched_at=fetched.fetched_at,
+    )
+    fields = {
+        "claim": text,
+        "verdict": verdict,
+        "explanation": why,
+        "sources": [proof.model_dump(mode="json")],
+        "support_score": round(min(1.0, score), 3),
+    }
+    trace.reason = "quote"
+    return CardDoc(card_sha256=card_fingerprint(fields), **fields)
+
+
 def _attempt(text: str, hint: str, deps: Deps, trace: Trace, name: str) -> CardDoc | None:
     """One assess + proof pass. Stage times land in trace as <name>_assess / <name>_fetch."""
     t0 = time.monotonic()
@@ -514,8 +579,8 @@ def verify_claim(
         return hit[0]
     try:
         hint = search_hint(session.speaker if session else "", claim.text)
-        card = None
-        if session is not None and session.fact_bank_key:
+        card = check_quote(claim.text, deps, trace)
+        if card is None and session is not None and session.fact_bank_key:
             card, fact_ids = _fact_attempt(claim.text, session.fact_bank_key, deps, trace)
         if card is None and race_hint and hint:
             plain_t, hint_t = Trace(), Trace()
