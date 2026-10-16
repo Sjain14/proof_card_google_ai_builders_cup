@@ -122,6 +122,14 @@ _NUMBERISH = re.compile(
     # the spotter) and rate/record words that carry a checkable figure without a digit
     r"\b(?:higher|lower|bigger|smaller|richer|poorer|more|less|fewer|worst|best|record|"
     r"doubled|tripled|halved|per capita|ahead of|behind)\b|"
+    # done deeds and absolutes: "I got all the hostages back", "we ended eight wars" (no
+    # digit, skipped as not_checkable on the Trump demo, 16 Oct); the model decides.
+    r"\b(?:all the|all of (?:the|them|our|my)|every single|none of|never|nobody|no one|"
+    r"ended|stopped|released|freed|"
+    r"signed|passed|built|banned|abolished|eliminated|destroyed|obliterated|got back|"
+    r"brought back|returned)\b|"
+    r"sabhi|sab ke sab|kabhi nahi|kabhi bhi|khatam|band kar|"
+    r"सभी|सबको|कभी नहीं|ख़त्म|खत्म|"
     r"pratishat|karod|sabse|pehla|pehli|zyada|jyada|kam|aage|peeche|"
     r"प्रतिशत|करोड़|लाख|सबसे|ज़्यादा|ज्यादा|कम|आगे|पीछे",
     re.IGNORECASE,
@@ -149,8 +157,12 @@ SPOT_PROMPT = """You are a live fact-check desk. From this sentence heard on air
 factual claims a fact checker can verify against public records (numbers, dates, rankings,
 official statistics). Copy each claim as said, keep its language (English, Hindi or
 Hinglish). Comparisons of countries or states on official figures (bigger economy,
-higher per capita income, more populous) are claims even without a number.
-Return [] for opinions, questions, predictions or greetings.
+higher per capita income, more populous) are claims even without a number. So are
+statements of what already happened ("I got all the hostages back", "we ended eight
+wars", "Iran's nuclear sites were destroyed") and absolutes about the present or past
+("no country has ever...", "every hostage is home").
+Return [] for opinions, questions, greetings and pure promises about the future ("Iran
+will never have a nuclear weapon" is a pledge: nothing on record can prove it yet).
 Sentence: "{sentence}"
 """
 

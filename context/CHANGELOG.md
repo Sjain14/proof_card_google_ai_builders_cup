@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.28 · p28-spotter-events
+Trump demo replay (16 Oct): "I got all the hostages back" and "Iran will never have a nuclear weapon" were skipped as not_checkable. Neither carries a digit or superlative, so the heuristic pre filter never let the model spotter see them.
+- `app/live.py`: the pre filter also passes done deeds (ended, stopped, released, freed, signed, passed, built, banned, destroyed, obliterated, brought back, returned; Hindi/Hinglish khatam, band kar, सभी, कभी नहीं) and absolutes ("all the", "every single", "none of", never, nobody, no one). The spotter prompt counts statements of what already happened and absolutes about the past or present as claims; a pure promise about the future ("Iran will never have...") stays out, because no record can rule on it yet.
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.27 · p27-wayback-official
 pib.gov.in refuses every Cloud Run request (403) and times out from every datacenter and proxy line tried; run 5 lost 50 of 108 facts to fetch failures, mostly PIB. The Wayback Machine holds dated copies of PIB press releases (PRID 1847862: 4 Aug 2022), and archive.org serves datacenter IPs.
 - `app/facts.py`: when an OFFICIAL source refused us (403/401/429/timeout), `verify_candidate` reads its raw Wayback copy (`web.archive.org/web/<speech day>id_/<url>`, nearest snapshot) with the same gate: passage >= 0.35 and the figure on it. Kept as `checked: "archive"`, citing the archive URL. `official()` judges an archive URL by its original. Search grounding stays the last fallback. `stats.kept_archive` counts them.

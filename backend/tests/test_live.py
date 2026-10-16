@@ -488,3 +488,13 @@ def test_failed_cold_check_says_why() -> None:
     assert "stages" in end
     if end["type"] == "failed":
         assert end["reason"]
+
+
+def test_heuristic_lets_done_deeds_and_absolutes_reach_the_model() -> None:
+    # Trump demo (16 Oct): skipped as not_checkable before the model ever saw them.
+    assert heuristic_spot("I got all the hostages back, every single one of them")
+    assert heuristic_spot("We ended the war between those two countries")
+    assert heuristic_spot("Iran will never have a nuclear weapon")  # the model rules it a pledge
+    assert heuristic_spot("humne sabhi bandhak wapas la diye hain")
+    assert not heuristic_spot("Thank you so much, it is great to be here tonight")
+    assert not heuristic_spot("Did they get the hostages back?")
