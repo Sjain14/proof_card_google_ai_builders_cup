@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime
 from urllib.parse import urlsplit
 
 from app.facts import FactDesk, Ruling, ensure_bank
@@ -66,6 +68,9 @@ class Deps:
     # YouTube URL -> video title, so the bank is predicted for THIS video, not the topic in
     # general. None = off (tests, stub). Prod: youtube_title() below.
     video_title: Callable[[str], str] | None = None
+    # YouTube URL -> ISO publish date ("" unknown): the fact bank is researched for the
+    # figures current on that day. None = off (tests, stub). Prod: youtube_published().
+    video_date: Callable[[str], str] | None = None
     # Research fact bank (app/facts.py): checked first on every claim. None = off.
     facts: FactDesk | None = None
 
@@ -187,6 +192,49 @@ def youtube_title(url: str) -> str:  # pragma: no cover - network
     except Exception:
         log.info("video title lookup failed", exc_info=True)
         return ""
+
+
+_PUBLISHED = (
+    re.compile(r'itemprop="(?:datePublished|uploadDate)" content="(\d{4}-\d{2}-\d{2})'),
+    re.compile(r'"(?:publishDate|uploadDate)":"(\d{4}-\d{2}-\d{2})'),
+    re.compile(r'"publishDate":\{"simpleText":"([^"]{6,30})"\}'),
+)
+_DATE_FORMATS = ("%Y-%m-%d", "%d %b %Y", "%b %d, %Y", "%d %B %Y", "%B %d, %Y")
+
+
+def published_date(html: str) -> str:
+    """ISO date a YouTube watch page says the video was published, else "". The page
+    carries it as schema.org microdata or in ytInitialData ("1 Aug 2022", 16 Oct 2026)."""
+    for pat in _PUBLISHED:
+        if m := pat.search(html):
+            raw = m.group(1).strip()
+            for fmt in _DATE_FORMATS:
+                try:
+                    return datetime.strptime(raw, fmt).date().isoformat()
+                except ValueError:
+                    continue
+    return ""
+
+
+def youtube_published(url: str) -> str:  # pragma: no cover - network
+    """Publish date from the watch page (oEmbed has no date, the Data API needs a key).
+    Docs: https://developers.google.com/youtube/v3/docs/videos#snippet.publishedAt (field),
+    https://schema.org/datePublished. Any error -> "" (the bank researches current figures)."""
+    try:
+        req = urllib.request.Request(  # noqa: S310 - https YouTube host (schemas._youtube_only)
+            url, headers={"User-Agent": "Mozilla/5.0 (proofcard)", "Accept-Language": "en"}
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:  # noqa: S310 - youtube_url validated
+            return published_date(r.read(3_000_000).decode("utf-8", "replace"))
+    except Exception:
+        log.info("video date lookup failed", exc_info=True)
+        return ""
+
+
+def said_on(session: SessionDoc, deps: Deps) -> str:
+    if session.youtube_url and deps.video_date is not None:
+        return deps.video_date(session.youtube_url)
+    return ""
 
 
 def support_for(claim: str, a: Assessment, snippet: str, text: str) -> tuple[str, float]:
@@ -377,7 +425,9 @@ def _fact_attempt(
         return None, []
     t0 = time.monotonic()
     bank = deps.store.get_fact_bank(key)
-    ruling: Ruling | None = deps.facts.rule(text, bank.facts) if bank and bank.facts else None
+    ruling: Ruling | None = (
+        deps.facts.rule(text, bank.facts, bank.said_on) if bank and bank.facts else None
+    )
     trace.add("facts_rule", t0)
     if ruling is None or bank is None:
         trace.skip("no_fact")
@@ -505,7 +555,12 @@ def _with_fact_bank(session_id: str, session: SessionDoc, deps: Deps, desk: Fact
         title = deps.video_title(session.youtube_url)
         about = f"{about}. Video: {title}" if title else about
     try:
-        key = ensure_bank(deps.store, desk, deps.fetcher, session.topic, session.speaker, about)
+        when = said_on(session, deps)
+        if when:
+            about = f"{about} (published {when})"
+        key = ensure_bank(
+            deps.store, desk, deps.fetcher, session.topic, session.speaker, about, said_on=when
+        )
     except Exception:
         log.exception("fact bank failed, brief continues without it")
         return session
@@ -537,6 +592,8 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
                 title = deps.video_title(session.youtube_url)
                 if title:
                     topic = f"{topic}. Video being fact checked: {title}"
+                if when := said_on(session, deps):
+                    topic = f"{topic}. Speech given on {when}: predict what was said then"
             predicted = _predict(deps, topic, session.speaker, n, session.topic)
         except Exception:
             log.exception("prebunk prediction failed")

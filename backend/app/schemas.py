@@ -143,6 +143,8 @@ class FactBankDoc(Strict):
     key: Annotated[str, Field(pattern=r"^[a-z0-9-]{1,120}$")]
     topic: ShortText
     speaker: str = ""
+    # ISO date the speech was given (YouTube publish date); "" = current. Anchors research.
+    said_on: Annotated[str, Field(pattern=r"^(\d{4}-\d{2}-\d{2})?$")] = ""
     prompt_version: str
     researched: Annotated[int, Field(ge=0)] = 0  # candidates before source verification
     facts: Annotated[list[Fact], Field(max_length=200)] = []

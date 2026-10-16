@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.26 · p26-dated-fact-bank
+Prod run 5 on v0.7.25 (7dhIVHRKhvo, a 1 Aug 2022 speech): 108 researched, 10 kept (all official), 0 live lines decided. The bank held September 2026 figures; the speech cites the IMF's July 2022 cut (8.2% to 7.4%), so no fact ever matched the period of a line. 35 drops were low support on mospi.gov.in / rbi.org.in pages that do state the figure: the statement's attribution tail ("..., according to provisional estimates released by MoSPI") is never on the page and dragged the score to 0.04-0.27.
+- `app/pipeline.py`: `youtube_published()` reads the publish date from the watch page (schema.org `datePublished` / `uploadDate`, or ytInitialData `publishDate`; oEmbed has no date). `Deps.video_date` wires it on prod. The prediction prompt and the fact research get the speech day.
+- `app/facts.py`: `bank_key(topic, speaker, said_on)`: a dated speech has its own bank (`-dYYYYMMDD`). Angles, research and the rule prompt are told the date ("figures that were the latest ON THAT DATE, never one published after it"). `FactBankDoc.said_on` stored. 12 angles instead of 10 (parallel, no extra wall time). `verify_candidate` also matches `core_statement()` (the fact without its attribution tail; "per cent" kept); the figure must still be on the passage.
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.25 · p25-bank-survives-predict
 Prod run on v0.7.24 (7dhIVHRKhvo brief): the MoSPI/RBI prompt worked. PIB 403 drops fell from 67 to 35, and the bank kept 9 facts, 8 of them official (MoSPI CPI + GDP press releases, IMF WEO Oct 2026, BEA). But Vertex was slow in that window (angles 182 s, against 4 s before), the claim prediction failed after the bank was built, and the whole session ended "failed" with its verified facts unused.
 - `run_prebunk`: a prediction failure on a session whose linked fact bank holds facts ends it "ready" (no predicted claims, but every live line is still ruled against the bank). Without facts it still ends "failed".

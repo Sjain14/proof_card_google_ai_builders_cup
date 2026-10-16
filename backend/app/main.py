@@ -55,7 +55,7 @@ from app.live import (
 )
 from app.logging_setup import configure_logging
 from app.model import ModelClient, StubModel, VertexModel
-from app.pipeline import Deps, run_prebunk, youtube_title
+from app.pipeline import Deps, run_prebunk, youtube_published, youtube_title
 from app.proof import FixtureFetcher, GcsSnapshots, HttpFetcher, InMemorySnapshots
 from app.schemas import (
     CardDoc,
@@ -108,6 +108,7 @@ def default_deps(settings: Settings, store: Store) -> Deps:  # pragma: no cover 
         model, fetcher = StubModel(), FixtureFetcher()
     snaps = GcsSnapshots(settings.proof_bucket) if settings.proof_bucket else InMemorySnapshots()
     title = youtube_title if settings.model_mode == "vertex" else None
+    published = youtube_published if settings.model_mode == "vertex" else None
     facts = (
         VertexFactDesk(
             settings.gcp_project,
@@ -118,7 +119,13 @@ def default_deps(settings: Settings, store: Store) -> Deps:  # pragma: no cover 
         else None
     )
     return Deps(
-        store=store, model=model, fetcher=fetcher, snapshots=snaps, video_title=title, facts=facts
+        store=store,
+        model=model,
+        fetcher=fetcher,
+        snapshots=snaps,
+        video_title=title,
+        video_date=published,
+        facts=facts,
     )
 
 

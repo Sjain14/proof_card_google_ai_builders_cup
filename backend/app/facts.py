@@ -40,8 +40,8 @@ from app.store import Store
 
 log = logging.getLogger("proofcard.facts")
 
-FACTS_PROMPT_VERSION = "2026-10-16.f1"
-ANGLES = 10
+FACTS_PROMPT_VERSION = "2026-10-16.f2"
+ANGLES = 12  # 10 angles x 12 = 108 researched, 10 kept (run 5); parallel, no extra time
 FACTS_PER_ANGLE = 12
 MAX_FACTS = 100
 MIN_REUSE = 20  # a stored bank smaller than this is researched again
@@ -82,21 +82,43 @@ def official(url: str) -> bool:
     )
 
 
-def bank_key(topic: str, speaker: str) -> str:
-    """Stable doc id for topic + speaker: readable slug + hash (Hindi topics: hash only)."""
+def bank_key(topic: str, speaker: str, said_on: str = "") -> str:
+    """Stable doc id for topic + speaker (+ the date the speech was given): readable slug +
+    hash (Hindi topics: hash only). A 2022 speech gets its own bank: the 2026 figures
+    decided 0 lines of the 2022 Sitharaman replay (run 5, 16 Oct)."""
 
     def norm(s: str) -> str:
         return " ".join(re.findall(r"[a-z0-9]+", s.lower()))
 
     t, sp = norm(topic), norm(speaker)
     basis = f"{t}|{sp}" if t else f"{' '.join(topic.lower().split())}|{sp}"
+    if said_on:
+        basis += f"|{said_on}"
     digest = hashlib.sha256(basis.encode()).hexdigest()[:12]
-    slug = "-".join(t.split()[:8] + sp.split()[:3])[:100]
+    slug = "-".join(t.split()[:8] + sp.split()[:3])[: 90 if said_on else 100]
+    if said_on and slug:
+        slug += "-d" + said_on.replace("-", "")
     return f"{slug}-{digest}" if slug else digest
 
 
 def _numbers(text: str) -> set[str]:
     return {m.replace(",", "") for m in _NUM.findall(text)}
+
+
+# Attribution tails a source page never repeats word for word ("..., according to
+# provisional estimates released by MoSPI"). They capped real matches at 0.04-0.27 on
+# mospi.gov.in / rbi.org.in pages that state the figure (run 5: 35 low_support drops).
+_ATTRIBUTION = re.compile(
+    r"(?:[,;]\s*(?:according to|as per|per(?!\s+cent)|says|said|reported by|released by|"
+    r"data from)|\s+(?:according to|as per))\b.*$",
+    re.IGNORECASE,
+)
+
+
+def core_statement(statement: str) -> str:
+    """The fact without its attribution tail; the figure and period stay."""
+    core = _ATTRIBUTION.sub("", statement.strip()).rstrip(" .,;")
+    return core if len(core.split()) >= 4 else statement
 
 
 @dataclass(frozen=True)
@@ -122,9 +144,11 @@ class Ruling:
 
 
 class FactDesk(Protocol):
-    def angles(self, topic: str, speaker: str, k: int) -> list[str]: ...
-    def research(self, topic: str, speaker: str, angle: str, n: int) -> list[Candidate]: ...
-    def rule(self, claim: str, facts: list[Fact]) -> Ruling | None: ...
+    def angles(self, topic: str, speaker: str, k: int, said_on: str = "") -> list[str]: ...
+    def research(
+        self, topic: str, speaker: str, angle: str, n: int, said_on: str = ""
+    ) -> list[Candidate]: ...
+    def rule(self, claim: str, facts: list[Fact], said_on: str = "") -> Ruling | None: ...
 
 
 # ---------- building the bank ----------
@@ -163,7 +187,8 @@ def verify_candidate(c: Candidate, fetcher: Fetcher) -> tuple[str, str, float, s
                 text = render_official(fetched.body)
             else:
                 text = extract_text(fetched.body, fetched.content_type)
-            m = best_match(c.statement, text) if text else None
+            queries = dict.fromkeys([c.statement, core_statement(c.statement)])
+            m = max((best_match(q, text) for q in queries), key=lambda x: x.score) if text else None
         except Exception as exc:  # a broken PDF or page never sinks the whole bank
             reason = f"parse:{type(exc).__name__}"
             continue
@@ -198,21 +223,27 @@ def _dedupe(cands: Iterable[Candidate]) -> list[Candidate]:
 
 
 def build_bank(
-    topic: str, speaker: str, desk: FactDesk, fetcher: Fetcher, research_topic: str = ""
+    topic: str,
+    speaker: str,
+    desk: FactDesk,
+    fetcher: Fetcher,
+    research_topic: str = "",
+    said_on: str = "",
 ) -> FactBankDoc:
     """Plan angles, research them in parallel, keep only source verified facts.
-    Official facts first, then the best supported, capped at MAX_FACTS."""
+    Official facts first, then the best supported, capped at MAX_FACTS. said_on (ISO date
+    the speech was given) anchors research to the figures that were current THEN."""
     about = research_topic or topic
     t0 = time.monotonic()
     try:
-        angles = desk.angles(about, speaker, ANGLES) or [topic]
+        angles = desk.angles(about, speaker, ANGLES, said_on) or [topic]
     except Exception:
         log.warning("fact angles failed, researching the topic as one angle", exc_info=True)
         angles = [topic]
 
     def one(angle: str) -> list[Candidate]:
         try:
-            return desk.research(about, speaker, angle, FACTS_PER_ANGLE)
+            return desk.research(about, speaker, angle, FACTS_PER_ANGLE, said_on)
         except Exception:
             log.warning("fact research failed for one angle", exc_info=True)
             return []
@@ -276,9 +307,10 @@ def build_bank(
         },
     )
     return FactBankDoc(
-        key=bank_key(topic, speaker),
+        key=bank_key(topic, speaker, said_on),
         topic=topic[:500],
         speaker=speaker,
+        said_on=said_on,
         prompt_version=FACTS_PROMPT_VERSION,
         researched=len(cands),
         facts=facts,
@@ -295,16 +327,17 @@ def ensure_bank(
     speaker: str,
     research_topic: str = "",
     now: datetime | None = None,
+    said_on: str = "",
 ) -> str | None:
     """Key of a usable bank for topic + speaker: the stored one when fresh and big enough,
     else a newly researched one (stored even when empty, for its diagnostics)."""
-    key = bank_key(topic, speaker)
+    key = bank_key(topic, speaker, said_on)
     now = now or datetime.now(UTC)
     old = store.get_fact_bank(key)
     if old is not None and len(old.facts) >= MIN_REUSE and now - old.created_at < MAX_AGE:
         log.info("fact bank reused", extra={"fields": {"facts": len(old.facts)}})
         return key
-    bank = build_bank(topic, speaker, desk, fetcher, research_topic)
+    bank = build_bank(topic, speaker, desk, fetcher, research_topic, said_on)
     if not bank.facts and old is not None and old.facts:
         return key  # a failed rebuild never replaces facts we already verified
     # An empty bank is stored too: its stats and samples say why research kept nothing.
@@ -326,6 +359,7 @@ def checked_ruling(r: Ruling | None, facts: list[Fact]) -> Ruling | None:
 ANGLES_PROMPT = """You plan research for a fact checking newsroom before a broadcast.
 Topic: {topic}
 Speaker: {speaker}
+{when}
 List {k} distinct research angles a fact checker must have figures on file for, covering
 what this speaker is most likely to cite on this topic: official statistics, rankings,
 budget and scheme numbers, dates, international comparisons. Short noun phrases."""
@@ -334,6 +368,7 @@ RESEARCH_PROMPT = """You are the research desk of a fact checking newsroom.
 Topic: {topic}
 Speaker: {speaker}
 Angle: {angle}
+{when}
 Using Google Search, collect {n} distinct, verifiable facts for this angle: the latest
 official figure for each measure, plus the earlier figures a speaker is likely to compare
 against. {hint}
@@ -358,12 +393,33 @@ same measure, same place and the same period (or the line names no period and th
 the latest figure). Same topic is NOT enough: GDP growth vs GDP size, rank vs growth rate,
 state vs country, a forecast vs an actual = does not decide.
 Speaker line (English, Hindi or Hinglish): "{claim}"
+{when}
 Facts:
 {facts}
 verdict: TRUE = the facts confirm the line; FALSE = they contradict its figure, ranking or
 date; MISLEADING = the figure is right but the framing, period or comparison is wrong.
 fact_ids: the 1 to 3 facts that decide it. explanation: two sentences, cite the figures.
 claim_en: the line restated in English. decided=false when no fact decides it."""
+
+
+def when_line(said_on: str) -> str:
+    """Research anchor: the figures a speaker could cite on the day of the speech."""
+    if not said_on:
+        return "The speech is current: use the latest figures."
+    return (
+        f"The speech was given on {said_on}. Collect the figures that were the latest "
+        f"published ones ON THAT DATE (what the speaker could cite then) and the earlier "
+        f"figures they compare against. Never use a figure published after {said_on}."
+    )
+
+
+def said_line(said_on: str) -> str:
+    return (
+        f"The line was said on {said_on}: 'latest figure' means latest on that date."
+        if said_on
+        else ""
+    )
+
 
 _ANGLES_SCHEMA = {"type": "ARRAY", "items": {"type": "STRING"}}
 _RULE_SCHEMA = {
@@ -482,12 +538,14 @@ class VertexFactDesk:  # pragma: no cover - needs a GCP project
         self.research_client = vertex_client(project, location, RESEARCH_TIMEOUT_S)
         self.model = model
 
-    def angles(self, topic: str, speaker: str, k: int) -> list[str]:
+    def angles(self, topic: str, speaker: str, k: int, said_on: str = "") -> list[str]:
         from google.genai import types
 
         resp = self.client.models.generate_content(
             model=self.model,
-            contents=ANGLES_PROMPT.format(topic=topic, speaker=speaker or "unknown", k=k),
+            contents=ANGLES_PROMPT.format(
+                topic=topic, speaker=speaker or "unknown", k=k, when=when_line(said_on)
+            ),
             config=types.GenerateContentConfig(
                 temperature=0.3,
                 response_mime_type="application/json",
@@ -497,14 +555,21 @@ class VertexFactDesk:  # pragma: no cover - needs a GCP project
         )
         return [str(a)[:200] for a in json.loads(resp.text or "[]") if str(a).strip()][:k]
 
-    def research(self, topic: str, speaker: str, angle: str, n: int) -> list[Candidate]:
+    def research(
+        self, topic: str, speaker: str, angle: str, n: int, said_on: str = ""
+    ) -> list[Candidate]:
         from google.genai import types
 
         hint = search_hint(speaker, f"{topic} {angle}")
         resp = self.research_client.models.generate_content(
             model=self.model,
             contents=RESEARCH_PROMPT.format(
-                topic=topic, speaker=speaker or "unknown", angle=angle, n=n, hint=hint
+                topic=topic,
+                speaker=speaker or "unknown",
+                angle=angle,
+                n=n,
+                hint=hint,
+                when=when_line(said_on),
             ),
             config=types.GenerateContentConfig(
                 temperature=0.0, tools=[types.Tool(google_search=types.GoogleSearch())]
@@ -512,13 +577,15 @@ class VertexFactDesk:  # pragma: no cover - needs a GCP project
         )
         return candidates_from(resp.text or "", resp, angle)
 
-    def rule(self, claim: str, facts: list[Fact]) -> Ruling | None:
+    def rule(self, claim: str, facts: list[Fact], said_on: str = "") -> Ruling | None:
         from google.genai import types
 
         try:
             resp = self.client.models.generate_content(
                 model=self.model,
-                contents=RULE_PROMPT.format(claim=claim, facts=render_facts(facts)),
+                contents=RULE_PROMPT.format(
+                    claim=claim, facts=render_facts(facts), when=said_line(said_on)
+                ),
                 config=types.GenerateContentConfig(
                     temperature=0.0,
                     response_mime_type="application/json",

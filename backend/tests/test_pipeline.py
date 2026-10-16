@@ -541,3 +541,14 @@ def test_prediction_drops_the_video_title_before_the_speaker() -> None:
     d = deps(InMemoryStore(), TitleHangs(), MapFetcher({}))
     assert _predict(d, "economy. Video: FM", "Sitharaman", 3, "economy")
     assert calls == [("economy. Video: FM", "Sitharaman"), ("economy", "Sitharaman")]
+
+
+def test_published_date_reads_watch_page_formats() -> None:
+    from app.pipeline import published_date
+
+    assert published_date('"publishDate":{"simpleText":"1 Aug 2022"}') == "2022-08-01"
+    assert published_date('<meta itemprop="datePublished" content="2022-08-01T03:00">') == (
+        "2022-08-01"
+    )
+    assert published_date('"uploadDate":"2021-02-03T00:00:00-08:00"') == "2021-02-03"
+    assert published_date("<html>no date</html>") == ""

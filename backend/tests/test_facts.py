@@ -18,11 +18,13 @@ from app.facts import (
     checked_ruling,
     chunk_hosts_for,
     chunk_urls_for,
+    core_statement,
     ensure_bank,
     official,
     parse_json_list,
     render_facts,
     verify_candidate,
+    when_line,
 )
 from app.model import Assessment
 from app.pipeline import Deps, run_prebunk, verify_claim
@@ -78,15 +80,21 @@ class FakeDesk:
     angle_calls: int = 0
     seen: list[str] = field(default_factory=list)
 
-    def angles(self, topic: str, speaker: str, k: int) -> list[str]:
+    dates: list[str] = field(default_factory=list)
+
+    def angles(self, topic: str, speaker: str, k: int, said_on: str = "") -> list[str]:
         self.angle_calls += 1
+        self.dates.append(said_on)
         return ["growth", "prices"]
 
-    def research(self, topic: str, speaker: str, angle: str, n: int) -> list[Candidate]:
+    def research(
+        self, topic: str, speaker: str, angle: str, n: int, said_on: str = ""
+    ) -> list[Candidate]:
         return [c for c in self.cands if c.angle == angle]
 
-    def rule(self, claim: str, facts: list[Fact]) -> Ruling | None:
+    def rule(self, claim: str, facts: list[Fact], said_on: str = "") -> Ruling | None:
         self.seen.append(claim)
+        self.dates.append(said_on)
         return checked_ruling(self.ruling, facts)
 
 
@@ -227,10 +235,12 @@ def test_build_bank_skips_invalid_fact(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_build_bank_survives_desk_failures() -> None:
     class Broken(FakeDesk):
-        def angles(self, topic: str, speaker: str, k: int) -> list[str]:
+        def angles(self, topic: str, speaker: str, k: int, said_on: str = "") -> list[str]:
             raise RuntimeError("down")
 
-        def research(self, topic: str, speaker: str, angle: str, n: int) -> list[Candidate]:
+        def research(
+            self, topic: str, speaker: str, angle: str, n: int, said_on: str = ""
+        ) -> list[Candidate]:
             raise RuntimeError("down")
 
     assert build_bank("growth", "", Broken(), MapFetcher(PAGES)).facts == []
@@ -456,3 +466,60 @@ def test_facts_endpoint_owner_only(client: TestClient) -> None:
     assert client.get(f"/api/sessions/{sid}/facts", headers=anon).status_code == 404
     store.update_session(sid, fact_bank_key="gone")
     assert client.get(f"/api/sessions/{sid}/facts", headers=hdr).status_code == 404
+
+
+def test_core_statement_drops_attribution_keeps_per_cent() -> None:
+    s = "India's real GDP grew 7.7% in FY 2025-26, according to provisional estimates by MoSPI."
+    assert core_statement(s) == "India's real GDP grew 7.7% in FY 2025-26"
+    assert core_statement("Real GDP grew 8.2 per cent in 2023-24") == (
+        "Real GDP grew 8.2 per cent in 2023-24"
+    )
+    assert core_statement("CPI inflation was 5.4%, per MoSPI") == "CPI inflation was 5.4%"
+
+
+def test_verify_candidate_matches_without_attribution_tail() -> None:
+    page = "<p>All India CPI inflation rate is 5.54 per cent for September 2026.</p>"
+    c = Candidate(
+        "All India CPI inflation rate was 5.54 per cent for September 2026, according to "
+        "provisional data released by the National Statistics Office of MoSPI",
+        value="5.54",
+        urls=("https://mospi.gov.in/cpi",),
+    )
+    got = verify_candidate(c, MapFetcher({"https://mospi.gov.in/cpi": page}))
+    assert not isinstance(got, str), got
+
+
+def test_dated_bank_is_its_own_bank_and_researched_for_that_day() -> None:
+    assert bank_key("growth", "FM", "2022-08-01") != bank_key("growth", "FM")
+    assert "-d20220801-" in bank_key("growth", "FM", "2022-08-01")
+    assert len(bank_key("x " * 80, "a b c", "2022-08-01")) <= 120
+    store, desk = InMemoryStore(), FakeDesk()
+    key = ensure_bank(store, desk, MapFetcher(PAGES), "growth", "", said_on="2022-08-01")
+    bank = store.get_fact_bank(key or "")
+    assert bank is not None
+    assert bank.said_on == "2022-08-01"
+    assert desk.dates == ["2022-08-01"]
+    assert "2022-08-01" in when_line("2022-08-01")
+    assert "latest" in when_line("")
+
+
+def test_prebunk_researches_the_video_day_and_rules_with_it() -> None:
+    store, desk = InMemoryStore(), FakeDesk(ruling=Ruling(Verdict.TRUE, [0], "ok"))
+    sid = store.create_session(
+        SessionDoc(owner_uid="u", topic="growth", youtube_url="https://youtu.be/x")
+    )
+    deps = Deps(
+        store,
+        CountingModel(),
+        MapFetcher(PAGES),
+        InMemorySnapshots(),
+        video_date=lambda url: "2022-08-01",
+        facts=desk,
+    )
+    run_prebunk(sid, deps, n=1)
+    s = store.get_session(sid)
+    assert s is not None
+    assert s.fact_bank_key
+    assert "-d20220801-" in s.fact_bank_key
+    assert desk.dates[0] == "2022-08-01"
+    assert "2022-08-01" in desk.dates[1:]  # the ruling sees the speech date too
