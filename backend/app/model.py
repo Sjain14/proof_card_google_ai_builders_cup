@@ -52,7 +52,9 @@ def _fast_thinking() -> Any:
     return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
 
 
-def vertex_client(project: str, location: str, timeout_s: float) -> Any:  # pragma: no cover
+def vertex_client(
+    project: str, location: str, timeout_s: float, attempts: int = 3
+) -> Any:  # pragma: no cover
     from google import genai
     from google.genai import types
 
@@ -62,7 +64,7 @@ def vertex_client(project: str, location: str, timeout_s: float) -> Any:  # prag
         location=location,
         http_options=types.HttpOptions(
             timeout=int(timeout_s * 1000),  # milliseconds
-            retry_options=types.HttpRetryOptions(attempts=3),
+            retry_options=types.HttpRetryOptions(attempts=attempts),
         ),
     )
 

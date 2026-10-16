@@ -548,3 +548,41 @@ def test_blocked_official_page_is_read_from_its_wayback_copy() -> None:
     assert got[0] == copy
     assert got[3] == "archive"
     assert verify_candidate(c, BlockedFetcher({}), "2022-08-01") == "fetch:archive nope"
+
+
+def test_slow_research_angle_costs_its_facts_not_the_bank() -> None:
+    import threading
+    import time
+
+    gate = threading.Event()
+
+    class Slow(FakeDesk):
+        def research(
+            self, topic: str, speaker: str, angle: str, n: int, said_on: str = ""
+        ) -> list[Candidate]:
+            if angle == "prices":
+                gate.wait(5)  # hangs past the budget
+            return super().research(topic, speaker, angle, n, said_on)
+
+    t0 = time.monotonic()
+    bank = build_bank("growth", "", Slow(), MapFetcher(PAGES), research_budget=0.5)
+    gate.set()
+    assert time.monotonic() - t0 < 3
+    assert bank.stats["angles_empty"] == 1
+    assert all(f.angle == "growth" for f in bank.facts)
+
+
+def test_within_marks_late_and_failed_items() -> None:
+    import time
+
+    from app.facts import _within
+
+    def fn(x: int) -> int:
+        if x == 2:
+            raise ValueError("bad")
+        if x == 3:
+            time.sleep(2)
+        return x * 10
+
+    assert _within(fn, [1, 2, 3], 3, 0.5, -1, "t") == [10, -1, -1]
+    assert _within(fn, [], 3, 0.5, -1, "t") == []

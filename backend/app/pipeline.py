@@ -68,7 +68,7 @@ class Deps:
     fetcher: Fetcher
     snapshots: SnapshotStore
     max_sources: int = 3
-    workers: int = 4
+    workers: int = 6  # brief claims checked at once (12 at 4: ~16 min, run 6)
     # YouTube URL -> video title, so the bank is predicted for THIS video, not the topic in
     # general. None = off (tests, stub). Prod: youtube_title() below.
     video_title: Callable[[str], str] | None = None
@@ -567,6 +567,24 @@ def _result(fut: Future[CardDoc | None]) -> CardDoc | None:
         return None
 
 
+def _predict_into(
+    session_id: str, session: SessionDoc, deps: Deps, n: int
+) -> list[tuple[str, ClaimDoc]]:
+    """Predict the brief's claims and store them (queued) at once."""
+    topic = session.topic
+    if session.youtube_url and deps.video_title is not None:
+        title = deps.video_title(session.youtube_url)
+        if title:
+            topic = f"{topic}. Video being fact checked: {title}"
+        if when := said_on(session, deps):
+            topic = f"{topic}. Speech given on {when}: predict what was said then"
+    out: list[tuple[str, ClaimDoc]] = []
+    for p in _predict(deps, topic, session.speaker, n, session.topic):
+        doc = ClaimDoc(text=p.text, lang=p.lang, source=ClaimSource.PREDICTED)
+        out.append((deps.store.add_claim(session_id, doc), doc))
+    return out
+
+
 def _predict(
     deps: Deps, topic: str, speaker: str, n: int, base_topic: str = ""
 ) -> list[PredictedClaim]:
@@ -664,38 +682,34 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
     if session is None:
         return {"predicted": 0, "proved": 0}
     deps.store.update_session(session_id, status="prebunking", prebunk_beat=datetime.now(UTC))
-    if deps.facts is not None and not session.fact_bank_key:
-        # Fact research is the one long silent step (12 angles + ~140 page reads): pulse
-        # the beat while it runs, so only a dead instance ever looks stalled.
-        with _pulse(session_id, deps):
-            session = _with_fact_bank(session_id, session, deps, deps.facts)
-        _beat(session_id, deps)
     bank = [
         (cid, c)
         for cid, c in deps.store.list_claims(session_id)
         if c.source == ClaimSource.PREDICTED
     ]
-    if not bank:
-        try:
-            topic = session.topic
-            if session.youtube_url and deps.video_title is not None:
-                title = deps.video_title(session.youtube_url)
-                if title:
-                    topic = f"{topic}. Video being fact checked: {title}"
-                if when := said_on(session, deps):
-                    topic = f"{topic}. Speech given on {when}: predict what was said then"
-            predicted = _predict(deps, topic, session.speaker, n, session.topic)
-        except Exception:
-            log.exception("prebunk prediction failed")
-            # A verified fact bank still rules every live line: the session stays usable.
-            fb = deps.store.get_fact_bank(session.fact_bank_key) if session.fact_bank_key else None
-            status = "ready" if fb is not None and fb.facts else "failed"
-            deps.store.update_session(session_id, status=status)
-            return {"predicted": 0, "proved": 0}
-        for p in predicted:
-            doc = ClaimDoc(text=p.text, lang=p.lang, source=ClaimSource.PREDICTED)
-            bank.append((deps.store.add_claim(session_id, doc), doc))
-        _beat(session_id, deps)
+    # Prediction runs WHILE the facts are researched (it never needed the bank): claims
+    # show up in about a minute, not after research (run 6: nothing on screen for 8 min).
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="predict")
+    predicting = None if bank else pool.submit(_predict_into, session_id, session, deps, n)
+    try:
+        # Research is the one long step: pulse the beat while it and the prediction run,
+        # so only a dead instance ever looks stalled.
+        with _pulse(session_id, deps):
+            if deps.facts is not None and not session.fact_bank_key:
+                session = _with_fact_bank(session_id, session, deps, deps.facts)
+            if predicting is not None:
+                bank = predicting.result()
+    except Exception:
+        log.exception("prebunk prediction failed")
+        # A verified fact bank still rules every live line: the session stays usable.
+        session = deps.store.get_session(session_id) or session
+        fb = deps.store.get_fact_bank(session.fact_bank_key) if session.fact_bank_key else None
+        status = "ready" if fb is not None and fb.facts else "failed"
+        deps.store.update_session(session_id, status=status)
+        return {"predicted": 0, "proved": 0}
+    finally:
+        pool.shutdown(wait=False)
+    _beat(session_id, deps)
     todo = [cid for cid, c in bank if c.status not in (ClaimStatus.PROVED, ClaimStatus.FAILED)]
     with ThreadPoolExecutor(max_workers=deps.workers) as pool:
         list(pool.map(lambda cid: _verify_and_beat(session_id, cid, deps), todo))

@@ -24,8 +24,8 @@ import logging
 import re
 import time
 from collections import Counter
-from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -42,8 +42,12 @@ log = logging.getLogger("proofcard.facts")
 
 FACTS_PROMPT_VERSION = "2026-10-16.f2"
 ANGLES = 12  # 10 angles x 12 = 108 researched, 10 kept (run 5); parallel, no extra time
-FACTS_PER_ANGLE = 12
+FACTS_PER_ANGLE = 8  # fewer per call: grounded research timed out at 12 (run 6: 10/12 empty)
 MAX_FACTS = 100
+# Hard wall clock budgets: a slow angle or page costs its facts, never the brief. Run 6
+# (16 Oct): research 449 s (150 s timeout x 3 retries), brief 1431 s.
+RESEARCH_BUDGET_S = 130.0
+VERIFY_BUDGET_S = 90.0
 MIN_REUSE = 20  # a stored bank smaller than this is researched again
 MAX_AGE = timedelta(days=7)  # statistics get revised; a week old bank is rebuilt
 # Passage score a source page needs to keep a fact: the card gate, plus the figure itself
@@ -261,6 +265,28 @@ def _dedupe(cands: Iterable[Candidate]) -> list[Candidate]:
     return out
 
 
+def _within[T, R](
+    fn: Callable[[T], R], items: list[T], workers: int, budget: float, late: R, name: str
+) -> list[R]:
+    """fn over items in parallel; whatever hasn't finished after budget seconds counts as
+    `late` and is abandoned (its thread ends on its own timeout; the result is ignored)."""
+    if not items:
+        return []
+    pool = ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix=name)
+    try:
+        futs = [pool.submit(fn, x) for x in items]
+        wait(futs, timeout=budget)
+        out: list[R] = []
+        for f in futs:
+            if f.done() and not f.cancelled() and f.exception() is None:
+                out.append(f.result())
+            else:
+                out.append(late)
+        return out
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 def build_bank(
     topic: str,
     speaker: str,
@@ -268,6 +294,8 @@ def build_bank(
     fetcher: Fetcher,
     research_topic: str = "",
     said_on: str = "",
+    research_budget: float = RESEARCH_BUDGET_S,
+    verify_budget: float = VERIFY_BUDGET_S,
 ) -> FactBankDoc:
     """Plan angles, research them in parallel, keep only source verified facts.
     Official facts first, then the best supported, capped at MAX_FACTS. said_on (ISO date
@@ -288,12 +316,18 @@ def build_bank(
             return []
 
     t1 = time.monotonic()
-    with ThreadPoolExecutor(max_workers=max(1, len(angles)), thread_name_prefix="research") as p:
-        batches = list(p.map(one, angles))
+    none: list[Candidate] = []
+    batches = _within(one, angles, len(angles), research_budget, none, "research")
     cands = _dedupe(c for batch in batches for c in batch)
     t2 = time.monotonic()
-    with ThreadPoolExecutor(max_workers=VERIFY_WORKERS, thread_name_prefix="factsrc") as p:
-        checked = list(p.map(lambda c: verify_candidate(c, fetcher, said_on), cands))
+    checked: list[tuple[str, str, float, str] | str] = _within(
+        lambda c: verify_candidate(c, fetcher, said_on),
+        cands,
+        VERIFY_WORKERS,
+        verify_budget,
+        "timeout: verify budget",
+        "factsrc",
+    )
     t3 = time.monotonic()
     kept = [(c, v) for c, v in zip(cands, checked, strict=True) if not isinstance(v, str)]
     reasons = Counter(v.split(":")[0] for v in checked if isinstance(v, str))
@@ -473,7 +507,7 @@ _RULE_SCHEMA = {
     },
     "required": ["decided"],
 }
-RESEARCH_TIMEOUT_S = 150.0
+RESEARCH_TIMEOUT_S = 100.0
 
 
 def parse_json_list(raw: str) -> list[Any]:
@@ -575,7 +609,8 @@ class VertexFactDesk:  # pragma: no cover - needs a GCP project
         from app.model import GENERATE_TIMEOUT_S, vertex_client
 
         self.client = vertex_client(project, location, GENERATE_TIMEOUT_S)
-        self.research_client = vertex_client(project, location, RESEARCH_TIMEOUT_S)
+        # one attempt: a grounded call that timed out once times out again (run 6: 3 x 150 s)
+        self.research_client = vertex_client(project, location, RESEARCH_TIMEOUT_S, attempts=1)
         self.model = model
 
     def angles(self, topic: str, speaker: str, k: int, said_on: str = "") -> list[str]:
@@ -612,7 +647,9 @@ class VertexFactDesk:  # pragma: no cover - needs a GCP project
                 when=when_line(said_on),
             ),
             config=types.GenerateContentConfig(
-                temperature=0.0, tools=[types.Tool(google_search=types.GoogleSearch())]
+                temperature=0.0,
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
             ),
         )
         return candidates_from(resp.text or "", resp, angle)
