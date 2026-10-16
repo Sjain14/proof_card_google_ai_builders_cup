@@ -36,6 +36,11 @@ class PredictedClaim:
 # Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.HttpOptions
 GENERATE_TIMEOUT_S = 90.0  # grounded assess: search + long answer
 FAST_TIMEOUT_S = 10.0  # live path: spotter, judge, embeddings
+# Brief bank prediction: one plain JSON list, no search. Prod 16 Oct 2026: speaker
+# "Donald Trump" hung predict_claims for 90 s x 3 retries (280 s, session failed) while
+# no speaker took ~15 s. Bounded: low thinking, capped output, one 40 s attempt.
+PREDICT_TIMEOUT_S = 40.0
+PREDICT_MAX_TOKENS = 4096
 
 
 def _fast_thinking() -> Any:
@@ -228,6 +233,12 @@ class VertexModel:  # pragma: no cover - needs a GCP project; covered by the par
                 temperature=0.4,
                 response_mime_type="application/json",
                 response_schema=PREDICT_SCHEMA,
+                max_output_tokens=PREDICT_MAX_TOKENS,
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
+                http_options=types.HttpOptions(
+                    timeout=int(PREDICT_TIMEOUT_S * 1000),
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                ),
             ),
         )
         return parse_predictions(resp.text or "", n)

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.model import (
     Assessment,
     Evidence,
+    PredictedClaim,
     StubModel,
     evidence_from_grounding,
     parse_assessment_text,
@@ -413,3 +414,43 @@ def test_task_endpoint_requires_oidc(client: TestClient, store: InMemoryStore) -
     ok = client.post("/tasks/prebunk", json=body, headers={"Authorization": "Bearer task-token"})
     assert ok.status_code == 200
     assert ok.json()["proved"] == 6
+
+
+class _SpeakerHangs:
+    """predict_claims fails for a named speaker (prod: Trump timed out 90 s x 3)."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def predict_claims(self, topic: str, speaker: str, n: int) -> list[Any]:
+        self.calls.append(speaker)
+        if speaker:
+            raise TimeoutError("deadline")
+        return [PredictedClaim(text=f"claim number {i} about {topic}", lang="en") for i in range(n)]
+
+    def assess(self, claim: str, hint: str = "") -> Assessment:
+        return Assessment(Verdict.UNVERIFIABLE, "why", [])
+
+
+def test_speaker_prediction_failure_falls_back_to_topic() -> None:
+    from app.pipeline import _predict
+
+    m = _SpeakerHangs()
+    d = deps(InMemoryStore(), m, MapFetcher({}))
+    out = _predict(d, "economy", "Donald Trump", 3)
+    assert len(out) == 3
+    assert m.calls == ["Donald Trump", ""]
+
+
+def test_no_speaker_prediction_failure_still_raises() -> None:
+    import pytest
+
+    from app.pipeline import _predict
+
+    class _Down(_SpeakerHangs):
+        def predict_claims(self, topic: str, speaker: str, n: int) -> list[Any]:
+            raise TimeoutError("deadline")
+
+    d = deps(InMemoryStore(), _Down(), MapFetcher({}))
+    with pytest.raises(TimeoutError):
+        _predict(d, "economy", "", 3)

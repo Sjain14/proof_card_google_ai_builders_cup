@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from app.govsources import search_hint
-from app.model import Assessment, Evidence, ModelClient
+from app.model import Assessment, Evidence, ModelClient, PredictedClaim
 from app.officialdata import is_worldbank, official_evidence, official_proof
 from app.officialdata import render as render_official
 from app.proof import (
@@ -232,6 +232,19 @@ def verify_claim(session_id: str, claim_id: str, deps: Deps) -> str | None:
     return card_id
 
 
+def _predict(deps: Deps, topic: str, speaker: str, n: int) -> list[PredictedClaim]:
+    """The speaker's bank, else the topic's bank. Prod 16 Oct 2026: speaker "Donald Trump"
+    timed the prediction out every time while the same topic with no speaker gave 11/12
+    proved, so a speaker-specific failure costs the speaker angle, never the whole brief."""
+    try:
+        return deps.model.predict_claims(topic, speaker, n)
+    except Exception:
+        if not speaker.strip():
+            raise
+        log.warning("speaker prediction failed, topic only fallback", exc_info=True)
+        return deps.model.predict_claims(topic, "", n)
+
+
 def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
     """Build the brief bank. Never leaves a session stuck in "prebunking": a model failure
     ends it as "failed" (the UI says so). Idempotent: a Cloud Tasks retry (instance died,
@@ -247,7 +260,7 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
     ]
     if not bank:
         try:
-            predicted = deps.model.predict_claims(session.topic, session.speaker, n)
+            predicted = _predict(deps, session.topic, session.speaker, n)
         except Exception:
             log.exception("prebunk prediction failed")
             deps.store.update_session(session_id, status="failed")

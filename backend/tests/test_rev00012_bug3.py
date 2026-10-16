@@ -81,3 +81,23 @@ def test_rated_claims_language_and_dedup() -> None:
     got = rated_claims([r, dup], "Narendra Modi", 5)
     assert len(got) == 1
     assert got[0].lang == "hi"
+
+
+class Hangs(Inner):
+    def predict_claims(self, topic: str, speaker: str, n: int) -> list[PredictedClaim]:
+        raise TimeoutError("deadline")  # prod: Trump predict timed out 90 s x 3
+
+
+def test_model_timeout_keeps_the_rated_claims() -> None:
+    bank = FactCheckedModel(Hangs(), fc(RATED)).predict_claims("economy", "Donald Trump", 6)
+    assert [c.text for c in bank][:2] == [
+        "We have the worst inflation in 48 years, perhaps in history",
+        "Biden closed more than 100 power plants",
+    ]
+
+
+def test_model_timeout_with_no_rated_claims_still_raises() -> None:
+    import pytest
+
+    with pytest.raises(TimeoutError):
+        FactCheckedModel(Hangs(), fc({})).predict_claims("economy", "Donald Trump", 6)

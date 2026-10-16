@@ -138,7 +138,13 @@ class FactCheckedModel:
                 seeds = rated_claims(found, speaker, n // 2)
                 if seeds:
                     break
-        model = self.inner.predict_claims(topic, speaker, n)
+        try:
+            model = self.inner.predict_claims(topic, speaker, n)
+        except Exception:
+            if not seeds:
+                raise
+            log.warning("model prediction failed, rated claims only", exc_info=True)
+            model = []
         known = {s.text.lower() for s in seeds}
         merged = seeds + [p for p in model if p.text.lower() not in known]
         log.info("bank seeded", extra={"fields": {"rated": len(seeds), "model": len(model)}})
