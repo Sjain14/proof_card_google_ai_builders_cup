@@ -6,11 +6,14 @@ produce identical, comparable cards.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
-from collections.abc import Iterator
+import urllib.parse
+import urllib.request
+from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from app.govsources import search_hint
@@ -58,6 +61,128 @@ class Deps:
     snapshots: SnapshotStore
     max_sources: int = 3
     workers: int = 4
+    # YouTube URL -> video title, so the bank is predicted for THIS video, not the topic in
+    # general. None = off (tests, stub). Prod: youtube_title() below.
+    video_title: Callable[[str], str] | None = None
+
+
+@dataclass
+class Trace:
+    """Why a cold check ended the way it did, returned on the live event: stage times in
+    ms and, for a line with no card, the reason (no_evidence, low_support, fetch_failed,
+    weak_sources_only, error). Replay 7dhIVHRKhvo: 4 of 6 lines failed with no reason."""
+
+    stages: dict[str, int] = field(default_factory=dict)
+    reason: str = ""
+    skips: dict[str, int] = field(default_factory=dict)
+
+    def add(self, stage: str, t0: float) -> None:
+        self.stages[stage] = self.stages.get(stage, 0) + int((time.monotonic() - t0) * 1000)
+
+    def skip(self, kind: str) -> None:
+        self.skips[kind] = self.skips.get(kind, 0) + 1
+
+
+# Sources an UNVERIFIABLE card may cite. A hard verdict is backed by its passage score; an
+# UNVERIFIABLE card has no verdict to back, so its source is the whole value of the card
+# and a law firm directory (legal500, replay 7dhIVHRKhvo) or a content farm is worse than
+# no card. Official, international and established newsroom / fact checker hosts only.
+_REPUTABLE_SUFFIXES = (
+    ".gov",
+    ".gov.in",
+    ".nic.in",
+    ".gov.uk",
+    ".gc.ca",
+    ".gov.au",
+    ".int",
+    ".europa.eu",
+    ".edu",
+    ".ac.in",
+    ".ac.uk",
+)
+_REPUTABLE_HOSTS = frozenset(
+    [
+        "rbi.org.in",
+        "sansad.in",
+        "eci.gov.in",
+        "imf.org",
+        "worldbank.org",
+        "un.org",
+        "oecd.org",
+        "wto.org",
+        "who.int",
+        "adb.org",
+        "reuters.com",
+        "apnews.com",
+        "bbc.com",
+        "bbc.co.uk",
+        "thehindu.com",
+        "indianexpress.com",
+        "hindustantimes.com",
+        "livemint.com",
+        "economictimes.indiatimes.com",
+        "timesofindia.indiatimes.com",
+        "business-standard.com",
+        "ndtv.com",
+        "indiatoday.in",
+        "scroll.in",
+        "thequint.com",
+        "theprint.in",
+        "thewire.in",
+        "moneycontrol.com",
+        "financialexpress.com",
+        "deccanherald.com",
+        "altnews.in",
+        "boomlive.in",
+        "factly.in",
+        "factchecker.in",
+        "newschecker.in",
+        "vishvasnews.com",
+        "politifact.com",
+        "factcheck.org",
+        "fullfact.org",
+        "snopes.com",
+        "nytimes.com",
+        "washingtonpost.com",
+        "wsj.com",
+        "ft.com",
+        "bloomberg.com",
+        "cnbc.com",
+        "cnn.com",
+        "npr.org",
+        "theguardian.com",
+        "economist.com",
+        "aljazeera.com",
+        "dw.com",
+        "pewresearch.org",
+        "ourworldindata.org",
+        "statista.com",
+        "wikipedia.org",
+    ]
+)
+
+
+def reputable(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+    return (
+        host in _REPUTABLE_HOSTS
+        or any(host.endswith("." + h) for h in _REPUTABLE_HOSTS)
+        or host.endswith(_REPUTABLE_SUFFIXES)
+    )
+
+
+def youtube_title(url: str) -> str:  # pragma: no cover - network
+    """Title via YouTube oEmbed (no key). Docs: https://oembed.com/ ; any error -> ""."""
+    try:
+        q = urllib.parse.urlencode({"url": url, "format": "json"})
+        req = urllib.request.Request(
+            f"https://www.youtube.com/oembed?{q}", headers={"User-Agent": "proofcard"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:  # noqa: S310 - fixed https host
+            return str(json.loads(r.read(200_000)).get("title", ""))[:200]
+    except Exception:
+        log.info("video title lookup failed", exc_info=True)
+        return ""
 
 
 def support_for(claim: str, a: Assessment, snippet: str, text: str) -> tuple[str, float]:
@@ -94,7 +219,10 @@ def _skip(url: str, reason: str, **more: object) -> None:
 
 
 def fetch_all(
-    evidence: list[Evidence], fetcher: Fetcher, budget_s: float = FETCH_BUDGET_S
+    evidence: list[Evidence],
+    fetcher: Fetcher,
+    budget_s: float = FETCH_BUDGET_S,
+    trace: Trace | None = None,
 ) -> Iterator[tuple[Evidence, Fetched]]:
     """Sources in the model's order (best first), one at a time, under ONE budget for the
     whole card. Each fetch runs in a worker so a slow drip page can't outlive the budget.
@@ -108,23 +236,33 @@ def fetch_all(
             left = deadline - time.monotonic()
             if left <= 0:
                 _skip(ev.url, "fetch budget")
+                if trace:
+                    trace.skip("budget")
                 continue
             fut: Future[Fetched] = pool.submit(fetcher.fetch, ev.url)
             try:
                 yield ev, fut.result(timeout=left)
             except FetchError as exc:
                 _skip(ev.url, str(exc))
+                if trace:
+                    trace.skip("fetch_error")
             except TimeoutError:
                 _skip(ev.url, "fetch budget")
+                if trace:
+                    trace.skip("budget")
                 pool.shutdown(wait=False, cancel_futures=True)
                 pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fetch")
             except Exception as exc:  # one broken source never fails the card
                 _skip(ev.url, type(exc).__name__)
+                if trace:
+                    trace.skip("fetch_error")
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
 
-def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None:
+def build_card(
+    claim: str, assessment: Assessment, deps: Deps, trace: Trace | None = None
+) -> CardDoc | None:
     proofs: list[SourceProof] = []
     scores: list[float] = []
     seen: set[str] = set()
@@ -132,7 +270,8 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
     official = official_evidence(claim, assessment.claim_en)
     known = {e.url for e in official}
     evidence = official + [e for e in assessment.evidence if e.url not in known]
-    for ev, fetched in fetch_all(evidence, deps.fetcher):
+    trace = trace if trace is not None else Trace()
+    for ev, fetched in fetch_all(evidence, deps.fetcher, trace=trace):
         if len(proofs) >= deps.max_sources:
             break
         if fetched.final_url in seen:
@@ -145,6 +284,7 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
             text = extract_text(fetched.body, fetched.content_type)
         if not text:
             _skip(fetched.final_url, "no text", content_type=fetched.content_type)
+            trace.skip("no_text")
             continue
         if is_worldbank(fetched.final_url) and (
             is_comparison(claim) or is_comparison(assessment.claim_en)
@@ -157,6 +297,7 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
             passage, score = support_for(claim, assessment, ev.model_snippet, text)
         if score < MIN_PASSAGE_SCORE or not passage:
             _skip(fetched.final_url, "low support", score=round(score, 3))
+            trace.skip("low_support")
             continue
         digest = snapshot(fetched, deps.snapshots)
         proofs.append(
@@ -169,6 +310,12 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
         )
         scores.append(score)
     if not proofs:
+        if not evidence:
+            trace.reason = "no_evidence"
+        elif trace.skips.get("low_support"):
+            trace.reason = "low_support"
+        else:
+            trace.reason = "fetch_failed"
         log.info(
             "no proof",
             extra={
@@ -182,8 +329,15 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
     # The gate needs ONE snapshotted source that backs the verdict, not an average:
     # a second, weaker source used to drag a well proven TRUE claim under the gate
     # (prod verify rev00012: 10 of 11 brief claims ended UNVERIFIABLE, true ones too).
+    verdict = gate_verdict(assessment.verdict, max(scores))
+    if verdict == Verdict.UNVERIFIABLE:
+        kept = [(p, sc) for p, sc in zip(proofs, scores, strict=True) if reputable(str(p.url))]
+        if not kept:
+            log.info("unverifiable on weak sources only, no card")
+            trace.reason = "weak_sources_only"
+            return None
+        proofs, scores = [p for p, _ in kept], [sc for _, sc in kept]
     support = round(max(scores), 3)
-    verdict = gate_verdict(assessment.verdict, support)
     fields = {
         "claim": claim,
         "verdict": verdict,
@@ -198,24 +352,65 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
     )
 
 
-def verify_claim(session_id: str, claim_id: str, deps: Deps) -> str | None:
-    """Check one stored claim end to end. Returns the card id or None."""
+def _attempt(text: str, hint: str, deps: Deps, trace: Trace, name: str) -> CardDoc | None:
+    """One assess + proof pass. Stage times land in trace as <name>_assess / <name>_fetch."""
+    t0 = time.monotonic()
+    assessment = deps.model.assess(text, hint) if hint else deps.model.assess(text)
+    trace.add(f"{name}_assess", t0)
+    t1 = time.monotonic()
+    try:
+        return build_card(text, assessment, deps, trace)
+    finally:
+        trace.add(f"{name}_fetch", t1)
+
+
+def verify_claim(
+    session_id: str,
+    claim_id: str,
+    deps: Deps,
+    trace: Trace | None = None,
+    race_hint: bool = False,
+) -> str | None:
+    """Check one stored claim end to end. Returns the card id or None.
+
+    Plain check first, exactly as before #50: the speaker-country hint only ever adds a
+    card, never replaces one (hint on every call, #50, cut bank fill to 4/12). Bank
+    (race_hint=False): hinted pass only after the plain one found no proof. Live
+    (race_hint=True): both start together, plain still wins when it proves, so a line
+    that needs the hint costs one pass, not two in a row (replay: 108 to 145 s)."""
+    trace = trace if trace is not None else Trace()
     claim = deps.store.get_claim(session_id, claim_id)
     if claim is None:
         return None
     deps.store.update_claim(session_id, claim_id, status=ClaimStatus.CHECKING)
     try:
-        # Plain check first, exactly as before #50. The speaker-country hint only gets a
-        # second try when that found no proof: it can add cards, never lose one. With the
-        # hint on every call (#50) prod bank fill read 4/12 (7/12 and 11/12 before).
-        card = build_card(claim.text, deps.model.assess(claim.text), deps)
-        if card is None:
-            session = deps.store.get_session(session_id)
-            hint = search_hint(session.speaker if session else "", claim.text)
-            if hint:
-                card = build_card(claim.text, deps.model.assess(claim.text, hint), deps)
+        session = deps.store.get_session(session_id)
+        hint = search_hint(session.speaker if session else "", claim.text)
+        if race_hint and hint:
+            plain_t, hint_t = Trace(), Trace()
+            pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="race")
+            try:
+                plain = pool.submit(_attempt, claim.text, "", deps, plain_t, "plain")
+                hinted = pool.submit(_attempt, claim.text, hint, deps, hint_t, "hint")
+                card = _result(plain)
+                used = plain_t
+                if card is None:
+                    card, used = _result(hinted), hint_t
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
+            trace.stages.update(plain_t.stages)
+            trace.stages.update(hint_t.stages)
+            trace.reason = used.reason or plain_t.reason
+            trace.skips = used.skips
+        else:
+            card = _attempt(claim.text, "", deps, trace, "plain")
+            if card is None and hint:
+                first = trace.reason
+                card = _attempt(claim.text, hint, deps, trace, "hint")
+                trace.reason = trace.reason or first
     except Exception:
         log.exception("verify failed")
+        trace.reason = "error"
         card = None
     if card is None:
         deps.store.update_claim(session_id, claim_id, status=ClaimStatus.FAILED)
@@ -230,6 +425,14 @@ def verify_claim(session_id: str, claim_id: str, deps: Deps) -> str | None:
         verdict=card.verdict,
     )
     return card_id
+
+
+def _result(fut: Future[CardDoc | None]) -> CardDoc | None:
+    try:
+        return fut.result()
+    except Exception:
+        log.exception("verify attempt failed")
+        return None
 
 
 def _predict(deps: Deps, topic: str, speaker: str, n: int) -> list[PredictedClaim]:
@@ -260,7 +463,12 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
     ]
     if not bank:
         try:
-            predicted = _predict(deps, session.topic, session.speaker, n)
+            topic = session.topic
+            if session.youtube_url and deps.video_title is not None:
+                title = deps.video_title(session.youtube_url)
+                if title:
+                    topic = f"{topic}. Video being fact checked: {title}"
+            predicted = _predict(deps, topic, session.speaker, n)
         except Exception:
             log.exception("prebunk prediction failed")
             deps.store.update_session(session_id, status="failed")

@@ -438,3 +438,53 @@ def test_line_with_no_figure_stays_skipped() -> None:
         "text": "Japan is a really beautiful country to visit",
         "reason": "not_checkable",
     }
+
+
+# ---------- recall (replay 7dhIVHRKhvo: 0 of 6 lines matched the bank) ----------
+
+
+class _Cos:
+    """Fixed cosine 0.72 for every pair: under MATCH_THRESHOLD, over RECALL_THRESHOLD."""
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[0.72, math.sqrt(1 - 0.72**2)] if "spoken" in t else [1.0, 0.0] for t in texts]
+
+
+def test_loose_candidate_reaches_the_judge_and_only_its_yes_counts() -> None:
+    # Bank says "22", the line states no number at cosine 0.72: before, the exact number
+    # gate and the 0.80 floor dropped it before the judge ever saw it.
+    line = "spoken: our country has the most scheduled languages"
+    yes = _Judge(True)
+    eng, _, pid = _engine(yes, _Cos())
+    assert asyncio.run(eng._find_match(line))[0] == pid
+    assert yes.calls == 1
+    no = _Judge(False)
+    eng, _, _ = _engine(no, _Cos())
+    assert asyncio.run(eng._find_match(line))[0] is None
+    assert no.calls == 1
+
+
+def test_disjoint_numbers_never_reach_the_judge() -> None:
+    judge = _Judge(True)
+    eng, _, _ = _engine(judge, _Cos())
+    assert asyncio.run(eng._find_match("spoken: India has 24 scheduled languages"))[0] is None
+    assert judge.calls == 0
+
+
+def test_without_a_judge_loose_candidates_are_ignored() -> None:
+    eng, _, _ = _engine(None, _Cos())
+    assert eng.candidates("spoken: our country has the most scheduled languages") == []
+
+
+def test_failed_cold_check_says_why() -> None:
+    eng, events, _ = _engine(_Judge(False))
+
+    async def run() -> None:
+        await eng.on_sentence("Mumbai has 40 million cars on the road today")
+        await eng.drain()
+
+    asyncio.run(run())
+    end = next(e for e in events if e["type"] in ("proved", "failed"))
+    assert "stages" in end
+    if end["type"] == "failed":
+        assert end["reason"]

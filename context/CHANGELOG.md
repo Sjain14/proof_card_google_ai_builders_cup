@@ -2,6 +2,17 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.19 · p19-live-fit-check
+Replay fit check on prod (Sitharaman Lok Sabha, 7dhIVHRKhvo): bank match 0/6, cards 108-145 s after the line, 4/6 lines no card and no reason, one UNVERIFIABLE card on legal500.
+- `app/live.py` bank match: loose candidates (one side states no number or the numbers overlap, cosine >= 0.65) now reach the judge, top 3 by cosine, and count only on its yes. Exact numbers + cosine >= 0.90 still show at once, and with no judge (stub, tests) the old strict rule still applies.
+- `app/live.py` cold checks run on their own 12-thread pool. They used to share the default `to_thread` pool, which has 5 threads on 1 vCPU, with spotter/match/Firestore.
+- `app/pipeline.py` live path: the plain and speaker-country-hinted assess start together, and the plain card still wins. The bank keeps plain-then-hint, per #51.
+- `app/pipeline.py` `Trace`: `failed`/`proved` events carry `stages` (ms per assess/fetch) and `reason` (no_evidence, low_support, fetch_failed, weak_sources_only, error).
+- `app/pipeline.py` UNVERIFIABLE cards cite only reputable hosts (official, international, established newsrooms, fact checkers, Wikipedia). If none is left, there's no card.
+- `app/pipeline.py` bank prediction gets the YouTube title via oEmbed when the brief has a video.
+- Tests: test_live recall + reason, test_pipeline weak sources + race + video title.
+- Docs touched: SNAPSHOT, CHANGELOG.
+
 ## 2026-10-16 · v0.7.18 · p7-comparison-one-line
 - Prod regression on c668467 (brief 32aPEZxatdFuViIsQtmZWg): Hinglish per capita line now FALSE (was `failed`); the English line ended `failed` with a different grounded source set.
 - `app/proof.py` `comparison_match`: one line that names every topic word and states two whole figures ("Japan's is $35,700, while India's is $2,810") is proof on its own; `_figures()` counts "$35,700" as one number, years excluded.

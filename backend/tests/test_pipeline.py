@@ -268,8 +268,8 @@ def test_false_claim_with_wrong_number_stays_false() -> None:
 def test_true_claim_with_wrong_number_is_never_true() -> None:
     d = deps(
         InMemoryStore(),
-        FakeModel(Verdict.TRUE, ["https://w/a"]),
-        MapFetcher({"https://w/a": EIGHTH}),
+        FakeModel(Verdict.TRUE, ["https://w.gov/a"]),
+        MapFetcher({"https://w.gov/a": EIGHTH}),
     )
     card = build_card("India has 25 languages in the Eighth Schedule", d.model.assess(""), d)
     assert card is not None
@@ -454,3 +454,73 @@ def test_no_speaker_prediction_failure_still_raises() -> None:
     d = deps(InMemoryStore(), _Down(), MapFetcher({}))
     with pytest.raises(TimeoutError):
         _predict(d, "economy", "", 3)
+
+
+# ---------- weak sources, hint race, video title (replay 7dhIVHRKhvo) ----------
+
+
+def test_unverifiable_card_cites_reputable_sources_only() -> None:
+    from app.pipeline import Trace, reputable
+
+    assert reputable("https://www.pib.gov.in/x")
+    assert reputable("https://data.imf.org/a")
+    assert not reputable("https://www.legal500.com/c/india")
+    page = "<p>The Eighth Schedule lists many languages of the Republic.</p>"
+    d = deps(
+        InMemoryStore(),
+        FakeModel(Verdict.FALSE, ["https://www.legal500.com/a"]),
+        MapFetcher({"https://www.legal500.com/a": page}),
+    )
+    t = Trace()
+    claim = "Eighth Schedule languages of the Republic number 24"
+    assert build_card(claim, d.model.assess(""), d, t) is None
+    assert t.reason == "weak_sources_only"
+
+
+def test_live_race_keeps_plain_card_and_records_stages() -> None:
+    from app.pipeline import Trace
+
+    class Hinted(FakeModel):
+        def __init__(self) -> None:
+            super().__init__(Verdict.TRUE, ["https://x.gov/a"])
+            self.hints: list[str] = []
+
+        def assess(self, claim: str, hint: str = "") -> Assessment:
+            self.hints.append(hint)
+            return super().assess(claim, hint)
+
+    store = InMemoryStore()
+    sid = store.create_session(SessionDoc(owner_uid="u", topic="t", speaker="Narendra Modi"))
+    cid = store.add_claim(
+        sid, ClaimDoc(text="India has 22 languages in the Eighth Schedule", source=ClaimSource.LIVE)
+    )
+    m = Hinted()
+    d = deps(store, m, MapFetcher({"https://x.gov/a": EIGHTH}))
+    t = Trace()
+    assert verify_claim(sid, cid, d, t, True) is not None
+    assert "plain_assess" in t.stages
+    assert "" in m.hints
+
+
+def test_bank_prediction_sees_the_video_title() -> None:
+    seen: list[str] = []
+
+    class Rec(FakeModel):
+        def predict_claims(self, topic: str, speaker: str, n: int) -> list[Any]:
+            seen.append(topic)
+            return []
+
+    store = InMemoryStore()
+    sid = store.create_session(
+        SessionDoc(owner_uid="u", topic="economy", youtube_url="https://youtu.be/abc")
+    )
+    d = Deps(
+        store,
+        Rec(Verdict.TRUE, []),
+        MapFetcher({}),
+        InMemorySnapshots(),
+        video_title=lambda url: "FM reply in Lok Sabha",
+    )
+    run_prebunk(sid, d, 3)
+    assert seen
+    assert "FM reply in Lok Sabha" in seen[0]

@@ -23,18 +23,31 @@ import re
 import threading
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.model import FAST_TIMEOUT_S, _fast_thinking, vertex_client
 from app.officialdata import is_country_figure
-from app.pipeline import Deps, verify_claim
+from app.pipeline import Deps, Trace, verify_claim
 from app.schemas import ClaimDoc, ClaimSource, ClaimStatus
 
 log = logging.getLogger("proofcard.live")
 
 MATCH_THRESHOLD = 0.80  # cosine; calibrated in tests/test_live.py, re-check on the demo clip
 INSTANT_THRESHOLD = 0.90  # at or above (same numbers): card at once, no judge call
+# Recall floor, judge only. Replay 7dhIVHRKhvo (16 Oct): 0 of 6 spoken lines matched a
+# 9 card bank. "we remain at the highest" vs bank "8.2%, fastest growing major economy"
+# never reached the judge: different stated numbers (none vs 8.2) and cosine under 0.80.
+# Below MATCH_THRESHOLD, or with numbers that only overlap, a candidate needs the judge's
+# yes ("one fact check decides both"), so wider retrieval can't show a wrong card.
+RECALL_THRESHOLD = 0.65
+JUDGE_TOP_K = 3  # judge calls per claim, best cosine first (~1 s each, minimal thinking)
+# Cold checks get their own threads. asyncio.to_thread shares the loop's default pool,
+# min(32, cpus + 4) = 5 threads on a 1 vCPU Cloud Run instance: a replay's 6 cold checks
+# (~40 s each, blocking) held every thread, so spotter, match and Firestore calls queued
+# behind them and a card took 108 to 145 s from the moment the line was heard.
+_COLD_POOL = ThreadPoolExecutor(max_workers=12, thread_name_prefix="cold")
 MAX_SENTENCE_CHARS = 600
 # Past this the heuristic decides (check the whole line). 12 s used to eat most of a live
 # card's budget when the spotter stalled (rev00012: heard -> checking took 12 s).
@@ -248,6 +261,12 @@ def numbers(text: str) -> frozenset[str]:
     return frozenset(m.replace(",", "") for m in _NUM.findall(text))
 
 
+def numbers_compatible(a: frozenset[str], b: frozenset[str]) -> bool:
+    """Loose number check for judge-gated candidates: one side states no number, or the
+    two share one ("8.2% se ab 7.4%" vs a bank "8.2%" claim). Disjoint numbers never match."""
+    return not a or not b or bool(a & b)
+
+
 @dataclass
 class LiveDeps:
     deps: Deps
@@ -314,20 +333,35 @@ class LiveEngine:
         return self._index
 
     def match(self, text: str) -> tuple[str | None, float]:
+        """Best strict candidate: same stated numbers and cosine >= threshold."""
+        for cid, sim, exact in self.candidates(text):
+            if exact and sim >= self.live.threshold:
+                return cid, sim
+        return None, 0.0
+
+    def candidates(self, text: str) -> list[tuple[str, float, bool]]:
+        """(claim id, cosine, same numbers) best first. Strict ones (same numbers, cosine >=
+        threshold) always; with a judge also loose ones (compatible numbers, cosine >=
+        RECALL_THRESHOLD), which only ever count after the judge says yes."""
         idx = self._refresh()
         if not idx.ids:
-            return None, 0.0
+            return []
         [q] = self.live.embedder.embed([text])
         heard = numbers(text)
-        scored = [
-            (cid, cosine(q, v))
-            for cid, v, n in zip(idx.ids, idx.vecs, idx.nums, strict=True)
-            if n == heard  # same stated numbers, or none on both sides
-        ]
-        if not scored:
-            return None, 0.0
-        best, sim = max(scored, key=lambda p: p[1])
-        return (best, sim) if sim >= self.live.threshold else (None, sim)
+        out: list[tuple[str, float, bool]] = []
+        for cid, v, n in zip(idx.ids, idx.vecs, idx.nums, strict=True):
+            sim = cosine(q, v)
+            exact = n == heard  # same stated numbers, or none on both sides
+            if exact and sim >= self.live.threshold:
+                out.append((cid, sim, True))
+            elif (
+                self.live.judge is not None
+                and sim >= RECALL_THRESHOLD
+                and (exact or numbers_compatible(n, heard))
+            ):
+                out.append((cid, sim, exact))
+        out.sort(key=lambda p: p[1], reverse=True)
+        return out
 
     async def warm(self) -> None:
         """Embed the prebunked claims before the first sentence, not during it."""
@@ -394,16 +428,9 @@ class LiveEngine:
     async def _handle_claim(self, text: str, t0: float, t_offset: float | None = None) -> bool:
         """True when a card was pushed or a check started; False for a card already shown."""
         store = self.live.deps.store
-        hit, sim = await asyncio.to_thread(self.match, text)
-        if hit and hit in self._shown:  # same prebunked claim, already on screen
+        hit, sim, repeat = await self._find_match(text)
+        if repeat:  # same prebunked claim, already on screen
             return False
-        if hit and sim < self.live.instant and self.live.judge is not None:
-            pre = await asyncio.to_thread(store.get_claim, self.sid, hit)
-            judge = self.live.judge
-            same = pre is not None and await asyncio.to_thread(judge.same_claim, text, pre.text)
-            if not same:
-                log.info("judge rejected match", extra={"fields": {"sim": round(sim, 3)}})
-                hit = None
         if hit and await self._push_match(text, hit, sim, t0, t_offset):
             return True
         doc = ClaimDoc(text=text, source=ClaimSource.LIVE, t_offset_s=t_offset)
@@ -413,6 +440,25 @@ class LiveEngine:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return True
+
+    async def _find_match(self, text: str) -> tuple[str | None, float, bool]:
+        """(hit, cosine, already shown). Strong (same numbers, cosine >= instant) wins at
+        once; anything else needs the judge, top JUDGE_TOP_K by cosine, first yes wins.
+        No judge (tests, stub): the strict cosine decides, as before."""
+        store, judge = self.live.deps.store, self.live.judge
+        cands = await asyncio.to_thread(self.candidates, text)
+        for cid, sim, exact in cands[:JUDGE_TOP_K]:
+            if not (exact and sim >= self.live.instant) and judge is not None:
+                pre = await asyncio.to_thread(store.get_claim, self.sid, cid)
+                same = pre is not None and await asyncio.to_thread(judge.same_claim, text, pre.text)
+                log.info(
+                    "judge",
+                    extra={"fields": {"sim": round(sim, 3), "exact": exact, "same": same}},
+                )
+                if not same:
+                    continue
+            return (None, sim, True) if cid in self._shown else (cid, sim, False)
+        return None, 0.0, False
 
     async def _push_match(
         self, text: str, hit: str, sim: float, t0: float, t_offset: float | None = None
@@ -454,14 +500,28 @@ class LiveEngine:
         return True
 
     async def _cold(self, cid: str, text: str, t0: float) -> None:
+        trace = Trace()
+        loop = asyncio.get_running_loop()
         try:
-            card_id = await asyncio.to_thread(verify_claim, self.sid, cid, self.live.deps)
+            card_id = await loop.run_in_executor(
+                _COLD_POOL, lambda: verify_claim(self.sid, cid, self.live.deps, trace, True)
+            )
         except Exception:  # a "checking" tile must always resolve
             log.exception("live cold check failed")
             card_id = None
+            trace.reason = trace.reason or "error"
         latency = int((time.monotonic() - t0) * 1000)
         if card_id is None:
-            await self.emit({"type": "failed", "claim_id": cid, "text": text})
+            await self.emit(
+                {
+                    "type": "failed",
+                    "claim_id": cid,
+                    "text": text,
+                    "reason": trace.reason or "no_proof",
+                    "stages": trace.stages,
+                    "latency_ms": latency,
+                }
+            )
             return
         store = self.live.deps.store
         claim = await asyncio.to_thread(store.get_claim, self.sid, cid)
@@ -474,6 +534,7 @@ class LiveEngine:
                 "card_id": card_id,
                 "verdict": claim.verdict if claim else None,
                 "latency_ms": latency,
+                "stages": trace.stages,
             }
         )
         if claim is not None:
