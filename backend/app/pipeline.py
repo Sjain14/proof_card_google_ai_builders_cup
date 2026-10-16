@@ -252,8 +252,9 @@ CLAIM_CACHE_AGE = timedelta(days=7)  # same window as a fact bank: statistics ge
 
 
 # Bump when a checker fix makes saved verdicts wrong: older keys stop matching, exact and
-# similar reuse both skip them. v2 (16 Oct): quote cards before the speaker check (p45).
-CACHE_VERSION = "v2"
+# similar reuse both skip them. v2 (16 Oct): quote cards before the speaker check (p45);
+# v3: quote cards before the figure check (p49).
+CACHE_VERSION = "v3"
 
 
 def claim_key(text: str, context: str = "") -> str:
@@ -495,6 +496,12 @@ QUOTE_HINT = (
 )
 
 
+def quote_numbers(text: str) -> frozenset[str]:
+    from app.live import numbers  # app.live imports this module
+
+    return numbers(text)
+
+
 SPEAKER_WINDOW = 400  # chars before the passage where "X said" may sit
 
 
@@ -530,6 +537,11 @@ def check_quote(text: str, deps: Deps, trace: Trace) -> CardDoc | None:
         # said it and Modi was named elsewhere.
         if m.passage and not speaker_near(who, m.passage, page):
             trace.skip("quote_other_speaker")
+            continue
+        # Every figure in the quote must be in the passage: "10 trillion by 2030" is not
+        # said by a passage on "$7 trillion by 2030" (prod bot e2e 16 Oct 22:3xZ, TRUE).
+        if m.passage and quote_numbers(att.quote) - quote_numbers(m.passage):
+            trace.skip("quote_number_mismatch")
             continue
         if m.passage and (best is None or m.score > best[0]):
             best = (m.score, fetched, m.passage)

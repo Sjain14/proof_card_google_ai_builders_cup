@@ -186,3 +186,13 @@ def test_speaker_named_just_before_the_passage_counts() -> None:
         "modi", "every village", "x" * 900 + "Modi" + "y" * 900 + "every village"
     )
     assert not speaker_near("", "a", "a")
+
+
+def test_quote_with_another_figure_is_no_record() -> None:
+    # prod 16 Oct: '10 trillion by 2030' went TRUE on a passage about '$7 trillion by 2030'
+    page = (
+        "<html><body><p>Ten years of the Narendra Modi government: India can aspire to become "
+        "a $7 trillion economy by 2030, the finance ministry said.</p></body></html>"
+    )
+    t = Trace()
+    assert check_quote(Q10, deps(Model([SPEECH]), {SPEECH: page}), t) is None
