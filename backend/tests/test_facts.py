@@ -586,3 +586,68 @@ def test_within_marks_late_and_failed_items() -> None:
 
     assert _within(fn, [1, 2, 3], 3, 0.5, -1, "t") == [10, -1, -1]
     assert _within(fn, [], 3, 0.5, -1, "t") == []
+
+
+# ---------- official data pack (p38) ----------
+
+
+def _wb(country: str, metric: str, values: dict[str, float | None]) -> str:
+    import json
+
+    rows = [
+        {"country": {"value": country}, "indicator": {"value": metric}, "date": y, "value": v}
+        for y, v in values.items()
+    ]
+    return json.dumps([{"page": 1}, rows])
+
+
+def test_pack_rows_keeps_latest_years_with_values() -> None:
+    from app.officialdata import pack_rows
+
+    body = _wb(
+        "India",
+        "GDP growth (annual %)",
+        {"2021": 9.7, "2020": -5.8, "2019": 3.9, "2018": 6.5, "2022": None},
+    )
+    rows = pack_rows(body.encode(), "https://api.worldbank.org/x")
+    assert [r.year for r in rows] == ["2021", "2020", "2019"]
+    assert pack_rows(b"not json", "u") == []
+    assert pack_rows(b'{"a": 1}', "u") == []
+
+
+def test_pack_urls_stop_before_the_speech_year() -> None:
+    from app.officialdata import pack_countries, pack_urls
+
+    codes = pack_countries("IND", "growth vs japan")
+    assert codes[:2] == ["IND", "JPN"]
+    assert "WLD" in codes
+    assert len(codes) <= 5
+    urls = pack_urls(codes, "2022-08-01")
+    assert all("date=2016:2021" in u for u in urls)
+    assert "date=2021:2026" in pack_urls(["USA"], "", 2026)[0]
+
+
+def test_human_figures() -> None:
+    from app.officialdata import human
+
+    assert human(3.15e12) == "3.15 trillion"
+    assert human(1.4e9) == "1.40 billion"
+    assert human(7.25) == "7.25"
+
+
+def test_bank_gets_official_pack_facts() -> None:
+    from app.officialdata import pack_countries, pack_urls
+
+    urls = pack_urls(pack_countries("IND", "growth Nirmala Sitharaman"), "2022-08-01")
+    pages = dict(PAGES)
+    pages[urls[0]] = _wb("India", "GDP growth (annual %)", {"2021": 9.69, "2020": -5.78})
+    bank = build_bank(
+        "growth", "Nirmala Sitharaman", FakeDesk(), MapFetcher(pages), said_on="2022-08-01"
+    )
+    pack = [f for f in bank.facts if f.angle.startswith("official statistics")]
+    assert len(pack) == 2
+    assert bank.stats["kept_pack"] == 2
+    assert pack[0].official
+    assert pack[0].as_of == "2021"
+    assert "9.69" in pack[0].passage
+    assert [f.id for f in bank.facts] == list(range(len(bank.facts)))

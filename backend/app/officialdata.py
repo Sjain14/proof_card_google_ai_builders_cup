@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 
 from app.model import Evidence
 
@@ -160,3 +161,94 @@ def render(body: bytes) -> str:
     if not lines:
         return ""
     return "Source: World Bank Open Data, latest official value.\n" + "\n".join(lines)
+
+
+# Official data pack (p38): every fact bank also gets the headline World Bank series for
+# the speaker's country and its usual comparators, around the speech date. Research kept
+# 10 facts on prod (16 Oct 2026, 72 researched: 29 pages unreachable, 27 low support);
+# these are read straight off the official API, so each one is a source checked figure.
+PACK_INDICATORS: tuple[str, ...] = (
+    "NY.GDP.MKTP.KD.ZG",  # GDP growth (annual %)
+    "NY.GDP.MKTP.CD",  # GDP (current US$)
+    "NY.GDP.PCAP.CD",  # GDP per capita (current US$)
+    "FP.CPI.TOTL.ZG",  # inflation, consumer prices (annual %)
+    "SL.UEM.TOTL.ZS",  # unemployment (% of labour force, ILO)
+    "SP.POP.TOTL",  # population
+    "NE.EXP.GNFS.CD",  # exports of goods and services (current US$)
+    "BX.KLT.DINV.CD.WD",  # FDI, net inflows (current US$)
+    "NV.IND.MANF.ZS",  # manufacturing, value added (% of GDP)
+    "FI.RES.TOTL.CD",  # total reserves incl. gold (current US$)
+    "EG.ELC.ACCS.ZS",  # access to electricity (% of population)
+    "SP.DYN.LE00.IN",  # life expectancy at birth
+)
+PACK_COMPARATORS: tuple[str, ...] = ("USA", "CHN", "WLD")
+PACK_YEARS = 3  # latest years with a value, per country and series
+PACK_MAX_COUNTRIES = 5
+SERIES_API = (
+    "https://api.worldbank.org/v2/country/{codes}/indicator/{indicator}"
+    "?format=json&date={start}:{end}&per_page=500"
+)
+
+
+@dataclass(frozen=True)
+class PackRow:
+    country: str
+    metric: str
+    year: str
+    value: float
+    url: str
+
+
+def pack_countries(home: str, text: str) -> list[str]:
+    """Home country first, then the ones the topic names, then the usual comparators."""
+    codes = [c for c in [home, *countries_of(text), *PACK_COMPARATORS] if c]
+    return list(dict.fromkeys(codes))[:PACK_MAX_COUNTRIES]
+
+
+def pack_urls(codes: list[str], said_on: str = "", today: int | None = None) -> list[str]:
+    """One request per series for all countries. A speech is checked against the figures
+    published before it."""
+    # annual series for year Y come out in Y+1: a speech in Y could only cite Y-1 and before
+    end = int(said_on[:4]) - 1 if said_on[:4].isdigit() else (today or 2026)
+    start = end - 5
+    return [
+        SERIES_API.format(codes=";".join(codes), indicator=ind, start=start, end=end)
+        for ind in PACK_INDICATORS
+    ]
+
+
+def pack_rows(body: bytes, url: str) -> list[PackRow]:
+    """Latest PACK_YEARS values per country from one series response; [] when unreadable."""
+    try:
+        data = json.loads(body.decode("utf-8", errors="replace"))
+    except ValueError:
+        return []
+    if not isinstance(data, list) or len(data) < 2 or not isinstance(data[1], list):
+        return []
+    per: dict[str, list[PackRow]] = {}
+    for row in data[1]:
+        if not isinstance(row, dict) or row.get("value") is None:
+            continue
+        try:
+            r = PackRow(
+                country=str(row["country"]["value"]),
+                metric=str(row["indicator"]["value"]),
+                year=str(row["date"]),
+                value=float(row["value"]),
+                url=url,
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+        per.setdefault(r.country, []).append(r)
+    out: list[PackRow] = []
+    for rows in per.values():
+        out += sorted(rows, key=lambda r: r.year, reverse=True)[:PACK_YEARS]
+    return out
+
+
+def human(value: float) -> str:
+    """3.15e12 -> '3.15 trillion'; percentages and small figures keep 2 decimals."""
+    for size, word in ((1e12, "trillion"), (1e9, "billion"), (1e6, "million")):
+        if abs(value) >= size:
+            return f"{value / size:,.2f} {word}"
+    return f"{value:,.2f}"

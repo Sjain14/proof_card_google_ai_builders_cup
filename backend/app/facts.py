@@ -31,8 +31,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from app.govsources import search_hint
-from app.officialdata import is_worldbank
+from app.govsources import country_for, search_hint
+from app.officialdata import PackRow, human, is_worldbank, pack_countries, pack_rows, pack_urls
 from app.officialdata import render as render_official
 from app.proof import Fetcher, best_match, extract_text
 from app.schemas import Fact, FactBankDoc, Verdict
@@ -40,7 +40,7 @@ from app.store import Store
 
 log = logging.getLogger("proofcard.facts")
 
-FACTS_PROMPT_VERSION = "2026-10-16.f2"
+FACTS_PROMPT_VERSION = "2026-10-16.f3"
 ANGLES = 12  # 10 angles x 12 = 108 researched, 10 kept (run 5); parallel, no extra time
 FACTS_PER_ANGLE = 8  # fewer per call: grounded research timed out at 12 (run 6: 10/12 empty)
 MAX_FACTS = 100
@@ -48,6 +48,7 @@ MAX_FACTS = 100
 # (16 Oct): research 449 s (150 s timeout x 3 retries), brief 1431 s.
 RESEARCH_BUDGET_S = 130.0
 VERIFY_BUDGET_S = 90.0
+PACK_BUDGET_S = 30.0  # official data pack: 12 API reads in parallel
 MIN_REUSE = 20  # a stored bank smaller than this is researched again
 MAX_AGE = timedelta(days=7)  # statistics get revised; a week old bank is rebuilt
 # Passage score a source page needs to keep a fact: the card gate, plus the figure itself
@@ -265,6 +266,42 @@ def _dedupe(cands: Iterable[Candidate]) -> list[Candidate]:
     return out
 
 
+def official_pack(about: str, speaker: str, fetcher: Fetcher, said_on: str = "") -> list[PackRow]:
+    """Headline World Bank series for the speaker's country and its comparators, up to
+    the speech year. Each unreadable series costs only itself."""
+    codes = pack_countries(country_for(speaker, about), f"{about} {speaker}")
+
+    def one(url: str) -> list[PackRow]:
+        try:
+            return pack_rows(fetcher.fetch(url).body, url)
+        except Exception:
+            return []
+
+    urls = pack_urls(codes, said_on, datetime.now(UTC).year)
+    none: list[PackRow] = []
+    return [
+        r for rows in _within(one, urls, len(urls), PACK_BUDGET_S - 2, none, "wb") for r in rows
+    ]
+
+
+def pack_fact(i: int, r: PackRow) -> Fact:
+    figure = human(r.value)
+    line = f"{r.country}: {r.metric}, {r.year}: {figure}"
+    return Fact(
+        id=i,
+        statement=f"{r.country}'s {r.metric} was {figure} in {r.year} (World Bank).",
+        value=figure,
+        as_of=r.year,
+        angle="official statistics (World Bank)",
+        trigger=f"a claim about {r.country}'s {r.metric.split(' (')[0].lower()} around {r.year}",
+        source_url=r.url,
+        passage=f"Source: World Bank Open Data, official series.\n{line}",
+        support=1.0,
+        official=True,
+        checked="page",
+    )
+
+
 def _within[T, R](
     fn: Callable[[T], R], items: list[T], workers: int, budget: float, late: R, name: str
 ) -> list[R]:
@@ -315,6 +352,10 @@ def build_bank(
             log.warning("fact research failed for one angle", exc_info=True)
             return []
 
+    # The official data pack is read while the angles are researched (it needs no model).
+    side = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pack")
+    packing = side.submit(official_pack, about, speaker, fetcher, said_on)
+    side.shutdown(wait=False)
     t1 = time.monotonic()
     none: list[Candidate] = []
     batches = _within(one, angles, len(angles), research_budget, none, "research")
@@ -369,6 +410,17 @@ def build_bank(
             )
         except ValueError:  # pydantic ValidationError: an odd URL or empty field
             stats["drop_invalid"] = stats.get("drop_invalid", 0) + 1
+    try:
+        rows = packing.result(timeout=PACK_BUDGET_S)
+    except Exception:
+        log.warning("official data pack failed", exc_info=True)
+        rows = []
+    stats["kept_pack"] = 0
+    for r in rows:
+        if len(facts) >= MAX_FACTS:
+            break
+        facts.append(pack_fact(len(facts), r))
+        stats["kept_pack"] += 1
     log.info(
         "fact bank built",
         extra={
