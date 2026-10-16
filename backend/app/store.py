@@ -48,6 +48,8 @@ class Store(Protocol):
     def add_check(self, doc: CheckDoc) -> None: ...
     def get_fact_bank(self, key: str) -> FactBankDoc | None: ...
     def put_fact_bank(self, doc: FactBankDoc) -> None: ...
+    def get_claim_card(self, key: str) -> tuple[str, datetime] | None: ...
+    def put_claim_card(self, key: str, card_id: str) -> None: ...
 
 
 class InMemoryStore:
@@ -57,6 +59,7 @@ class InMemoryStore:
         self.cards: dict[str, CardDoc] = {}
         self.checks: list[CheckDoc] = []
         self.fact_banks: dict[str, FactBankDoc] = {}
+        self.claim_cards: dict[str, tuple[str, datetime]] = {}
         self._lock = Lock()
 
     def create_session(self, doc: SessionDoc) -> str:
@@ -128,6 +131,13 @@ class InMemoryStore:
     def put_fact_bank(self, doc: FactBankDoc) -> None:
         with self._lock:
             self.fact_banks[doc.key] = doc
+
+    def get_claim_card(self, key: str) -> tuple[str, datetime] | None:
+        return self.claim_cards.get(key)
+
+    def put_claim_card(self, key: str, card_id: str) -> None:
+        with self._lock:
+            self.claim_cards[key] = (card_id, datetime.now(UTC))
 
 
 class FirestoreStore:  # pragma: no cover - exercised against the emulator / prod
@@ -229,3 +239,18 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
     def put_fact_bank(self, doc: FactBankDoc) -> None:
         # set(), not create(): a stale bank is replaced by a fresh one under the same key.
         self.db.collection("fact_banks").document(doc.key).set(doc.model_dump(mode="json"))
+
+    def get_claim_card(self, key: str) -> tuple[str, datetime] | None:
+        snap = self.db.collection("claim_cards").document(key).get()
+        if not snap.exists:
+            return None
+        d = snap.to_dict() or {}
+        at = d.get("at")
+        if not isinstance(d.get("card_id"), str) or not isinstance(at, datetime):
+            return None
+        return d["card_id"], at
+
+    def put_claim_card(self, key: str, card_id: str) -> None:
+        self.db.collection("claim_cards").document(key).set(
+            {"card_id": card_id, "at": datetime.now(UTC)}
+        )

@@ -7,6 +7,7 @@ produce identical, comparable cards.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import re
@@ -232,6 +233,27 @@ def youtube_published(url: str) -> str:  # pragma: no cover - network
     except Exception:
         log.info("video date lookup failed", exc_info=True)
         return ""
+
+
+CLAIM_CACHE_AGE = timedelta(days=7)  # same window as a fact bank: statistics get revised
+
+
+def claim_key(text: str, context: str = "") -> str:
+    """Index id for a claim as said: case, spacing and ASCII punctuation don't matter.
+    context = the speech link (same words in another speech can mean another year);
+    empty for the bot, so every chat shares one verdict per claim."""
+    quotes = "\u201c\u201d\u2018\u2019"
+    norm = " ".join(re.sub(rf"[!-/:-@\[-`{{-~{quotes}]+", " ", text.lower()).split())
+    return hashlib.sha256(f"{norm}|{context}".encode()).hexdigest()[:40]
+
+
+def cached_card(text: str, context: str, deps: Deps) -> tuple[str, CardDoc] | None:
+    """A card already proved for this exact claim (in this speech) within the week."""
+    hit = deps.store.get_claim_card(claim_key(text, context))
+    if hit is None or datetime.now(UTC) - hit[1] > CLAIM_CACHE_AGE:
+        return None
+    card = deps.store.get_card(hit[0])
+    return (hit[0], card) if card is not None else None
 
 
 def said_on(session: SessionDoc, deps: Deps) -> str:
@@ -478,8 +500,17 @@ def verify_claim(
         return None
     deps.store.update_claim(session_id, claim_id, status=ClaimStatus.CHECKING)
     fact_ids: list[int] = []
+    session = deps.store.get_session(session_id)
+    context = (session.youtube_url or "") if session else ""
+    hit = cached_card(claim.text, context, deps)
+    if hit is not None:
+        trace.reason = "cache"
+        deps.store.update_claim(
+            session_id, claim_id, status=ClaimStatus.PROVED, card_id=hit[0], verdict=hit[1].verdict
+        )
+        log.info("claim card reused", extra={"fields": {"session": session_id}})
+        return hit[0]
     try:
-        session = deps.store.get_session(session_id)
         hint = search_hint(session.speaker if session else "", claim.text)
         card = None
         if session is not None and session.fact_bank_key:
@@ -515,6 +546,8 @@ def verify_claim(
         return None
     card_id = new_card_id()
     deps.store.put_card(card_id, card)
+    if card.verdict != Verdict.UNVERIFIABLE:  # a later run may still find the proof
+        deps.store.put_claim_card(claim_key(claim.text, context), card_id)
     deps.store.update_claim(
         session_id,
         claim_id,

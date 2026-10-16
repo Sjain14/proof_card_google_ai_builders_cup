@@ -580,3 +580,64 @@ def test_pulse_beats_while_a_long_step_runs() -> None:
     assert first is not None
     _t.sleep(0.06)
     assert store.sessions[sid].prebunk_beat == first  # stopped with the step
+
+
+# ---------- claim -> card cache ----------
+
+
+def test_same_claim_reuses_the_proved_card() -> None:
+    from datetime import timedelta
+
+    from app.pipeline import Trace, claim_key
+
+    class Counting(FakeModel):
+        calls = 0
+
+        def assess(self, claim: str, hint: str = "") -> Assessment:
+            Counting.calls += 1
+            return super().assess(claim, hint)
+
+    store = InMemoryStore()
+    d = deps(
+        store, Counting(Verdict.TRUE, ["https://x.gov/a"]), MapFetcher({"https://x.gov/a": EIGHTH})
+    )
+
+    def check(text: str, url: str | None = None) -> tuple[str | None, Trace]:
+        sid = store.create_session(SessionDoc(owner_uid="u", topic="t", youtube_url=url))
+        cid = store.add_claim(sid, ClaimDoc(text=text, source=ClaimSource.LIVE))
+        t = Trace()
+        return verify_claim(sid, cid, d, t), t
+
+    first, _ = check("India has 22 languages in the Eighth Schedule")
+    assert first is not None
+    n = Counting.calls
+    again, t = check("  india has 22 languages, in the Eighth Schedule!  ")
+    assert again == first
+    assert t.reason == "cache"
+    assert Counting.calls == n  # no model call for a repeat
+    # another speech is its own context; a week old entry is checked again
+    other, _ = check("India has 22 languages in the Eighth Schedule", "https://youtu.be/x")
+    assert other not in (None, first)
+    key = claim_key("India has 22 languages in the Eighth Schedule")
+    store.claim_cards[key] = (first, datetime.now(UTC) - timedelta(days=8))
+    stale, t = check("India has 22 languages in the Eighth Schedule")
+    assert stale is not None
+    assert t.reason != "cache"
+    # an index row pointing at a missing card is ignored
+    store.claim_cards[key] = ("gone", datetime.now(UTC))
+    assert check("India has 22 languages in the Eighth Schedule")[0] not in (None, "gone")
+
+
+def test_unverifiable_card_is_not_cached() -> None:
+    from app.pipeline import claim_key
+
+    store = InMemoryStore()
+    d = deps(
+        store,
+        FakeModel(Verdict.UNVERIFIABLE, ["https://x.gov/a"]),
+        MapFetcher({"https://x.gov/a": EIGHTH}),
+    )
+    sid = store.create_session(SessionDoc(owner_uid="u", topic="t"))
+    cid = store.add_claim(sid, ClaimDoc(text="India has 22 languages", source=ClaimSource.LIVE))
+    verify_claim(sid, cid, d)
+    assert claim_key("India has 22 languages") not in store.claim_cards
