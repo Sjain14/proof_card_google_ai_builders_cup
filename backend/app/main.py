@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import ValidationError
 
-from app import alter, card_image, share_page
+from app import alerts, alter, card_image, share_page
 from app.auth import Principal, Verifier, admin_principal, firebase_verifier
 from app.clip import (
     MAX_CLIP_BYTES,
@@ -40,6 +40,7 @@ from app.clip import sentences as clip_sentences
 from app.config import Settings, get_settings
 from app.factcheck import FactCheckClient, FactCheckedModel
 from app.live import (
+    Alert,
     GeminiLiveTranscriber,
     HashEmbedder,
     HeuristicSpotter,
@@ -195,6 +196,11 @@ def create_app(
     app.state.clip = clip_transcriber
     token = settings.telegram_bot_token.get_secret_value()
     app.state.bot_api = bot_api or (HttpBotApi(token) if token else None)
+    app.state.alerter = (
+        alerts.Alerter(app.state.bot_api, app.state.store, settings.public_base_url)
+        if app.state.bot_api is not None
+        else None
+    )
     app.state.oidc = oidc_verifier or (
         google_oidc_verifier(settings.service_url, settings.tasks_sa_email)
         if settings.tasks_mode == "cloudtasks"
@@ -335,7 +341,7 @@ def create_app(
 
         app.state.store.update_session(session_id, status="live")
         try:
-            engine = LiveEngine(session_id, app.state.live, collect)
+            engine = LiveEngine(session_id, app.state.live, collect, _alert_fn())
             await engine.warm()
             for line in lines:
                 await engine.on_sentence(line)
@@ -343,6 +349,24 @@ def create_app(
         finally:
             app.state.store.update_session(session_id, status="ready")
         return {"sentences": len(lines), "events": events}
+
+    def _alert_fn() -> Alert | None:
+        return app.state.alerter.alert if app.state.alerter is not None else None
+
+    @app.post("/api/sessions/{session_id}/telegram-link")
+    def telegram_link(
+        session_id: str, user: Annotated[Principal, Depends(admin_principal)]
+    ) -> dict[str, str]:
+        """During: deep link that attaches the owner's Telegram to this session's alerts."""
+        s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
+        if s is None or s.owner_uid != user.uid:
+            raise HTTPException(status_code=404, detail="not found")
+        if app.state.alerter is None or not settings.telegram_bot_username:
+            raise HTTPException(status_code=503, detail="telegram alerts are not configured")
+        if not app.state.prebunk_limiter.allow(user.uid):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
+        url = alerts.new_link(app.state.store, session_id, settings.telegram_bot_username)
+        return {"url": url}
 
     @app.websocket("/api/live/{session_id}")
     async def live_ws(ws: WebSocket, session_id: str) -> None:
@@ -382,7 +406,7 @@ def create_app(
             except Exception:  # socket gone: the card is stored, the feed reloads it
                 log.debug("live emit dropped, socket closed")
 
-        engine = LiveEngine(session_id, app.state.live, emit)
+        engine = LiveEngine(session_id, app.state.live, emit, _alert_fn())
         warm = asyncio.create_task(engine.warm())  # index ready before the first sentence
         audio: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=LIVE_AUDIO_QUEUE)
         stt: asyncio.Task[None] | None = None
@@ -591,6 +615,10 @@ def create_app(
         )
         return HTMLResponse(html, headers={"Content-Security-Policy": share_page.CSP})
 
+    def link_alerts(payload: str, chat_id: int) -> str | None:
+        s = alerts.redeem(app.state.store, payload, chat_id)
+        return s.topic if s is not None else None
+
     @app.post("/tg/webhook")
     async def tg_webhook(
         request: Request,
@@ -613,6 +641,7 @@ def create_app(
             check_image=check_bytes,
             base_url=settings.public_base_url,
             log_check=log_check,
+            link_alerts=link_alerts,
         )
         try:
             await run_in_threadpool(handle_update, update, bot)

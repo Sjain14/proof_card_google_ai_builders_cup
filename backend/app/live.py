@@ -252,15 +252,19 @@ class LiveDeps:
 
 
 Emit = Callable[[dict[str, Any]], Awaitable[None]]
+Alert = Callable[[str, str, Any, str], bool]  # (session, card, verdict, text), app/alerts.py
 
 
 class LiveEngine:
     """One per websocket. Sync core (match) + async cold checks pushed via emit()."""
 
-    def __init__(self, session_id: str, live: LiveDeps, emit: Emit) -> None:
+    def __init__(
+        self, session_id: str, live: LiveDeps, emit: Emit, alert: Alert | None = None
+    ) -> None:
         self.sid = session_id
         self.live = live
         self.emit = emit
+        self.alert = alert
         self._index = _Index()
         self._seen: set[str] = set()
         self._shown: set[str] = set()  # prebunked claim ids already pushed this session
@@ -415,6 +419,7 @@ class LiveEngine:
                 "latency_ms": latency,
             }
         )
+        self._notify(pre.card_id, pre.verdict, text)
         return True
 
     async def _cold(self, cid: str, text: str, t0: float) -> None:
@@ -440,6 +445,24 @@ class LiveEngine:
                 "latency_ms": latency,
             }
         )
+        if claim is not None:
+            self._notify(card_id, claim.verdict, text)
+
+    def _notify(self, card_id: str, verdict: Any, text: str) -> None:
+        """Telegram alert off the hot path: the feed never waits on the Bot API."""
+        if self.alert is None:
+            return
+        alert = self.alert
+
+        async def run() -> None:
+            try:
+                await asyncio.to_thread(alert, self.sid, card_id, verdict, text)
+            except Exception:
+                log.warning("telegram alert failed", exc_info=True)
+
+        task = asyncio.create_task(run())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     async def drain(self) -> None:
         if self._tasks:

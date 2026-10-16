@@ -108,6 +108,8 @@ const en = {
   "live.clipWorking": "Transcribing the clip and checking every line…",
   "live.clipDone": "Clip done: {n} lines checked.",
   "live.clipFail": "Couldn't process the clip.",
+  "live.tg": "Get FALSE / MISLEADING alerts on Telegram",
+  "live.tgOpen": "Telegram opened: tap Start in the bot chat to switch alerts on.",
   "live.empty": "Claims appear here the moment they're said. Prebunked ones arrive instantly.",
 
   "verdict.TRUE": "True",
@@ -223,6 +225,8 @@ const hi: Record<Key, string> = {
   "live.clipWorking": "क्लिप लिखी जा रही है और हर लाइन जाँची जा रही है…",
   "live.clipDone": "क्लिप पूरी: {n} लाइनें जाँची गईं।",
   "live.clipFail": "क्लिप प्रोसेस नहीं हो सकी।",
+  "live.tg": "गलत / भ्रामक दावों के अलर्ट Telegram पर पाएं",
+  "live.tgOpen": "Telegram खुल गया: अलर्ट चालू करने के लिए बॉट चैट में Start दबाएं।",
   "live.empty": "दावे बोलते ही यहाँ दिखते हैं। पहले से जाँचे दावे तुरंत आते हैं।",
 
   // Same words as the card image and share page (context/05_UI_UX.md §3, verdict.ts).

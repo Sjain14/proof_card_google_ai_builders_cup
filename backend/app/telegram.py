@@ -25,6 +25,7 @@ log = logging.getLogger("proofcard.telegram")
 
 API = "https://api.telegram.org"
 MAX_DOWNLOAD = 20 * 1024 * 1024
+ALERT_START_RE = re.compile(r"^/start\s+(alert[A-Za-z0-9_-]{44})\s*$")
 CARD_REF_RE = re.compile(r"(?:/v/|^/start\s+|^/check\s+)([A-Za-z0-9_-]{8,64})", re.MULTILINE)
 
 VERDICT_EMOJI = {"TRUE": "🟢", "MISLEADING": "🟠", "FALSE": "🔴", "UNVERIFIABLE": "⚪"}
@@ -69,6 +70,8 @@ class BotDeps:
     check_image: Callable[[bytes], CheckResult]
     base_url: str
     log_check: Callable[[CheckResult, str], None] = field(default=lambda r, ch: None)
+    # "/start alert..." deep link from the live page -> session topic, None if invalid
+    link_alerts: Callable[[str, int], str | None] = field(default=lambda p, c: None)
 
 
 def _open_button(base_url: str, card_id: str) -> dict[str, Any]:
@@ -137,6 +140,16 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
         return
 
     text = m.text or m.caption or ""
+    if (alert := ALERT_START_RE.match(text)) is not None:
+        topic = d.link_alerts(alert.group(1), chat)
+        msg = (
+            f"Alerts on for <b>{html.escape(topic[:80])}</b>. I'll send FALSE and MISLEADING "
+            "cards here the moment they're heard."
+            if topic is not None
+            else "That alert link has expired. Tap <b>Telegram alerts</b> on the live page again."
+        )
+        d.api.call("sendMessage", {"chat_id": chat, "text": msg, "parse_mode": "HTML"})
+        return
     ref = CARD_REF_RE.search(text)
     card = d.get_card(ref.group(1)) if ref else None
     if ref and card:

@@ -92,6 +92,8 @@ export const api = {
     call<{ session_id: string }>("/api/prebunk", { method: "POST", body: JSON.stringify(input) }, true),
   session: (id: string) => call<SessionView>(`/api/sessions/${encodeURIComponent(id)}`, {}, true),
   card: (id: string) => call<Card>(`/api/cards/${encodeURIComponent(id)}`),
+  telegramLink: (id: string) =>
+    call<{ url: string }>(`/api/sessions/${encodeURIComponent(id)}/telegram-link`, { method: "POST" }, true),
 };
 
 export const CLIP_MAX_BYTES = 20 * 1024 * 1024;

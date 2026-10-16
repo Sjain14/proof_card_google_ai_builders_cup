@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.14 · p7-telegram-alerts
+- `backend/app/alerts.py`: `new_link` / `redeem` (deep link `t.me/<bot>?start=alert<sid><secret>`, sha256 only on the session, single use, 15 min) + `Alerter` (sendPhoto of `/v/<card>.png`, caption + "Open proof", FALSE / MISLEADING only, cap 10 per session).
+- `POST /api/sessions/{id}/telegram-link` (owner only, 503 if the bot isn't configured). Bot `/start alert...` links the chat. `LiveEngine` fires alerts off the hot path on match and proved.
+- Frontend: Live page button, en + hi strings.
+- Docs touched: SNAPSHOT, versions/v0.7.14, CHANGELOG.
+
 ## 2026-10-16 · v0.7.13 · p7-no-silent-line (rev00012 bug 2 + stuck brief)
 - Prod live check 16 Oct 07:3x UTC on 077b2a3: "India per capita GDP is higher than Japan." got `heard`, then nothing for 40 s+ on an open socket; a Trump brief socket died with a keepalive ping timeout while the bank was still prebunking; the earlier brief vVcm1NYvpjTuMkS2yAAxgQ sat in `prebunking` with 0 claims for 12 min.
 - `app/live.py`: every heard line ends in `match`, `checking` or `skipped{reason}`. Spotter is bounded (`SPOT_TIMEOUT_S`); a model error or timeout falls back to the heuristic (check the whole line) instead of dropping it. One line that crashes is reported (`skipped error`), the socket lives on. A crashed cold check still resolves its tile as `failed`. Firestore calls in the live path run off the event loop.

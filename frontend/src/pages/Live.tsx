@@ -117,6 +117,20 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     }
   };
 
+  const telegram = async () => {
+    // Open the tab synchronously (popup blockers), then point it at the deep link.
+    const tab = window.open("", "_blank");
+    try {
+      const { url } = await api.telegramLink(id);
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+      setNote(t("live.tgOpen"));
+    } catch (e) {
+      tab?.close();
+      setNote(e instanceof Error ? e.message : t("live.clipFail"));
+    }
+  };
+
   const sendLine = async (ev: React.FormEvent) => {
     ev.preventDefault();
     const text = line.trim();
@@ -185,6 +199,9 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
             {t("live.clip")}
             <input type="file" accept="audio/*" onChange={(e) => void sendClip(e)} aria-label={t("live.clipLabel")} />
           </label>
+          <button className="btn ghost small" type="button" onClick={() => void telegram()}>
+            {t("live.tg")}
+          </button>
           {note && <p className="note">{note}</p>}
         </div>
 

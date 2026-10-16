@@ -88,6 +88,11 @@ class SessionDoc(Strict):
     status: Annotated[str, Field(pattern="^(draft|prebunking|ready|live|closed|failed)$")] = "draft"
     is_anonymous: bool = False
     created_at: datetime = Field(default_factory=_now)
+    # Telegram alerts (app/alerts.py): pending deep link (hash only) + linked chat
+    tg_link_hash: str | None = None
+    tg_link_exp: datetime | None = None
+    alert_chat_id: int | None = None
+    alerts_sent: int = 0
 
 
 class ClaimDoc(Strict):
