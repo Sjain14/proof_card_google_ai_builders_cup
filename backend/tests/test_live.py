@@ -498,3 +498,54 @@ def test_heuristic_lets_done_deeds_and_absolutes_reach_the_model() -> None:
     assert heuristic_spot("humne sabhi bandhak wapas la diye hain")
     assert not heuristic_spot("Thank you so much, it is great to be here tonight")
     assert not heuristic_spot("Did they get the hostages back?")
+
+
+# ---------- one card per claim on screen (p42) ----------
+
+
+def test_same_claim_in_other_words_is_checked_once() -> None:
+    # Team lead, Trump demo 16 Oct: two wordings of one line -> two identical cards.
+    eng, events, _ = _engine(_Judge(False))
+
+    async def run() -> None:
+        await eng.on_sentence("Mumbai has 40 million cars on the road today")
+        await eng.on_sentence("There are 40 million cars on Mumbai roads right now")
+        await eng.drain()
+
+    asyncio.run(run())
+    assert [e["type"] for e in events].count("checking") == 1
+    assert any(e["type"] == "skipped" and e["reason"] == "repeat" for e in events)
+
+
+def test_other_numbers_are_a_new_claim() -> None:
+    eng, events, _ = _engine(_Judge(True))
+
+    async def run() -> None:
+        await eng.on_sentence("Mumbai has 40 million cars on the road today")
+        await eng.on_sentence("Delhi has 12 million cars on the road today")
+        await eng.drain()
+
+    asyncio.run(run())
+    assert [e["type"] for e in events].count("checking") == 2
+
+
+def test_two_prebunked_claims_sharing_a_card_show_it_once() -> None:
+    eng, events, pid = _engine(_Judge(False))
+    store = eng.live.deps.store
+    twin = store.add_claim(
+        eng.sid,
+        ClaimDoc(
+            text="The Eighth Schedule lists 22 languages",
+            source=ClaimSource.PREDICTED,
+            status=ClaimStatus.PROVED,
+            card_id="card-1",
+        ),
+    )
+
+    async def run() -> tuple[bool | None, bool | None]:
+        a = await eng._push_match("22 languages", pid, 0.99, 0.0)
+        b = await eng._push_match("22 scheduled languages", twin, 0.99, 0.0)
+        return a, b
+
+    assert asyncio.run(run()) == (True, False)
+    assert [e["type"] for e in events].count("match") == 1

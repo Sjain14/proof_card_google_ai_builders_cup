@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { onePerCard } from "../verdict";
 import { api, CLIP_MAX_BYTES, uploadClip, watchUrl, type Card, type ClaimView, type SessionView } from "../api";
 import type { SignedIn } from "../auth";
 import { CardTile } from "../components/CardTile";
@@ -93,6 +94,11 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     }
   }, [shown, cards]);
 
+  const feedRef = useRef(feed);
+  feedRef.current = feed;
+  const feedHasCard = (card: string, except: string) =>
+    feedRef.current.some((it) => it.claim.card_id === card && it.claim.id !== except);
+
   const onEvent = (e: LiveEvent) => {
     if (e.type === "heard") {
       setHeard(e.text);
@@ -106,7 +112,11 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
         card_id: e.type === "match" ? e.card_id : null,
         verdict: e.type === "match" ? e.verdict : null,
       };
-      setFeed((f) => [{ claim, prebunked: e.type === "match", latency: e.type === "match" ? e.latency_ms : undefined }, ...f]);
+      // one tile per card: a second wording of a claim already on screen adds nothing
+      setFeed((f) => e.type === "match" && f.some((it) => it.claim.card_id === e.card_id) ? f
+        : [{ claim, prebunked: e.type === "match", latency: e.type === "match" ? e.latency_ms : undefined }, ...f]);
+    } else if (e.type === "proved" && e.card_id && feedHasCard(e.card_id, e.claim_id)) {
+      setFeed((f) => f.filter((it) => it.claim.id !== e.claim_id));
     } else if (e.type === "proved" || e.type === "failed") {
       setFeed((f) => f.map((it) => it.claim.id !== e.claim_id ? it : {
         ...it,
@@ -127,7 +137,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
           const had = byId.get(c.id);
           byId.set(c.id, { claim: c, prebunked: c.matched ?? had?.prebunked ?? false, latency: had?.latency });
         }
-        return [...byId.values()];
+        return onePerCard([...byId.values()], (it) => it.claim.card_id);
       });
     }, () => {});
   };

@@ -366,6 +366,12 @@ class LiveEngine:
         self._index = _Index()
         self._seen: set[str] = set()
         self._shown: set[str] = set()  # prebunked claim ids already pushed this session
+        self._cards: set[str] = set()  # card ids on screen: one tile per card, ever
+        # live claims sent to a cold check: (text, vector, numbers). A second wording of
+        # the same claim ("worst inflation in 48 years" / "inflation is the worst in 48
+        # years") used to start a second check and put two identical cards on screen
+        # (Team lead, Trump demo 16 Oct 2026).
+        self._cold_seen: list[tuple[str, list[float], Any]] = []
         self._tasks: set[asyncio.Task[None]] = set()
         self._lock = threading.Lock()  # match() runs in worker threads, two at a time
 
@@ -458,7 +464,7 @@ class LiveEngine:
         if heuristic_spot(sentence):
             hit, sim = await asyncio.to_thread(self.match, sentence)
             if hit and sim >= self.live.instant and hit not in self._shown:
-                shown = await self._push_match(sentence, hit, sim, t0, t_offset)
+                shown = bool(await self._push_match(sentence, hit, sim, t0, t_offset))
         claims = await spot
         if not claims and is_country_figure(sentence):
             claims = [sentence]  # deterministic floor under the model spotter
@@ -489,8 +495,12 @@ class LiveEngine:
         hit, sim, repeat = await self._find_match(text)
         if repeat:  # same prebunked claim, already on screen
             return False
-        if hit and await self._push_match(text, hit, sim, t0, t_offset):
-            return True
+        if hit:
+            pushed = await self._push_match(text, hit, sim, t0, t_offset)
+            if pushed is not None:
+                return pushed
+        if await self._cold_repeat(text):
+            return False
         doc = ClaimDoc(text=text, source=ClaimSource.LIVE, t_offset_s=t_offset)
         cid = await asyncio.to_thread(store.add_claim, self.sid, doc)
         await self.emit({"type": "checking", "claim_id": cid, "text": text, "t": t_offset})
@@ -498,6 +508,29 @@ class LiveEngine:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return True
+
+    async def _cold_repeat(self, text: str) -> bool:
+        """True when this claim, in other words, is already being checked or shown."""
+        try:
+            [vec] = await asyncio.to_thread(self.live.embedder.embed, [text])
+        except Exception:
+            log.warning("repeat check embed failed", exc_info=True)
+            return False
+        heard = numbers(text)
+        for prev, pvec, pnum in self._cold_seen:
+            sim = cosine(vec, pvec)
+            if pnum == heard and sim >= self.live.instant:
+                return True
+            judge = self.live.judge
+            if (
+                judge is not None
+                and sim >= RECALL_THRESHOLD
+                and (pnum == heard or numbers_compatible(pnum, heard))
+                and await asyncio.to_thread(judge.same_claim, text, prev)
+            ):
+                return True
+        self._cold_seen.append((text, vec, heard))
+        return False
 
     async def _find_match(self, text: str) -> tuple[str | None, float, bool]:
         """(hit, cosine, already shown). Strong (same numbers, cosine >= instant) wins at
@@ -520,16 +553,20 @@ class LiveEngine:
 
     async def _push_match(
         self, text: str, hit: str, sim: float, t0: float, t_offset: float | None = None
-    ) -> bool:
-        """Store a LIVE claim pointing at the prebunked card and push it. False if the
-        prebunked claim has no card (cannot happen for indexed claims, kept defensive)."""
+    ) -> bool | None:
+        """Store a LIVE claim pointing at the prebunked card and push it. True = pushed,
+        False = that card is already on screen (another prebunked claim shares it),
+        None = the prebunked claim has no card (cannot happen for indexed claims)."""
         # Firestore calls run off the event loop: a slow write must never stall the
         # socket (prod 16 Oct: keepalive ping timeout while a brief was prebunking).
         store = self.live.deps.store
         pre = await asyncio.to_thread(store.get_claim, self.sid, hit)
         if pre is None or not pre.card_id:
-            return False
+            return None
         self._shown.add(hit)
+        if pre.card_id in self._cards:
+            return False
+        self._cards.add(pre.card_id)
         latency = int((time.monotonic() - t0) * 1000)
         doc = ClaimDoc(
             text=text,
@@ -584,6 +621,8 @@ class LiveEngine:
         store = self.live.deps.store
         claim = await asyncio.to_thread(store.get_claim, self.sid, cid)
         await asyncio.to_thread(store.update_claim, self.sid, cid, latency_ms=latency)
+        repeat = card_id in self._cards  # the claim cache gave back a card already shown
+        self._cards.add(card_id)
         await self.emit(
             {
                 "type": "proved",
@@ -594,9 +633,10 @@ class LiveEngine:
                 "latency_ms": latency,
                 "stages": trace.stages,
                 "facts": claim.fact_ids if claim else [],
+                "repeat": repeat,
             }
         )
-        if claim is not None:
+        if claim is not None and not repeat:
             self._notify(card_id, claim.verdict, text, claim.t_offset_s)
 
     def _notify(self, card_id: str, verdict: Any, text: str, t: float | None = None) -> None:

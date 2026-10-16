@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { onePerCard } from "../verdict";
 import { api, ApiError, mergeFeed, type Card, type FeedClaim } from "../api";
 import { CardTile } from "../components/CardTile";
 import { t } from "../i18n";
@@ -60,7 +61,7 @@ export function Watch({ id }: { id: string }) {
         {claims.length === 0 && !note && (
           <div className="tile pending feed-empty"><p className="muted">{t("live.empty")}</p></div>
         )}
-        {claims.map((c) => (
+        {onePerCard(claims, (c) => c.card_id).map((c) => (
           <div className="feed-item" key={c.id}>
             <div className="feed-meta">
               <span className={`badge ${c.matched ? "b-pre" : "b-live"}`}>{c.matched ? "PREBUNKED" : "LIVE"}</span>

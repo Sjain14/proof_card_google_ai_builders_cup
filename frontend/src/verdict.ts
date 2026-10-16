@@ -21,3 +21,16 @@ export function domain(url: string): string {
     return url;
   }
 }
+
+// One tile per card: two wordings of one claim can resolve to the same card (stored
+// sessions from before the live engine deduped them). Keeps the first, order unchanged.
+export function onePerCard<T>(items: T[], card: (x: T) => string | null | undefined): T[] {
+  const seen = new Set<string>();
+  return items.filter((x) => {
+    const c = card(x);
+    if (!c) return true;
+    if (seen.has(c)) return false;
+    seen.add(c);
+    return true;
+  });
+}
