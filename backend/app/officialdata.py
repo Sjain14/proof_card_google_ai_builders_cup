@@ -119,6 +119,20 @@ def is_country_figure(text: str) -> bool:
     return bool(metric_of(text)) and bool(countries_of(text))
 
 
+def official_proof(url: str, text: str) -> tuple[str, float]:
+    """The World Bank request is built from the claim's own metric and countries, so its
+    rendered figures ARE the proof when every requested country has a value: no fuzzy
+    passage matching. Prod 63929df: "भारत की जीडीपी अमेरिका से बड़ी है।" FAILED because the
+    model restated it as "...the USA's" and the row says "United States" (score 0.33 < 0.35).
+    A missing country -> ("", 0.0): half a comparison is not proof."""
+    m = re.search(r"/country/([A-Z;]+)/indicator/", url)
+    want = len(m.group(1).split(";")) if m else 1
+    rows = [ln for ln in text.splitlines()[1:] if ln.strip()]
+    if not rows or len(rows) < want:
+        return "", 0.0
+    return " ".join(rows), 1.0
+
+
 def is_worldbank(url: str) -> bool:
     return url.startswith(f"https://{HOST}/")
 

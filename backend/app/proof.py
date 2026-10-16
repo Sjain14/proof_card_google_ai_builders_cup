@@ -336,7 +336,9 @@ _RELATION = {
 }  # fmt: skip
 _COMPARE = {"than", "versus", "vs", "compared", "ahead", "behind", "exceeds", "overtook",
             "surpassed", "zyada", "jyada", "aage", "peeche", "adhik",
-            "ज़्यादा", "ज्यादा", "अधिक", "आगे", "पीछे"}  # fmt: skip
+            "ज़्यादा", "ज्यादा", "अधिक", "आगे", "पीछे",
+            "\u092c\u0921\u093c\u0940", "\u092c\u0921\u093c\u093e",  # NFKC form
+            "badi", "bada", "chhota", "chhoti", "छोटी", "छोटा"}  # fmt: skip
 
 
 def is_comparison(query: str) -> bool:

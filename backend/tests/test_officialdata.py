@@ -114,3 +114,41 @@ def test_devanagari_metrics_and_country_figure() -> None:
     assert is_country_figure("India ki GDP America se badi hai")
     assert not is_country_figure("India is a great country")
     assert not is_country_figure("per capita income is rising")
+
+
+def test_official_proof_needs_every_country() -> None:
+    from app.officialdata import official_proof
+
+    url = "https://api.worldbank.org/v2/country/IND;USA/indicator/NY.GDP.MKTP.CD?format=json"
+    both = (
+        "Source: World Bank Open Data, latest official value.\n"
+        "India: GDP (current US$), 2025: 3,956,067,115,771.63\n"
+        "United States: GDP (current US$), 2025: 30,769,700,000,000.00"
+    )
+    passage, score = official_proof(url, both)
+    assert score == 1.0
+    assert "United States" in passage
+    assert "India" in passage
+    one = "\n".join(both.splitlines()[:2])
+    assert official_proof(url, one) == ("", 0.0)
+
+
+def test_hindi_gdp_card_proves_whatever_the_restatement() -> None:
+    from app.proof import is_comparison
+
+    assert is_comparison("भारत की जीडीपी अमेरिका से बड़ी है।")
+    # prod 63929df: claim_en "...the USA's" scored 0.33 vs the "United States" row -> FAILED
+    from app.model import Assessment
+    from app.officialdata import official_evidence, official_proof
+    from app.schemas import Verdict
+
+    claim = "भारत की जीडीपी अमेरिका से बड़ी है।"
+    a = Assessment(
+        verdict=Verdict.FALSE, explanation="x", claim_en="India's GDP is larger than the USA's."
+    )
+    url = official_evidence(claim, a.claim_en)[0].url
+    text = (
+        "Source: World Bank Open Data, latest official value.\n"
+        "India: GDP (current US$), 2025: 3.9\nUnited States: GDP (current US$), 2025: 30.7"
+    )
+    assert official_proof(url, text)[1] == 1.0

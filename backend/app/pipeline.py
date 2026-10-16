@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from app.model import Assessment, Evidence, ModelClient
-from app.officialdata import is_worldbank, official_evidence
+from app.officialdata import is_worldbank, official_evidence, official_proof
 from app.officialdata import render as render_official
 from app.proof import (
     Fetched,
@@ -145,7 +145,10 @@ def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None
         if not text:
             _skip(fetched.final_url, "no text", content_type=fetched.content_type)
             continue
-        passage, score = support_for(claim, assessment, ev.model_snippet, text)
+        if is_worldbank(fetched.final_url):
+            passage, score = official_proof(fetched.final_url, text)
+        else:
+            passage, score = support_for(claim, assessment, ev.model_snippet, text)
         if score < MIN_PASSAGE_SCORE or not passage:
             _skip(fetched.final_url, "low support", score=round(score, 3))
             continue
