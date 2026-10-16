@@ -2,7 +2,7 @@
 
 Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versions/`.
 
-**As of:** 16 Oct 2026 IST · **Version:** v0.7.16 · **Phase:** P7 Live testing & guest mode
+**As of:** 16 Oct 2026 IST · **Version:** v0.7.17 · **Phase:** P7 Live testing & guest mode
 
 ## Done
 - v0.1.0 to v0.5.0: backend spine, prebunk pipeline, proof snapshots, Cloud Tasks, card image + ALTERED check, `/v/:id`, Telegram bot, React frontend, live bridge.
@@ -21,6 +21,7 @@ Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versi
 - v0.7.14: Telegram alerts: "Get alerts on Telegram" on `/live/:id` → bot deep link (single use, 15 min, hash only) → FALSE / MISLEADING cards pushed as the card PNG + "Open proof", max 10 per session.
 - v0.7.15: figure-less comparisons ("per capita GDP higher than Japan", Hinglish too) proved by each side's figure line + the metric line, so a FALSE stays FALSE instead of UNVERIFIABLE / `failed`.
 - v0.7.16: Replay mode: clip upload on a brief with a YouTube URL is transcribed with MM:SS start times (`?timed=true`), each live claim stores `t_offset_s`, and "Replay with video" on `/live/:id` pops each card at that second of the embedded player.
+- v0.7.17: read only viewer link `/watch/:id` (owner opt in, public polled feed) + live socket auto-reconnect with resume.
 - Gates: backend ruff, format, mypy strict, pytest (171 passed, coverage 97.89%), pip-audit; frontend tsc strict, vitest (11 passed), build, npm audit; Firestore rules tests.
 
 ## Not built (never claim, see SUBMISSION_DRAFT.md §4)

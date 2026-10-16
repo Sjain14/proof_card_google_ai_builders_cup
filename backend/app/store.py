@@ -11,6 +11,7 @@ model before anything is written, so a partial update can never break the schema
 from __future__ import annotations
 
 import secrets
+from datetime import UTC, datetime
 from threading import Lock
 from typing import Any, Protocol
 
@@ -100,6 +101,7 @@ class InMemoryStore:
         return sorted(items, key=lambda kv: kv[1].created_at)
 
     def update_claim(self, session_id: str, claim_id: str, **changes: Any) -> None:
+        changes = {**changes, "updated_at": datetime.now(UTC)}
         with self._lock:
             cur = self.claims[session_id][claim_id]
             self.claims[session_id][claim_id] = _apply(cur, changes)
@@ -192,6 +194,7 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
         return [(s.id, ClaimDoc.model_validate(s.to_dict())) for s in q.stream()]
 
     def update_claim(self, session_id: str, claim_id: str, **changes: Any) -> None:
+        changes = {**changes, "updated_at": datetime.now(UTC)}
         cur = self.get_claim(session_id, claim_id)
         if cur is None:
             raise KeyError(claim_id)

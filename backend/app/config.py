@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     # Abuse limits for public endpoints (per instance; see STANDARDS.md "what we skip").
     public_rate_per_min: int = Field(default=30, ge=1, le=600)
+    # Watch page polls every 2 s: its own bucket so viewers never starve card reads.
+    feed_rate_per_min: int = Field(default=60, ge=1, le=600)
     # Each brief costs ~15 grounded Gemini calls: burst limit per user + durable daily cap.
     prebunk_per_min: int = Field(default=3, ge=1, le=60)
     prebunk_daily_cap: int = Field(default=20, ge=1, le=1_000)

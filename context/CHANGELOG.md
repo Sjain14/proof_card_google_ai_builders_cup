@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.17 · p7-viewer-reconnect
+- Viewer link (spec §5, B1): owner toggles "Share viewer link" on `/s/:id/live` (`POST /api/sessions/{id}/share`, owner only); anyone with `/watch/:id` sees the live card stream on any phone, no audio, no sign in. Backed by public `GET /api/sessions/{id}/feed?since=` (opt in only, 404 otherwise, own token bucket `PC_FEED_RATE_PER_MIN`=60/min/IP, heard claims only, no owner fields), polled every 2 s, paused while the tab is hidden.
+- `ClaimDoc.updated_at` stamped by both stores on every update, so the feed cursor catches claims proved after they were heard. `ClaimView.matched` so a resumed desk keeps PREBUNKED badges.
+- Reconnect (spec B2): `connectLive()` retries a dropped socket with exponential backoff + jitter (0.5 s to 15 s, 8 tries, reset on `ready`), re-auths with a fresh ID token each time, shows "reconnecting…", then reloads `GET /api/sessions/{id}` and folds missed cards into the feed. 4401 and 1000 are final.
+- Docs touched: SNAPSHOT, versions/v0.7.17, CHANGELOG, DECISIONS (D21).
+
 ## 2026-10-16 · v0.7.16 · p7-replay-mode
 - `backend/app/clip.py`: `GeminiClipTranscriber.transcribe_timed` (Gemini 3.5 Flash, JSON `[{start:"MM:SS",text}]`), `parse_clock`, `timed_from_json`.
 - `POST /api/sessions/{id}/clip?timed=true`; `LiveEngine.on_sentence(t_offset=)`; `ClaimDoc.t_offset_s`; `ClaimView` adds `matched_claim_id`, `t_offset_s`; events carry `t`.

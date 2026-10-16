@@ -41,6 +41,80 @@ export async function openLive(sessionId: string, onEvent: (e: LiveEvent) => voi
   return ws;
 }
 
+export type LinkState = "open" | "reconnecting" | "closed";
+
+export interface LiveLink {
+  send: (data: string | ArrayBuffer) => void; // dropped while reconnecting (live audio, no replay)
+  close: () => void;
+}
+
+/** Exponential backoff with full jitter: 0.5 s, 1 s, 2 s ... capped at 15 s. */
+export function backoffMs(attempt: number, rand: () => number = Math.random): number {
+  return Math.round(Math.min(15_000, 500 * 2 ** attempt) * (0.5 + rand() / 2));
+}
+
+export const MAX_RETRIES = 8;
+
+/**
+ * A live socket that survives drops (spec B2). Rejects only if the FIRST open fails.
+ * After that an unexpected close retries with backoff, re-authenticating every time
+ * (`open` fetches a fresh ID token), and calls `onReopen` so the page reloads the session
+ * from GET /api/sessions/:id (cards made while we were away are in Firestore).
+ * 4401 (not the owner) and 1000 (normal end) are final.
+ */
+export async function connectLive(
+  open: (onEvent: (e: LiveEvent) => void) => Promise<WebSocket>,
+  h: { onEvent: (e: LiveEvent) => void; onState: (s: LinkState, code?: number) => void; onReopen: () => void },
+): Promise<LiveLink> {
+  let ws: WebSocket | null = null;
+  let stopped = false;
+  let attempt = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const onEvent = (e: LiveEvent) => {
+    if (e.type === "ready") attempt = 0; // healthy again: next drop starts from 0.5 s
+    h.onEvent(e);
+  };
+  const retry = (code?: number) => {
+    if (stopped) return;
+    if (attempt >= MAX_RETRIES) return h.onState("closed", code);
+    h.onState("reconnecting", code);
+    timer = setTimeout(() => void attach(true), backoffMs(attempt++));
+  };
+  const attach = async (again: boolean) => {
+    let sock: WebSocket;
+    try {
+      sock = await open(onEvent);
+    } catch (err) {
+      if (!again) throw err;
+      return retry();
+    }
+    if (stopped) return sock.close();
+    ws = sock;
+    sock.onclose = (c) => {
+      ws = null;
+      if (stopped) return;
+      if (c.code === 4401 || c.code === 1000) {
+        stopped = true;
+        return h.onState("closed", c.code);
+      }
+      retry(c.code);
+    };
+    h.onState("open");
+    if (again) h.onReopen();
+  };
+  await attach(false);
+  return {
+    send: (data) => {
+      if (ws && ws.readyState === 1) ws.send(data); // 1 = OPEN
+    },
+    close: () => {
+      stopped = true;
+      clearTimeout(timer);
+      ws?.close();
+    },
+  };
+}
+
 // Runs on the audio thread: Float32 at 16 kHz in, Int16 frames of 100 ms out.
 const WORKLET = `
 class Pcm16 extends AudioWorkletProcessor {
@@ -63,7 +137,7 @@ export interface Capture {
 }
 
 /** Ask for this tab's audio (user picks the tab and ticks "share tab audio"). */
-export async function captureTabAudio(ws: WebSocket, onEnd: () => void): Promise<Capture> {
+export async function captureTabAudio(link: Pick<LiveLink, "send">, onEnd: () => void): Promise<Capture> {
   const stream = await navigator.mediaDevices.getDisplayMedia({
     video: true, // Chrome requires video to offer tab audio; we drop it at once
     audio: { echoCancellation: false, noiseSuppression: false },
@@ -81,7 +155,7 @@ export async function captureTabAudio(ws: WebSocket, onEnd: () => void): Promise
   URL.revokeObjectURL(url);
   const node = new AudioWorkletNode(ctx, "pcm16");
   node.port.onmessage = (m: MessageEvent<ArrayBuffer>) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(m.data);
+    link.send(m.data);
   };
   const src = ctx.createMediaStreamSource(new MediaStream([track]));
   src.connect(node); // not connected to the speakers: the video already plays its sound

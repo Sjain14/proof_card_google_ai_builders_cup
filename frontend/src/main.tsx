@@ -7,6 +7,7 @@ import { Brief } from "./pages/Brief";
 import { Landing } from "./pages/Landing";
 import { Live } from "./pages/Live";
 import { NewBrief } from "./pages/NewBrief";
+import { Watch } from "./pages/Watch";
 import { navigate, usePath } from "./router";
 import { t } from "./i18n";
 import { useAppStore } from "./store";
@@ -22,8 +23,10 @@ function App() {
 
   const brief = path.match(/^\/s\/([A-Za-z0-9_-]{8,64})$/);
   const live = path.match(/^\/s\/([A-Za-z0-9_-]{8,64})\/live$/);
+  const watch = path.match(/^\/watch\/([A-Za-z0-9_-]{8,64})$/);
   let page;
-  if (live?.[1]) page = <Live id={live[1]} user={user} />;
+  if (watch?.[1]) page = <Watch id={watch[1]} />;
+  else if (live?.[1]) page = <Live id={live[1]} user={user} />;
   else if (brief?.[1]) page = <Brief id={brief[1]} user={user} />;
   else if (path === "/new") page = <NewBrief user={user} />;
   else page = <Landing user={user} />;

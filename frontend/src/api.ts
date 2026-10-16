@@ -15,6 +15,7 @@ export interface ClaimView {
   verdict: Verdict | null;
   matched_claim_id?: string | null;
   t_offset_s?: number | null; // replay: second in the YouTube video
+  matched?: boolean;
 }
 
 export interface SessionView {
@@ -23,6 +24,7 @@ export interface SessionView {
   speaker: string;
   status: string;
   youtube_url: string | null;
+  public_view: boolean;
   claims: ClaimView[];
   counts: Record<ClaimStatus, number>;
 }
@@ -96,7 +98,45 @@ export const api = {
   card: (id: string) => call<Card>(`/api/cards/${encodeURIComponent(id)}`),
   telegramLink: (id: string) =>
     call<{ url: string }>(`/api/sessions/${encodeURIComponent(id)}/telegram-link`, { method: "POST" }, true),
+  share: (id: string, on: boolean) =>
+    call<{ public_view: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}/share`,
+      { method: "POST", body: JSON.stringify({ public_view: on }) },
+      true,
+    ),
+  feed: (id: string, since: string | null) =>
+    call<FeedView>(`/api/sessions/${encodeURIComponent(id)}/feed${since ? `?since=${encodeURIComponent(since)}` : ""}`),
 };
+
+/** Public read only stream for /watch/:id (backend FeedView). No owner data. */
+export interface FeedClaim {
+  id: string;
+  text: string;
+  status: ClaimStatus;
+  card_id: string | null;
+  verdict: Verdict | null;
+  matched: boolean;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+export interface FeedView {
+  id: string;
+  topic: string;
+  speaker: string;
+  status: string;
+  claims: FeedClaim[];
+  cursor: string;
+}
+
+/** Merge a poll into what we have: keyed by id, newest heard first. */
+export function mergeFeed(have: FeedClaim[], got: FeedClaim[]): FeedClaim[] {
+  const m = new Map(have.map((c) => [c.id, c]));
+  for (const c of got) m.set(c.id, c);
+  return [...m.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+export const watchUrl = (sessionId: string) => `${location.origin}/watch/${sessionId}`;
 
 export const CLIP_MAX_BYTES = 20 * 1024 * 1024;
 

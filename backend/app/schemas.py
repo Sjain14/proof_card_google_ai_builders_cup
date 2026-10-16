@@ -87,6 +87,7 @@ class SessionDoc(Strict):
     youtube_url: str | None = None
     status: Annotated[str, Field(pattern="^(draft|prebunking|ready|live|closed|failed)$")] = "draft"
     is_anonymous: bool = False
+    public_view: bool = False  # owner opted in to the read only /watch/:id link
     created_at: datetime = Field(default_factory=_now)
     # Telegram alerts (app/alerts.py): pending deep link (hash only) + linked chat
     tg_link_hash: str | None = None
@@ -107,6 +108,7 @@ class ClaimDoc(Strict):
     latency_ms: Annotated[int, Field(ge=0)] | None = None  # live: heard to card shown
     t_offset_s: Annotated[float, Field(ge=0)] | None = None  # replay: second in the video
     created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime | None = None  # set by the store on every update (feed cursor)
 
 
 class CardDoc(Strict):
@@ -175,6 +177,7 @@ class ClaimView(BaseModel):
     verdict: Verdict | None
     matched_claim_id: str | None = None
     t_offset_s: float | None = None
+    matched: bool = False  # live claim answered by a prebunked card
 
 
 class SessionView(BaseModel):
@@ -183,6 +186,7 @@ class SessionView(BaseModel):
     speaker: str
     status: str
     youtube_url: str | None = None
+    public_view: bool = False
     claims: list[ClaimView]
     counts: dict[str, int]
 
@@ -199,6 +203,7 @@ class SessionView(BaseModel):
                 verdict=c.verdict,
                 matched_claim_id=c.matched_claim_id,
                 t_offset_s=c.t_offset_s,
+                matched=c.matched_claim_id is not None,
             )
             for cid, c in claims
         ]
@@ -209,8 +214,63 @@ class SessionView(BaseModel):
             speaker=s.speaker,
             status=s.status,
             youtube_url=s.youtube_url,
+            public_view=s.public_view,
             claims=views,
             counts=counts,
+        )
+
+
+class ShareRequest(Strict):
+    public_view: bool
+
+
+class FeedClaim(BaseModel):
+    """One heard claim as a public viewer sees it: no owner data, no prebunk bank."""
+
+    id: str
+    text: str
+    status: ClaimStatus
+    card_id: str | None
+    verdict: Verdict | None
+    matched: bool  # answered instantly by a prebunked card (PREBUNKED badge), else LIVE
+    latency_ms: int | None
+    created_at: datetime
+
+
+class FeedView(BaseModel):
+    id: str
+    topic: str
+    speaker: str
+    status: str
+    claims: list[FeedClaim]
+    cursor: datetime  # pass back as ?since= on the next poll
+
+    @classmethod
+    def build(
+        cls,
+        sid: str,
+        s: SessionDoc,
+        claims: list[tuple[str, ClaimDoc]],
+        since: datetime | None,
+        now: datetime,
+    ) -> "FeedView":
+        views = [
+            FeedClaim(
+                id=cid,
+                text=c.text,
+                status=c.status,
+                card_id=c.card_id,
+                verdict=c.verdict,
+                matched=c.matched_claim_id is not None,
+                latency_ms=c.latency_ms,
+                created_at=c.created_at,
+            )
+            for cid, c in claims
+            if c.source == ClaimSource.LIVE
+            and (since is None or (c.updated_at or c.created_at) > since)
+        ]
+        return cls(
+            id=sid, topic=s.topic, speaker=s.speaker, status=s.status, claims=views, cursor=now
         )
 
 

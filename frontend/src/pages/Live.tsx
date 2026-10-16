@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { api, CLIP_MAX_BYTES, uploadClip, type Card, type ClaimView, type SessionView } from "../api";
+import { api, CLIP_MAX_BYTES, uploadClip, watchUrl, type Card, type ClaimView, type SessionView } from "../api";
 import type { SignedIn } from "../auth";
 import { CardTile } from "../components/CardTile";
 import {
   captureTabAudio,
   clock,
+  connectLive,
   loadYouTube,
   openLive,
   replayDue,
   youtubeId,
   type Capture,
   type LiveEvent,
+  type LiveLink,
   type YtPlayer,
 } from "../live";
 import { t } from "../i18n";
@@ -35,7 +37,8 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   const [replay, setReplay] = useState(false);
   const [now, setNow] = useState(0);
   const playerEl = useRef<HTMLDivElement | null>(null);
-  const ws = useRef<WebSocket | null>(null);
+  const ws = useRef<LiveLink | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   const cap = useRef<Capture | null>(null);
 
   useEffect(() => {
@@ -113,15 +116,37 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     }
   };
 
-  const connect = async (): Promise<WebSocket | null> => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) return ws.current;
+  // After a drop: cards made while we were away are stored, so reload the session and fold
+  // its heard claims into the feed (keyed by id, nothing shown twice).
+  const resume = () => {
+    void api.session(id).then((s) => {
+      setSession(s);
+      setFeed((f) => {
+        const byId = new Map(f.map((it) => [it.claim.id, it]));
+        for (const c of s.claims.filter((x) => x.source === "live")) {
+          const had = byId.get(c.id);
+          byId.set(c.id, { claim: c, prebunked: c.matched ?? had?.prebunked ?? false, latency: had?.latency });
+        }
+        return [...byId.values()];
+      });
+    }, () => {});
+  };
+
+  const connect = async (): Promise<LiveLink | null> => {
+    if (ws.current) return ws.current;
     setMode("connecting");
     try {
-      const sock = await openLive(id, onEvent);
-      sock.onclose = (c) => {
-        setMode("ended");
-        if (c.code === 4401) setNote(t("live.owner"));
-      };
+      const sock = await connectLive((ev) => openLive(id, ev), {
+        onEvent,
+        onReopen: resume,
+        onState: (st, code) => {
+          setReconnecting(st === "reconnecting");
+          if (st !== "closed") return;
+          ws.current = null;
+          setMode("ended");
+          setNote(code === 4401 ? t("live.owner") : code === 1000 ? "" : t("live.lost"));
+        },
+      });
       ws.current = sock;
       return sock;
     } catch {
@@ -147,7 +172,23 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   const stop = () => {
     cap.current?.stop();
     ws.current?.send(JSON.stringify({ type: "stop" }));
+    ws.current?.close();
+    ws.current = null;
     setMode("ended");
+  };
+
+  const [copied, setCopied] = useState(false);
+  const toggleShare = async () => {
+    if (!session) return;
+    try {
+      const r = await api.share(id, !session.public_view);
+      setSession({ ...session, public_view: r.public_view });
+      if (r.public_view) {
+        await navigator.clipboard?.writeText(watchUrl(id)).then(() => setCopied(true), () => {});
+      }
+    } catch {
+      setNote(t("live.wrong"));
+    }
   };
 
   const sendClip = async (ev: React.ChangeEvent<HTMLInputElement>) => {
@@ -261,6 +302,17 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
           <button className="btn ghost small" type="button" onClick={() => void telegram()}>
             {t("live.tg")}
           </button>
+          <div className="share-view">
+            <button className="btn small ghost" aria-pressed={session.public_view} onClick={() => void toggleShare()}>
+              {session.public_view ? t("live.shareOff") : t("live.shareOn")}
+            </button>
+            {session.public_view && (
+              <a className="link" href={watchUrl(id)} target="_blank" rel="noopener">
+                {copied ? t("live.shareCopied") : watchUrl(id)}
+              </a>
+            )}
+          </div>
+          {reconnecting && <p className="note banner" role="status">{t("live.reconnecting")}</p>}
           {note && <p className="note">{note}</p>}
         </div>
 

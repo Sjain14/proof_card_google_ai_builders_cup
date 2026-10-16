@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Annotated
 
@@ -63,9 +63,11 @@ from app.schemas import (
     CheckTextRequest,
     CheckTextResponse,
     ClaimSource,
+    FeedView,
     PrebunkRequest,
     SessionDoc,
     SessionView,
+    ShareRequest,
     TaskPrebunk,
     TgUpdate,
 )
@@ -212,6 +214,7 @@ def create_app(
     )
     app.state.limiter = TokenBucket(rate_per_min=settings.public_rate_per_min)
     app.state.prebunk_limiter = TokenBucket(rate_per_min=settings.prebunk_per_min)
+    app.state.feed_limiter = TokenBucket(rate_per_min=settings.feed_rate_per_min)
 
     # Clip uploads go straight to the Cloud Run URL (VITE_LIVE_ORIGIN) from our own pages:
     # only our configured origins, POST + Authorization, no cookies.
@@ -239,12 +242,14 @@ def create_app(
             response.headers.setdefault(k, v)
         return response
 
-    def rate_limited(request: Request) -> None:
+    def client_ip(request: Request) -> str:
         # The Google front end APPENDS the real client IP to X-Forwarded-For, so the
         # rightmost entry is trustworthy; leftmost entries can be spoofed by the caller.
         fwd = request.headers.get("x-forwarded-for", "")
-        client = fwd.split(",")[-1].strip() or (request.client.host if request.client else "?")
-        if not app.state.limiter.allow(client):
+        return fwd.split(",")[-1].strip() or (request.client.host if request.client else "?")
+
+    def rate_limited(request: Request) -> None:
+        if not app.state.limiter.allow(client_ip(request)):
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
 
     # /api/health is the one to probe: Cloud Run reserves some paths ending in "z" and
@@ -300,6 +305,37 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         claims = app.state.store.list_claims(session_id)
         return SessionView.build(session_id, s, claims)
+
+    @app.post("/api/sessions/{session_id}/share")
+    def share_session(
+        session_id: str,
+        body: ShareRequest,
+        user: Annotated[Principal, Depends(admin_principal)],
+    ) -> dict[str, bool]:
+        """Owner turns the read only viewer link (/watch/:id) on or off."""
+        s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
+        if s is None or s.owner_uid != user.uid:
+            raise HTTPException(status_code=404, detail="not found")
+        app.state.store.update_session(session_id, public_view=body.public_view)
+        return {"public_view": body.public_view}
+
+    @app.get("/api/sessions/{session_id}/feed")
+    def session_feed(session_id: str, request: Request, since: datetime | None = None) -> FeedView:
+        """Public, read only card stream for /watch/:id (polled every 2 s). Served by us,
+        not a Firestore listener: rules can't hide fields, so a client read of the session
+        doc would expose owner_uid. Only opted in sessions; 404 otherwise, never "private"."""
+        if not app.state.feed_limiter.allow(client_ip(request)):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
+        s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
+        if s is None or not s.public_view:
+            raise HTTPException(status_code=404, detail="not found")
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=UTC)
+        # 2 s overlap: an update stamped just before this read may commit just after it.
+        # The client keys claims by id, so repeats are harmless.
+        now = datetime.now(UTC)
+        claims = app.state.store.list_claims(session_id)
+        return FeedView.build(session_id, s, claims, since, now - timedelta(seconds=2))
 
     @app.post("/api/sessions/{session_id}/clip")
     async def upload_clip(
