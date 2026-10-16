@@ -7,12 +7,14 @@ produce identical, comparable cards.
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from app.model import Assessment, ModelClient
+from app.model import Assessment, Evidence, ModelClient
 from app.proof import (
+    Fetched,
     Fetcher,
     FetchError,
     SnapshotStore,
@@ -38,6 +40,12 @@ from app.store import Store, new_card_id
 log = logging.getLogger("proofcard.pipeline")
 
 MIN_PASSAGE_SCORE = 0.35
+# Sources are fetched in parallel under ONE budget for the whole card. Sequential fetches
+# (8 s timeout per source, up to ~10 grounding chunks) made one live card take 120 s
+# (rev00012 prod verify, "power plants" line). A source still loading at the deadline is
+# skipped like any other failed fetch.
+FETCH_BUDGET_S = 20.0
+MAX_CANDIDATES = 8
 
 
 @dataclass(frozen=True)
@@ -83,18 +91,39 @@ def _skip(url: str, reason: str, **more: object) -> None:
     )
 
 
+def fetch_all(
+    evidence: list[Evidence], fetcher: Fetcher, budget_s: float = FETCH_BUDGET_S
+) -> list[tuple[Evidence, Fetched]]:
+    """Fetch up to MAX_CANDIDATES sources at once; keep the model's order (best first)."""
+    cands = evidence[:MAX_CANDIDATES]
+    if not cands:
+        return []
+    pool = ThreadPoolExecutor(max_workers=len(cands), thread_name_prefix="fetch")
+    futures: list[Future[Fetched]] = [pool.submit(fetcher.fetch, ev.url) for ev in cands]
+    deadline = time.monotonic() + budget_s
+    out: list[tuple[Evidence, Fetched]] = []
+    try:
+        for ev, fut in zip(cands, futures, strict=True):
+            try:
+                out.append((ev, fut.result(timeout=max(0.0, deadline - time.monotonic()))))
+            except FetchError as exc:
+                _skip(ev.url, str(exc))
+            except TimeoutError:
+                _skip(ev.url, "fetch budget")
+            except Exception as exc:  # one broken source never fails the card
+                _skip(ev.url, type(exc).__name__)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return out
+
+
 def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None:
     proofs: list[SourceProof] = []
     scores: list[float] = []
     seen: set[str] = set()
-    for ev in assessment.evidence:
+    for ev, fetched in fetch_all(assessment.evidence, deps.fetcher):
         if len(proofs) >= deps.max_sources:
             break
-        try:
-            fetched = deps.fetcher.fetch(ev.url)
-        except FetchError as exc:
-            _skip(ev.url, str(exc))
-            continue
         if fetched.final_url in seen:
             _skip(fetched.final_url, "duplicate")
             continue
