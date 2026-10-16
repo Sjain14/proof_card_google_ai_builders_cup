@@ -39,7 +39,7 @@ FAST_TIMEOUT_S = 10.0  # live path: spotter, judge, embeddings
 # Brief bank prediction: one plain JSON list, no search. Prod 16 Oct 2026: speaker
 # "Donald Trump" hung predict_claims for 90 s x 3 retries (280 s, session failed) while
 # no speaker took ~15 s. Bounded: low thinking, capped output, one 40 s attempt.
-PREDICT_TIMEOUT_S = 40.0
+PREDICT_TIMEOUT_S = 60.0  # 40 s: 2 of 3 replay briefs failed (16 Oct), fallbacks follow
 PREDICT_MAX_TOKENS = 4096
 
 

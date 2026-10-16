@@ -435,17 +435,26 @@ def _result(fut: Future[CardDoc | None]) -> CardDoc | None:
         return None
 
 
-def _predict(deps: Deps, topic: str, speaker: str, n: int) -> list[PredictedClaim]:
-    """The speaker's bank, else the topic's bank. Prod 16 Oct 2026: speaker "Donald Trump"
-    timed the prediction out every time while the same topic with no speaker gave 11/12
-    proved, so a speaker-specific failure costs the speaker angle, never the whole brief."""
-    try:
-        return deps.model.predict_claims(topic, speaker, n)
-    except Exception:
-        if not speaker.strip():
-            raise
-        log.warning("speaker prediction failed, topic only fallback", exc_info=True)
-        return deps.model.predict_claims(topic, "", n)
+def _predict(
+    deps: Deps, topic: str, speaker: str, n: int, base_topic: str = ""
+) -> list[PredictedClaim]:
+    """First prediction that answers, in order: topic (+ video title) with speaker, the bare
+    topic with speaker, the bare topic alone. Prod 16 Oct 2026: Trump hung predict_claims
+    (280 s, #53), and with the 40 s cap 2 of 3 Sitharaman replay briefs then failed outright
+    (0 claims). A slow attempt costs the extra angle, never the whole brief."""
+    tries = list(
+        dict.fromkeys([(topic, speaker), (base_topic or topic, speaker), (base_topic or topic, "")])
+    )
+    for i, (t, sp) in enumerate(tries):
+        try:
+            return deps.model.predict_claims(t, sp, n)
+        except Exception:
+            if i == len(tries) - 1:
+                raise
+            log.warning(
+                "prediction failed, next fallback", extra={"fields": {"try": i}}, exc_info=True
+            )
+    raise AssertionError("unreachable")
 
 
 def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
@@ -468,7 +477,7 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
                 title = deps.video_title(session.youtube_url)
                 if title:
                     topic = f"{topic}. Video being fact checked: {title}"
-            predicted = _predict(deps, topic, session.speaker, n)
+            predicted = _predict(deps, topic, session.speaker, n, session.topic)
         except Exception:
             log.exception("prebunk prediction failed")
             deps.store.update_session(session_id, status="failed")

@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.20 · p20-predict-fallback
+- Prod replay (Sitharaman, after #54): 2 of 3 briefs failed with 0 claims (80 s, 95 s), because the predict call hit the 40 s cap from #53.
+- `app/pipeline.py` `_predict`: tries topic + video title with the speaker, then the bare topic with the speaker, then the bare topic alone. `app/model.py` PREDICT_TIMEOUT_S goes from 40 to 60.
+- Tests: test_pipeline::test_prediction_drops_the_video_title_before_the_speaker.
+- Docs touched: CHANGELOG.
+
 ## 2026-10-16 · v0.7.19 · p19-live-fit-check
 Replay fit check on prod (Sitharaman Lok Sabha, 7dhIVHRKhvo): bank match 0/6, cards 108-145 s after the line, 4/6 lines no card and no reason, one UNVERIFIABLE card on legal500.
 - `app/live.py` bank match: loose candidates (one side states no number or the numbers overlap, cosine >= 0.65) now reach the judge, top 3 by cosine, and count only on its yes. Exact numbers + cosine >= 0.90 still show at once, and with no judge (stub, tests) the old strict rule still applies.

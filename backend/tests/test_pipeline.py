@@ -524,3 +524,20 @@ def test_bank_prediction_sees_the_video_title() -> None:
     run_prebunk(sid, d, 3)
     assert seen
     assert "FM reply in Lok Sabha" in seen[0]
+
+
+def test_prediction_drops_the_video_title_before_the_speaker() -> None:
+    from app.pipeline import _predict
+
+    calls: list[tuple[str, str]] = []
+
+    class TitleHangs(_SpeakerHangs):
+        def predict_claims(self, topic: str, speaker: str, n: int) -> list[Any]:
+            calls.append((topic, speaker))
+            if "Video" in topic:
+                raise TimeoutError("deadline")
+            return [PredictedClaim(text="x", lang="en")]
+
+    d = deps(InMemoryStore(), TitleHangs(), MapFetcher({}))
+    assert _predict(d, "economy. Video: FM", "Sitharaman", 3, "economy")
+    assert calls == [("economy. Video: FM", "Sitharaman"), ("economy", "Sitharaman")]
