@@ -17,6 +17,7 @@ import {
   type YtPlayer,
 } from "../live";
 import { t } from "../i18n";
+import { isSampleVideo, SAMPLE_CLIP } from "../sample";
 
 interface FeedItem {
   claim: ClaimView;
@@ -204,7 +205,22 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   const sendClip = async (ev: React.ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
     ev.target.value = "";
-    if (!file) return;
+    if (file) await checkClip(file);
+  };
+
+  // The Trump sample's own audio, served with the site: no file hunting for a judge.
+  const sampleClip = async () => {
+    setNote(t("live.clipWorking"));
+    try {
+      const r = await fetch(SAMPLE_CLIP);
+      if (!r.ok) throw new Error(t("live.clipFail"));
+      await checkClip(new File([await r.blob()], "trump-nobel.mp3", { type: "audio/mpeg" }));
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : t("live.clipFail"));
+    }
+  };
+
+  const checkClip = async (file: File) => {
     if (file.size > CLIP_MAX_BYTES) return setNote(t("live.clipBig"));
     setNote(t("live.clipWorking"));
     try {
@@ -307,6 +323,14 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
             />
             <button className="btn small" type="submit">{t("live.check")}</button>
           </form>
+          {isSampleVideo(vid) && (
+            <div className="sample-clip">
+              <button className="btn" type="button" onClick={() => void sampleClip()}>
+                {t("live.sampleClip")}
+              </button>
+              <p className="muted small">{t("live.sampleHint")}</p>
+            </div>
+          )}
           <label className="clip">
             {t("live.clip")}
             <input type="file" accept="audio/*" onChange={(e) => void sendClip(e)} aria-label={t("live.clipLabel")} />
@@ -339,7 +363,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
                 {replay && f.claim.t_offset_s != null && <span className="latency">{clock(f.claim.t_offset_s)}</span>}
                 {f.latency !== undefined && <span className="latency">{f.latency} ms</span>}
               </div>
-              <CardTile claim={f.claim} card={f.claim.card_id ? cards[f.claim.card_id] : undefined} />
+              <CardTile claim={f.claim} card={f.claim.card_id ? cards[f.claim.card_id] : undefined} showSource={false} />
             </div>
           ))}
         </div>

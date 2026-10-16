@@ -74,10 +74,13 @@ export function Brief({ id, user }: { id: string; user: SignedIn | null | undefi
             {total === 0 ? t("brief.predicting") : done < total ? t("brief.progress", { done, total }) : t("brief.ready", { total })}
           </span>
           {note && <span className="muted">{note}</span>}
-          {total > 0 && done === total && (
-            <button className="btn small" onClick={() => navigate(`/s/${id}/live`)}>
-              {t("brief.goLive")}
-            </button>
+          {total > 0 && (done === total || session.status === "ready") && (
+            <>
+              <span className="muted small">{t("brief.next")}</span>
+              <button className="btn small" onClick={() => navigate(`/s/${id}/live`)}>
+                {t("brief.goLive")}
+              </button>
+            </>
           )}
           <div className="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
             <i style={{ width: `${total ? pct : 8}%` }} className={total === 0 ? "indeterminate" : ""} />

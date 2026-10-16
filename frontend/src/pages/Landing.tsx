@@ -5,7 +5,7 @@ import { VerdictPill } from "../components/VerdictPill";
 import { navigate } from "../router";
 import { t, type Key } from "../i18n";
 
-const BOT = "ProofCardAgentBot";
+export const BOT = "ProofCardAgentBot";
 
 // Illustrative scenes: design samples, not checked facts (labelled on screen).
 const SCENES = [
@@ -123,7 +123,7 @@ function LiveProof() {
 }
 
 /** Decorative QR-style mark (three finder squares + seeded modules); the real QR is on the card PNG. */
-function Qr({ seed }: { seed: string }) {
+export function Qr({ seed }: { seed: string }) {
   const N = 21;
   const hex = Array.from({ length: 8 }, (_, k) => demoHash(seed + k)).join("");
   const finder = (x: number, y: number) => x >= 0 && x < 7 && y >= 0 && y < 7;
@@ -293,7 +293,7 @@ function Tamper() {
 export function Landing({ user }: { user: SignedIn | null | undefined }) {
   const start = () => (user ? navigate("/new") : void signIn().then(() => navigate("/new")));
   const bot = (
-    <a className="btn ghost" href={`https://t.me/${BOT}`} target="_blank" rel="noreferrer">
+    <a className="btn ghost" href={`https://t.me/${BOT}?start=try`} target="_blank" rel="noreferrer">
       {t("land.bot")}
     </a>
   );
@@ -313,6 +313,16 @@ export function Landing({ user }: { user: SignedIn | null | undefined }) {
               {t("land.create")}
             </button>
             {bot}
+            <a
+              className="btn ghost"
+              href="/how"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate("/how");
+              }}
+            >
+              {t("land.howBtn")}
+            </a>
           </div>
         </div>
         <LiveProof />

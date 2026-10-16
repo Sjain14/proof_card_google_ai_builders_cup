@@ -1,15 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, ApiError } from "../api";
 import { signIn, signInGuest, type SignedIn } from "../auth";
 import { navigate } from "../router";
 import { t } from "../i18n";
 
 import { useAppStore } from "../store";
-
-const SAMPLE = {
-  topic: "Union Budget speech: fuel prices, digital India, languages and population",
-  speaker: "Finance Minister",
-};
+import { SAMPLE, wantsSample } from "../sample";
 
 export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
   const draft = useAppStore((s) => s.draft);
@@ -17,6 +13,21 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
   const clearDraft = useAppStore((s) => s.clearDraft);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sampled, setSampled] = useState(false);
+  const more = useRef<HTMLDetailsElement | null>(null);
+  const fillSample = () => {
+    setDraft({ youtube: SAMPLE.youtube, topic: SAMPLE.topic, speaker: SAMPLE.speaker, links: SAMPLE.links });
+    setSampled(true);
+    if (more.current) more.current.open = true; // every filled field on screen
+  };
+  // /new?sample=trump (from the how-to page): open already filled.
+  useEffect(() => {
+    if (user && wantsSample(location.search)) {
+      fillSample();
+      history.replaceState(null, "", "/new");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   if (user === null) {
     return (
@@ -61,14 +72,24 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
 
   return (
     <section className="panel narrow">
-      <p className="eyebrow">{t("new.eyebrow")}</p>
-      <h1>{t("new.h1")}</h1>
+      <div className="new-head">
+        <div>
+          <p className="eyebrow">{t("new.eyebrow")}</p>
+          <h1>{t("new.h1")}</h1>
+        </div>
+        <button type="button" className="btn small ghost" onClick={fillSample}>
+          {t("new.sample")}
+        </button>
+      </div>
       <form onSubmit={(e) => void submit(e)} className="form">
         <label>
           {t("new.youtube")} <span className="muted">{t("new.youtubeHint")}</span>
           <input
             value={draft.youtube}
-            onChange={(e) => setDraft({ youtube: e.target.value })}
+            onChange={(e) => {
+              setDraft({ youtube: e.target.value });
+              setSampled(false);
+            }}
             type="url"
             inputMode="url"
             placeholder="https://youtu.be/…"
@@ -87,7 +108,7 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
             placeholder={t("new.topicPh")}
           />
         </label>
-        <details className="more">
+        <details className="more" ref={more}>
           <summary>{t("new.more")}</summary>
           <label>
             {t("new.speaker")}
@@ -111,21 +132,38 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
             {error}
           </p>
         )}
+        {sampled && (
+          <p className="note" role="status">
+            {t("new.sampleNote")}
+          </p>
+        )}
         <div className="row">
           <button className="btn" disabled={busy || (!draft.topic.trim() && !draft.youtube.trim())}>
             {busy ? t("new.starting") : t("new.generate")}
           </button>
-          <button
-            type="button"
+          <a
             className="link"
-            onClick={() => {
-              setDraft({ topic: SAMPLE.topic, speaker: SAMPLE.speaker });
+            href="/how"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate("/how");
             }}
           >
-            {t("new.sample")}
-          </button>
+            {t("new.howLink")}
+          </a>
         </div>
       </form>
+      <div className="modes" aria-labelledby="modes-h">
+        <p id="modes-h" className="vis-cap">{t("new.modesH")}</p>
+        <div className="modes-grid">
+          <p>
+            <b>▶</b> {t("new.modeRec")}
+          </p>
+          <p>
+            <span className="live-dot" aria-hidden="true" /> {t("new.modeLive")}
+          </p>
+        </div>
+      </div>
     </section>
   );
 }

@@ -8,6 +8,7 @@ OG tags: https://ogp.me/
 from __future__ import annotations
 
 from html import escape
+from urllib.parse import quote, urlsplit
 
 from app.alter import CheckResult
 from app.card_image import share_url
@@ -35,7 +36,7 @@ text-transform:uppercase;letter-spacing:.04em}.hi{margin-left:10px;font-weight:6
 h1{font-size:clamp(24px,5vw,34px);line-height:1.25;margin:18px 0 12px}.why{font-size:18px}
 .meta{color:#6B7280;font-size:14px}section{border-top:1px solid #E5E7EB;margin-top:28px}
 .src{background:#fff;border:1px solid #E5E7EB;border-radius:14px;padding:16px;margin:12px 0}
-a{color:#1F4FFF;word-break:break-all}blockquote{margin:10px 0;padding-left:12px;
+a{color:#1F4FFF;overflow-wrap:anywhere}blockquote{margin:10px 0;padding-left:12px;
 border-left:3px solid #1F4FFF}code{font-size:12px;word-break:break-all;color:#6B7280}
 img{width:100%;border-radius:16px;border:1px solid #E5E7EB}
 button{background:#1F4FFF;color:#fff;border:0;border-radius:10px;padding:10px 16px;font-weight:700}
@@ -43,6 +44,16 @@ button{background:#1F4FFF;color:#fff;border:0;border-radius:10px;padding:10px 16
 .VERIFIED{background:#ECFDF3;color:#15803D}.ALTERED{background:#FEF2F2;color:#B91C1C}
 .UNKNOWN{background:#F3F4F6;color:#374151}
 .gsugg{display:block;width:100%;height:76px;border:0;margin:4px 0 16px}
+ul{padding-left:18px}.up{display:inline-block;border:1.5px dashed #1F4FFF;border-radius:10px;
+padding:9px 14px;color:#1F4FFF;font-weight:650;cursor:pointer}.up input{display:block;
+font-size:13px;margin-top:6px;color:#6B7280;max-width:100%}
+@media(max-width:560px){.acts a{flex:1 1 calc(50% - 8px);text-align:center}}
+.upr{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start}
+.what{background:#EEF2FF;border-radius:12px;padding:12px 14px;font-size:14px;margin:0 0 18px}
+.acts{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 4px}.acts a{display:inline-block;
+padding:9px 14px;border-radius:10px;border:1.5px solid #E5E7EB;color:#111827;font-weight:650;
+font-size:14px;text-decoration:none;word-break:normal}.acts a.main{background:#1F4FFF;
+color:#fff;border-color:#1F4FFF}details summary{cursor:pointer;font-weight:650;margin:14px 0}
 """
 
 
@@ -109,39 +120,91 @@ def card_page(
     url = share_url(base_url, card_id)
     en, hi, colour = LABEL[card.verdict]
     parts = [_check_banner(check)] if check else []
+    if not check:
+        # Team lead (VN): "what is the user supposed to do with this link?"
+        parts.append(
+            '<p class="what">This is a <b>Proof Card</b>: a claim, its verdict and the exact '
+            "source passage that decides it. Share this link; anyone who opens it sees the "
+            "same proof, and an edited copy of the card is caught.</p>"
+        )
     parts.append(
         f'<span class="pill" style="background:{colour}">{escape(en)}</span>'
         f'<span class="hi" style="color:{colour}">{escape(hi)}</span>'
         f'<h1>“{escape(card.claim)}”</h1><p class="why">{escape(card.explanation)}</p>'
         + suggestion_frame(card, card_id)
-        + f'<p class="meta">card {escape(card_id)} · support {card.support_score:.2f} · '
-        f"issued {card.created_at:%d %b %Y %H:%M} UTC</p><section><h2>Proof</h2>"
+        + _actions(card, card_id, url, bot)
+        + f'<p class="meta">Issued {card.created_at:%d %b %Y %H:%M} UTC</p>'
+        "<section><h2>Proof: the passage that decides it</h2>"
     )
+    hashes = []
+    b = escape(bot)
     for s in card.sources:
         u = escape(str(s.url))
         parts.append(
-            f'<div class="src"><a href="{u}" rel="noopener nofollow">{u}</a>'
-            f"<blockquote>{escape(s.snippet)}</blockquote><code>page sha256 "
-            f'<a href="/api/snapshots/{escape(s.snapshot_sha256)}" rel="nofollow">'
-            f"{escape(s.snapshot_sha256)}</a> · fetched {s.fetched_at:%d %b %Y %H:%M} UTC"
-            "</code></div>"
+            f'<div class="src"><a href="{u}" rel="noopener nofollow">{escape(_short(s.url))}</a>'
+            f"<blockquote>{escape(s.snippet)}</blockquote>"
+            f'<span class="meta">fetched {s.fetched_at:%d %b %Y %H:%M} UTC</span></div>'
         )
+        hashes.append(
+            f'<li><a href="/api/snapshots/{escape(s.snapshot_sha256)}" rel="nofollow">'
+            f"<code>{escape(s.snapshot_sha256)}</code></a></li>"
+        )
+    # The hashes are for verifiers, not readers: folded, one place, never repeated.
     parts.append(
-        f'<p class="meta">Card fingerprint <code>{escape(card.card_sha256)}</code>. We fetched '
-        "each page ourselves and stored its exact bytes under that hash: download any page "
-        "hash above and run <code>sha256sum</code> on it to check.</p></section>"
+        "<details><summary>Check the proof yourself</summary>"
+        '<p class="meta">We fetched each page ourselves and stored its exact bytes. Download '
+        "a stored page and run <code>sha256sum</code>: it must match.</p>"
+        f"<ul>{''.join(hashes)}</ul>"
+        f'<p class="meta">Card fingerprint <code>{escape(card.card_sha256)}</code> · '
+        f"source match {card.support_score:.2f}</p></details></section>"
         "<section><h2>Got this card forwarded?</h2>"
+        '<p class="meta">Upload the image you received'
+        + (f' (or forward it to <a href="https://t.me/{b}">@{b}</a>)' if bot else "")
+        + ": we tell you if it is this card or an edited copy.</p>"
         f'<form method="post" action="/v/{escape(card_id)}/check" enctype="multipart/form-data">'
-        '<input type="file" name="file" accept="image/png,image/jpeg,image/webp" required '
-        'aria-label="card image"> <button>Check it</button></form>'
+        '<div class="upr"><label class="up">Choose the card image<input type="file" name="file" '
+        'accept="image/png,image/jpeg,image/webp" required aria-label="card image"></label> '
+        "<button>Check it</button></div></form>"
     )
-    if bot:
-        b = escape(bot)
-        parts.append(f'<p class="meta">Or forward it to <a href="https://t.me/{b}">@{b}</a>.</p>')
-    parts.append(
-        f'</section><section><img src="{escape(url)}.png" alt="Proof Card image"></section>'
-    )
+    # No card image on the page: it repeats everything above (Team lead, VN).
+    # "Download image" and the link preview (og:image) carry it.
+    parts.append("</section>")
     return _page(f"{en}: {card.claim[:90]}", card.explanation[:200], url, "".join(parts))
+
+
+def _short(url: object) -> str:
+    """en.wikipedia.org/wiki/Chandrayaan-3 instead of the full https URL."""
+    p = urlsplit(str(url))
+    path = p.path.rstrip("/")
+    tail = path if len(path) <= 48 else "…" + path[-46:]
+    return f"{p.hostname or ''}{tail}"
+
+
+def share_text(card: CardDoc) -> str:
+    en, _, _ = LABEL[card.verdict]
+    claim = card.claim if len(card.claim) <= 140 else card.claim[:137] + "…"
+    return f"{en.upper()}: “{claim}” · Proof Card"
+
+
+def _actions(card: CardDoc, card_id: str, url: str, bot: str) -> str:
+    """One row: every way to pass the card on, each with its message already written."""
+    text = share_text(card)
+    links = [
+        ("main", f"https://wa.me/?text={quote(text + ' ' + url)}", "Share on WhatsApp"),
+        ("", f"https://t.me/share/url?url={quote(url)}&text={quote(text)}", "Share on Telegram"),
+        ("", f"{url}.png", "Download image"),
+    ]
+    if bot:
+        # Opens the bot with this card already loaded: nobody types a card id.
+        links.append(("", f"https://t.me/{bot}?start={card_id}", "Open in the Telegram bot"))
+    return (
+        '<div class="acts">'
+        + "".join(
+            f'<a class="{c}" href="{escape(h)}" rel="noopener" target="_blank">{escape(label)}</a>'
+            for c, h, label in links
+        )
+        + "</div>"
+    )
 
 
 def not_found_page() -> str:

@@ -4,7 +4,17 @@ import { domain } from "../verdict";
 import { VerdictPill } from "./VerdictPill";
 import { t } from "../i18n";
 
-export function CardTile({ claim, card }: { claim: ClaimView; card: Card | undefined }) {
+// showSource=false where the feed row already shows PREBUNKED / LIVE above the card
+// (live + watch pages): the tile's own badge said LIVE under a PREBUNKED row. In a brief
+// every card is prebunked, so only a LIVE one is marked (no badge repeated on each tile).
+/** Telegram share: the message arrives already written (verdict + claim), link attached. */
+export function tgText(verdict: string | null | undefined, claim: string): string {
+  const v = verdict ? t(`verdict.${verdict as "TRUE"}`).toUpperCase() : "";
+  const short = claim.length > 140 ? `${claim.slice(0, 137)}…` : claim;
+  return `${v ? `${v}: ` : ""}“${short}” · Proof Card`;
+}
+
+export function CardTile({ claim, card, showSource = true }: { claim: ClaimView; card: Card | undefined; showSource?: boolean }) {
   const [copied, setCopied] = useState(false);
   const pending = claim.status === "queued" || claim.status === "checking";
 
@@ -40,7 +50,7 @@ export function CardTile({ claim, card }: { claim: ClaimView; card: Card | undef
     <article className="tile stamped">
       <div className="tile-top">
         <VerdictPill verdict={card?.verdict ?? claim.verdict ?? "UNVERIFIABLE"} />
-        <span className="badge">{claim.source === "live" ? t("tile.live") : t("tile.prebunked")}</span>
+        {showSource && claim.source === "live" && <span className="badge">{t("tile.live")}</span>}
       </div>
       <p className="tile-claim">“{card?.claim ?? claim.text}”</p>
       {card && (
@@ -73,11 +83,11 @@ export function CardTile({ claim, card }: { claim: ClaimView; card: Card | undef
         </button>
         <a
           className="btn small ghost"
-          href={`https://t.me/share/url?url=${encodeURIComponent(url)}`}
+          href={`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(tgText(card?.verdict ?? claim.verdict, card?.claim ?? claim.text))}`}
           target="_blank"
           rel="noopener"
         >
-          Telegram
+          {t("tile.tg")}
         </a>
         <a className="btn small ghost" href={`${url}.png`} download={`proof-card-${claim.card_id}.png`}>
           PNG

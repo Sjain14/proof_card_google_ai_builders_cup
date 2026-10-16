@@ -26,6 +26,12 @@ log = logging.getLogger("proofcard.telegram")
 API = "https://api.telegram.org"
 MAX_DOWNLOAD = 20 * 1024 * 1024
 ALERT_START_RE = re.compile(r"^/start\s+(alert[A-Za-z0-9_-]{44})\s*$")
+START_RE = re.compile(r"^/start(?:\s+try)?\s*$")
+SAMPLE_CLAIMS = (
+    "We ended eight wars in eight months.",
+    "India's GDP grew 8.2 percent in 2023-24, says the statistics ministry.",
+)
+TRY_HINT = "Tap a sample below to see a check, or send your own."
 CARD_REF_RE = re.compile(r"(?:/v/|^/start\s+|^/check\s+)([A-Za-z0-9_-]{8,64})", re.MULTILINE)
 
 VERDICT_EMOJI = {"TRUE": "🟢", "MISLEADING": "🟠", "FALSE": "🔴", "UNVERIFIABLE": "⚪"}
@@ -254,7 +260,18 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
     if group:
         return  # never post help or errors into someone's group chat
     msg = "That card id doesn't exist." if ref else HELP
-    d.api.call("sendMessage", {"chat_id": chat, "text": msg, "parse_mode": "HTML"})
+    reply: dict[str, Any] = {"chat_id": chat, "text": msg, "parse_mode": "HTML"}
+    if not ref and START_RE.match(raw):
+        # Opened from the site (t.me/<bot>?start=try): one tap sends a sample claim, so
+        # the first check happens without typing anything.
+        reply["text"] = f"{msg}\n\n{TRY_HINT}"
+        reply["reply_markup"] = {
+            "keyboard": [[{"text": c}] for c in SAMPLE_CLAIMS],
+            "one_time_keyboard": True,
+            "resize_keyboard": True,
+            "input_field_placeholder": "Paste a claim or forward a message",
+        }
+    d.api.call("sendMessage", reply)
 
 
 def _image_claims(d: BotDeps, data: bytes) -> list[str]:

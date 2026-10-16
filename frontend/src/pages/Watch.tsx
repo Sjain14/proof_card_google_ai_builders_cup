@@ -70,6 +70,7 @@ export function Watch({ id }: { id: string }) {
             <CardTile
               claim={{ id: c.id, text: c.text, lang: "en", source: "live", status: c.status, card_id: c.card_id, verdict: c.verdict }}
               card={c.card_id ? cards[c.card_id] : undefined}
+              showSource={false}
             />
           </div>
         ))}

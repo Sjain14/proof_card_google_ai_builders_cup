@@ -459,3 +459,37 @@ def test_tg_forward_through_the_app_sends_one_verdict_per_claim(
     out = bot.calls[n:]
     assert "Found 2 checkable claims" in out[0][1]["text"]
     assert len(out) == 3  # ack + one verdict per claim
+
+
+# ---------- how-to pass (p42): card page actions, bot opened from the site ----------
+
+
+def test_share_page_says_what_it_is_and_every_share_is_prefilled(cards: InMemoryStore) -> None:
+    from app.share_page import card_page
+
+    cid, card = first(cards)
+    page = card_page(card, cid, BASE, BOT)
+    assert "This is a <b>Proof Card</b>" in page
+    assert "https://wa.me/?text=" in page
+    assert "https://t.me/share/url?url=" in page
+    assert f"https://t.me/{BOT}?start={cid}" in page  # bot opens with this card, no typing
+    # the card image repeats the page: offered as a download, never shown twice
+    assert "<img" not in page
+    assert f"/v/{cid}.png" in page
+
+
+def test_bot_opened_from_the_site_offers_one_tap_samples(cards: InMemoryStore) -> None:
+    from app.telegram import SAMPLE_CLAIMS, looks_like_claim
+
+    bot = FakeBot()
+    deps = BotDeps(bot, cards.get_card, lambda b: alter.CheckResult("UNKNOWN", "x"), BASE)
+    for text in ("/start try", "/start"):
+        handle_update(
+            TgUpdate.model_validate({"update_id": 1, "message": {**MSG, "text": text}}), deps
+        )
+        payload = bot.calls[-1][1]
+        assert "Send me a <b>claim</b>" in payload["text"]
+        assert [r[0]["text"] for r in payload["reply_markup"]["keyboard"]] == list(SAMPLE_CLAIMS)
+    assert all(looks_like_claim(c) for c in SAMPLE_CLAIMS)  # a tap is checked like typing
+    handle_update(_msg(text="hi"), deps)
+    assert "reply_markup" not in bot.calls[-1][1]

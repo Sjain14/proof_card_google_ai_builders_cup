@@ -7,6 +7,7 @@ import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { devMode, signIn, signOut, watchUser } from "./auth";
 import { Brief } from "./pages/Brief";
+import { How } from "./pages/How";
 import { Landing } from "./pages/Landing";
 import { Live } from "./pages/Live";
 import { NewBrief } from "./pages/NewBrief";
@@ -32,6 +33,7 @@ function App() {
   else if (live?.[1]) page = <Live id={live[1]} user={user} />;
   else if (brief?.[1]) page = <Brief id={brief[1]} user={user} />;
   else if (path === "/new") page = <NewBrief user={user} />;
+  else if (path === "/how") page = <How user={user} />;
   else page = <Landing user={user} />;
 
   return (
@@ -40,15 +42,27 @@ function App() {
         <a
           className="logo"
           href="/"
+          aria-label="Proof Card"
           onClick={(e) => {
             e.preventDefault();
             navigate("/");
           }}
         >
           <img src="/favicon.svg" alt="" width={26} height={26} />
-          Proof Card
+          <span className="logo-word">Proof Card</span>
         </a>
         <div className="nav-right">
+          <a
+            className={`btn small nav-how${path === "/how" ? " on" : ""}`}
+            href="/how"
+            aria-current={path === "/how" ? "page" : undefined}
+            onClick={(e) => {
+              e.preventDefault();
+              navigate("/how");
+            }}
+          >
+            <span aria-hidden="true">?</span> {t("nav.how")}
+          </a>
           <button
             className="link lang-toggle"
             lang={lang === "en" ? "hi" : "en"}
