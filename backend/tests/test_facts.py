@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.facts import (
@@ -122,14 +123,18 @@ def test_official_hosts() -> None:
 
 def test_verify_candidate_needs_page_and_figure() -> None:
     f = MapFetcher({**PAGES, "https://blog.example/a": CHATTER})
-    url, passage, score = verify_candidate(GDP_FACT, f) or ("", "", 0.0)
+    got = verify_candidate(GDP_FACT, f)
+    assert not isinstance(got, str)
+    url, passage, score = got
     assert url == "https://mospi.gov.in/gdp"
     assert "8.2" in passage
-    assert score >= 0.45
+    assert score >= 0.35
     on_topic_no_figure = Candidate(GDP_FACT.statement, "8.2", urls=("https://blog.example/a",))
-    assert verify_candidate(on_topic_no_figure, f) is None
+    assert verify_candidate(on_topic_no_figure, f) in ("figure_missing", "low_support:0.00")
+    assert verify_candidate(Candidate("x"), f) == "no_url"
+    assert str(verify_candidate(Candidate("x", urls=("https://dead/x",)), f)).startswith("fetch:")
     fallback = Candidate(GDP_FACT.statement, "8.2", urls=("https://dead/x", GDP_FACT.urls[0]))
-    assert (verify_candidate(fallback, f) or ("",))[0] == GDP_FACT.urls[0]
+    assert verify_candidate(fallback, f)[0] == GDP_FACT.urls[0]
 
 
 def test_build_bank_keeps_verified_official_first() -> None:
@@ -146,6 +151,28 @@ def test_build_bank_keeps_verified_official_first() -> None:
     assert bank.facts[0].official
     assert not bank.facts[1].official
     assert bank.facts[0].trigger == "we grew at 8.2%"
+    assert bank.stats["angles"] == 2
+    assert bank.stats["drop_fetch"] == 1
+    assert bank.samples[0].startswith("fetch:")
+
+
+def test_verify_candidate_survives_broken_page() -> None:
+    class Broken(MapFetcher):
+        def fetch(self, url: str) -> Fetched:
+            return Fetched(url, url, b"%PDF-1.4 broken", "application/pdf", datetime.now(UTC))
+
+    got = verify_candidate(GDP_FACT, Broken({}))
+    assert isinstance(got, str)
+
+
+def test_build_bank_skips_invalid_fact(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(**kw: Any) -> Fact:
+        raise ValueError("odd")
+
+    monkeypatch.setattr("app.facts.Fact", boom)
+    bank = build_bank("growth", "", FakeDesk(cands=[GDP_FACT]), MapFetcher(PAGES))
+    assert bank.facts == []
+    assert bank.stats["drop_invalid"] == 1
 
 
 def test_build_bank_survives_desk_failures() -> None:
@@ -174,8 +201,28 @@ def test_ensure_bank_reuses_fresh_and_rebuilds_stale() -> None:
     assert len(store.get_fact_bank(key).facts) == 2  # type: ignore[union-attr]
 
 
-def test_ensure_bank_none_when_nothing_verified() -> None:
-    assert ensure_bank(InMemoryStore(), FakeDesk(), MapFetcher({}), "growth", "") is None
+def test_ensure_bank_stores_empty_bank_for_its_diagnostics() -> None:
+    store = InMemoryStore()
+    key = ensure_bank(store, FakeDesk(), MapFetcher({}), "growth", "")
+    bank = store.get_fact_bank(key or "")
+    assert bank is not None
+    assert bank.facts == []
+    assert bank.stats["drop_fetch"] == 2
+
+
+def test_failed_rebuild_keeps_old_facts() -> None:
+    store = InMemoryStore()
+    key = bank_key("growth", "")
+    old = FactBankDoc(
+        key=key,
+        topic="growth",
+        prompt_version="v",
+        facts=[_fact(0)],
+        created_at=datetime.now(UTC) - timedelta(days=30),
+    )
+    store.put_fact_bank(old)
+    assert ensure_bank(store, FakeDesk(), MapFetcher({}), "growth", "") == key
+    assert store.get_fact_bank(key) == old
 
 
 def test_checked_ruling_guards() -> None:
@@ -272,21 +319,23 @@ def test_prebunk_continues_when_fact_bank_crashes() -> None:
     assert s.status == "ready"
 
 
-def test_prebunk_without_verified_facts_has_no_bank() -> None:
+def test_prebunk_without_verified_facts_links_empty_bank() -> None:
     store = InMemoryStore()
     d = Deps(store, CountingModel(), MapFetcher({}), InMemorySnapshots(), facts=FakeDesk())
     sid = _session(store, None)
     run_prebunk(sid, d, n=1)
     s = store.get_session(sid)
     assert s
-    assert s.fact_bank_key is None
+    assert s.fact_bank_key == bank_key("growth", "")
+    assert s.status == "ready"
 
 
 def test_parse_json_list() -> None:
     assert parse_json_list('```json\n[{"statement": "a"}]\n```') == [{"statement": "a"}]
     assert parse_json_list("no json") == []
     assert parse_json_list("[oops]") == []
-    assert parse_json_list('{"a": [1]}') == [1]
+    assert parse_json_list('{"a": [1]}') == []
+    assert parse_json_list('Facts [1]:\n[{"statement": "a"}]\nSources [2]') == [{"statement": "a"}]
 
 
 def _resp(chunk_uris: list[str], seg: str) -> Any:

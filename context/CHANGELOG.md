@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.22 · p22-fact-bank-diag
+First prod run of the fact bank (7dhIVHRKhvo brief) kept 0 facts and the brief took 1042 s, against 361 s before. `match_passage` caps a window at 0.5 when any number in the query is missing from it, and a fact sentence states its figure AND its period, so the 0.45 bar dropped almost everything.
+- `app/facts.py`: the keep bar is now the card gate (0.35) plus the figure on the page. Grounding chunks count as a fact's backup source when they cover >= 60% of its words (a JSON segment also holds keys, so Jaccard missed them). The answer parser takes the first JSON array of objects (`raw_decode`), so trailing text or citation marks like `[1]` no longer drop a whole angle.
+- Diagnostics: every bank stores `stats` (stage seconds, empty angles, drop counts by reason: fetch, no_text, low_support, figure_missing, no_url) and up to 20 `samples` of dropped facts. An empty bank is stored and linked too, so `/api/sessions/:id/facts` says why research kept nothing. A failed rebuild never replaces a bank that already has facts.
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.21 · p21-fact-bank
 Team lead (LC voice, 16 Oct): accuracy first, live speed later. Research 50-100 facts per topic as JSON, each with a source, store them separately and reuse them, and catch a false line against them. Weak sources fixed through research. Bank match was 0/6 on replay 7dhIVHRKhvo because spoken lines are worded differently from predicted claims.
 - `app/facts.py` (new): research fact bank. Plan 10 angles, then 10 parallel grounded Gemini calls at 12 facts each (statement, value, as_of, source_url, trigger). A fact is kept only when its source page (the model's URL, or a grounding chunk whose segment overlaps the fact) is fetched, a passage on it scores >= 0.45, and the figure is in that passage. Official first, capped at 100.

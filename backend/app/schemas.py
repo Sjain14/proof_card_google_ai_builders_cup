@@ -143,6 +143,9 @@ class FactBankDoc(Strict):
     prompt_version: str
     researched: Annotated[int, Field(ge=0)] = 0  # candidates before source verification
     facts: Annotated[list[Fact], Field(max_length=200)] = []
+    # Diagnostics: stage seconds + drop counts by reason, and a sample of dropped facts.
+    stats: dict[str, float] = {}
+    samples: Annotated[list[str], Field(max_length=20)] = []
     created_at: datetime = Field(default_factory=_now)
 
 

@@ -22,6 +22,8 @@ import hashlib
 import json
 import logging
 import re
+import time
+from collections import Counter
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -44,7 +46,11 @@ FACTS_PER_ANGLE = 12
 MAX_FACTS = 100
 MIN_REUSE = 20  # a stored bank smaller than this is researched again
 MAX_AGE = timedelta(days=7)  # statistics get revised; a week old bank is rebuilt
-FACT_SUPPORT = 0.45  # passage score a source page needs to keep a fact (cards: 0.35)
+# Passage score a source page needs to keep a fact: the card gate, plus the figure itself
+# must be on the page. 0.45 kept 0 facts on prod (16 Oct): a fact sentence states the
+# figure AND its period, and any number missing from a window caps it at 0.5.
+FACT_SUPPORT = 0.35
+SAMPLES = 20
 URLS_PER_FACT = 3
 VERIFY_WORKERS = 8
 RULE_FACTS_MAX = 3
@@ -121,30 +127,38 @@ class FactDesk(Protocol):
 # ---------- building the bank ----------
 
 
-def verify_candidate(c: Candidate, fetcher: Fetcher) -> tuple[str, str, float] | None:
-    """(page url, passage, score) of the first source that states the fact, else None.
-    The figure itself must be in the passage: an on topic page with another number is not
-    the source of this fact."""
+def verify_candidate(c: Candidate, fetcher: Fetcher) -> tuple[str, str, float] | str:
+    """(page url, passage, score) of the first source that states the fact, else the reason
+    the last source failed. The figure itself must be in the passage: an on topic page with
+    another number is not the source of this fact."""
     want = _numbers(c.value) or _numbers(c.statement)
+    reason = "no_url"
     for url in list(dict.fromkeys(u for u in c.urls if u.startswith("http")))[:URLS_PER_FACT]:
         try:
             fetched = fetcher.fetch(url)
         except Exception as exc:  # FetchError, timeouts: try the next source
-            log.info("fact source skipped", extra={"fields": {"reason": type(exc).__name__}})
+            reason = f"fetch:{str(exc)[:40] or type(exc).__name__}"
             continue
-        if is_worldbank(fetched.final_url):
-            text = render_official(fetched.body)
-        else:
-            text = extract_text(fetched.body, fetched.content_type)
-        if not text:
+        try:
+            if is_worldbank(fetched.final_url):
+                text = render_official(fetched.body)
+            else:
+                text = extract_text(fetched.body, fetched.content_type)
+            m = best_match(c.statement, text) if text else None
+        except Exception as exc:  # a broken PDF or page never sinks the whole bank
+            reason = f"parse:{type(exc).__name__}"
             continue
-        m = best_match(c.statement, text)
+        if m is None:
+            reason = "no_text"
+            continue
         if m.score < FACT_SUPPORT or not m.passage:
+            reason = f"low_support:{m.score:.2f}"
             continue
         if want and not (want & _numbers(m.passage)):
+            reason = "figure_missing"
             continue
         return fetched.final_url, m.passage, m.score
-    return None
+    return reason
 
 
 def _dedupe(cands: Iterable[Candidate]) -> list[Candidate]:
@@ -164,6 +178,7 @@ def build_bank(
     """Plan angles, research them in parallel, keep only source verified facts.
     Official facts first, then the best supported, capped at MAX_FACTS."""
     about = research_topic or topic
+    t0 = time.monotonic()
     try:
         angles = desk.angles(about, speaker, ANGLES) or [topic]
     except Exception:
@@ -177,27 +192,51 @@ def build_bank(
             log.warning("fact research failed for one angle", exc_info=True)
             return []
 
+    t1 = time.monotonic()
     with ThreadPoolExecutor(max_workers=max(1, len(angles)), thread_name_prefix="research") as p:
-        cands = _dedupe(c for batch in p.map(one, angles) for c in batch)
+        batches = list(p.map(one, angles))
+    cands = _dedupe(c for batch in batches for c in batch)
+    t2 = time.monotonic()
     with ThreadPoolExecutor(max_workers=VERIFY_WORKERS, thread_name_prefix="factsrc") as p:
         checked = list(p.map(lambda c: verify_candidate(c, fetcher), cands))
-    kept = [(c, v) for c, v in zip(cands, checked, strict=True) if v is not None]
+    t3 = time.monotonic()
+    kept = [(c, v) for c, v in zip(cands, checked, strict=True) if not isinstance(v, str)]
+    reasons = Counter(v.split(":")[0] for v in checked if isinstance(v, str))
+    samples = [
+        f"{v} · {urlsplit(c.urls[0]).hostname if c.urls else '-'} · {c.statement[:160]}"
+        for c, v in zip(cands, checked, strict=True)
+        if isinstance(v, str)
+    ][:SAMPLES]
+    stats: dict[str, float] = {
+        "angles": len(angles),
+        "angles_empty": sum(not b for b in batches),
+        "angles_s": round(t1 - t0, 1),
+        "research_s": round(t2 - t1, 1),
+        "verify_s": round(t3 - t2, 1),
+        **{f"drop_{k}": n for k, n in reasons.items()},
+    }
     kept.sort(key=lambda cv: (not official(cv[1][0]), -cv[1][2]))
-    facts = [
-        Fact(
-            id=i,
-            statement=c.statement[:4_000],
-            value=c.value[:200],
-            as_of=c.as_of[:100],
-            angle=c.angle[:200],
-            trigger=c.trigger[:1_000],
-            source_url=url,
-            passage=passage[:4_000],
-            support=min(1.0, round(score, 3)),
-            official=official(url),
-        )
-        for i, (c, (url, passage, score)) in enumerate(kept[:MAX_FACTS])
-    ]
+    facts: list[Fact] = []
+    for c, (url, passage, score) in kept:
+        if len(facts) >= MAX_FACTS:
+            break
+        try:
+            facts.append(
+                Fact(
+                    id=len(facts),
+                    statement=c.statement[:4_000],
+                    value=c.value[:200],
+                    as_of=c.as_of[:100],
+                    angle=c.angle[:200],
+                    trigger=c.trigger[:1_000],
+                    source_url=url,
+                    passage=passage[:4_000],
+                    support=min(1.0, round(score, 3)),
+                    official=official(url),
+                )
+            )
+        except ValueError:  # pydantic ValidationError: an odd URL or empty field
+            stats["drop_invalid"] = stats.get("drop_invalid", 0) + 1
     log.info(
         "fact bank built",
         extra={
@@ -216,6 +255,8 @@ def build_bank(
         prompt_version=FACTS_PROMPT_VERSION,
         researched=len(cands),
         facts=facts,
+        stats=stats,
+        samples=samples,
     )
 
 
@@ -229,7 +270,7 @@ def ensure_bank(
     now: datetime | None = None,
 ) -> str | None:
     """Key of a usable bank for topic + speaker: the stored one when fresh and big enough,
-    else a newly researched one. None when research kept no fact at all."""
+    else a newly researched one (stored even when empty, for its diagnostics)."""
     key = bank_key(topic, speaker)
     now = now or datetime.now(UTC)
     old = store.get_fact_bank(key)
@@ -237,8 +278,9 @@ def ensure_bank(
         log.info("fact bank reused", extra={"fields": {"facts": len(old.facts)}})
         return key
     bank = build_bank(topic, speaker, desk, fetcher, research_topic)
-    if not bank.facts:
-        return key if old is not None and old.facts else None
+    if not bank.facts and old is not None and old.facts:
+        return key  # a failed rebuild never replaces facts we already verified
+    # An empty bank is stored too: its stats and samples say why research kept nothing.
     store.put_fact_bank(bank)
     return key
 
@@ -309,16 +351,18 @@ RESEARCH_TIMEOUT_S = 150.0
 
 
 def parse_json_list(raw: str) -> list[Any]:
-    """The grounded answer is plain text (search + response schema is not relied on): take
-    the outermost [...] block, tolerate ```json fences. Anything else -> []."""
-    start, end = raw.find("["), raw.rfind("]")
-    if start < 0 or end <= start:
-        return []
-    try:
-        data = json.loads(raw[start : end + 1])
-    except ValueError:
-        return []
-    return data if isinstance(data, list) else []
+    """The grounded answer is plain text (search + response schema is not relied on): the
+    first JSON array of objects in it, ignoring prose, ```json fences and trailing text or
+    citation marks like [1]. Anything else -> []."""
+    dec = json.JSONDecoder()
+    for m in re.finditer(r"\[", raw):
+        try:
+            data, _ = dec.raw_decode(raw, m.start())
+        except ValueError:
+            continue
+        if isinstance(data, list) and any(isinstance(d, dict) for d in data):
+            return data
+    return []
 
 
 def _words(s: str) -> set[str]:
@@ -326,8 +370,9 @@ def _words(s: str) -> set[str]:
 
 
 def chunk_urls_for(statement: str, resp: Any) -> list[str]:
-    """Grounding chunks whose supported segment overlaps this statement (word Jaccard
-    >= 0.5), best confidence first. Backup sources when the model's own URL is wrong."""
+    """Grounding chunks whose supported segment covers most of this statement (>= 60% of
+    its words; a JSON segment also holds keys and other fields, so not Jaccard), best
+    confidence first. Backup sources when the model's own URL is wrong."""
     try:
         meta = resp.candidates[0].grounding_metadata
         chunks = list(meta.grounding_chunks or [])
@@ -338,7 +383,7 @@ def chunk_urls_for(statement: str, resp: Any) -> list[str]:
     scored: list[tuple[float, str]] = []
     for sup in supports:
         seg = _words(getattr(getattr(sup, "segment", None), "text", "") or "")
-        if not seg or not want or len(seg & want) / len(seg | want) < 0.5:
+        if not seg or not want or len(seg & want) / len(want) < 0.6:
             continue
         confs = list(getattr(sup, "confidence_scores", None) or [])
         for pos, idx in enumerate(getattr(sup, "grounding_chunk_indices", None) or []):
