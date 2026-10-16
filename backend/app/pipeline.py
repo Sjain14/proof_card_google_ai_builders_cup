@@ -472,6 +472,19 @@ QUOTE_HINT = (
 )
 
 
+SPEAKER_WINDOW = 400  # chars before the passage where "X said" may sit
+
+
+def speaker_near(who: str, passage: str, page: str) -> bool:
+    if not who:
+        return False
+    low, para = page.lower(), passage.lower()
+    if who in para:
+        return True
+    at = low.find(para[:80])
+    return at >= 0 and who in low[max(0, at - SPEAKER_WINDOW) : at]
+
+
 def check_quote(text: str, deps: Deps, trace: Trace) -> CardDoc | None:
     """ "X said '...'": did X say it? TRUE = the words are on record (says nothing about
     whether the statement itself is true), MISLEADING = on record but in other words
@@ -489,6 +502,12 @@ def check_quote(text: str, deps: Deps, trace: Trace) -> CardDoc | None:
         if not page or (who and who not in page.lower()):
             continue
         m = best_match(att.quote, page)
+        # The words must be HIS: the speaker named in the passage or just before it. Prod
+        # 16 Oct: "Modi said 10 trillion by 2030" went TRUE on a page where Mukesh Ambani
+        # said it and Modi was named elsewhere.
+        if m.passage and not speaker_near(who, m.passage, page):
+            trace.skip("quote_other_speaker")
+            continue
         if m.passage and (best is None or m.score > best[0]):
             best = (m.score, fetched, m.passage)
         if best is not None and best[0] >= QUOTE_SAID:

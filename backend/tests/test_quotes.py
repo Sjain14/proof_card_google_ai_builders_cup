@@ -162,3 +162,27 @@ def test_stub_model_still_works_for_quotes() -> None:
         )
         is None
     )
+
+
+def test_words_said_by_someone_else_are_no_record() -> None:
+    # prod 16 Oct: Mukesh Ambani said it, Modi was only named elsewhere on the page
+    page = (
+        "<html><body><p>PM Narendra Modi has set a 5 trillion dollar target.</p>"
+        + "<p>Unrelated filler about markets and sectors. </p>" * 12
+        + "<p>RIL chief Mukesh Ambani said India will become a 10 trillion dollar economy "
+        "by 2030.</p></body></html>"
+    )
+    t = Trace()
+    assert check_quote(Q10, deps(Model([SPEECH]), {SPEECH: page}), t) is None
+    assert t.skips.get("quote_other_speaker")
+
+
+def test_speaker_named_just_before_the_passage_counts() -> None:
+    from app.pipeline import speaker_near
+
+    page = "Prime Minister Modi spoke in Delhi. He said every village now has electricity."
+    assert speaker_near("modi", "every village now has electricity", page)
+    assert not speaker_near(
+        "modi", "every village", "x" * 900 + "Modi" + "y" * 900 + "every village"
+    )
+    assert not speaker_near("", "a", "a")

@@ -100,12 +100,22 @@ from app.telegram import (
     HttpBotApi,
     claim_lang,
     handle_update,
+    looks_like_claim,
     send_claim_result,
 )
 
 log = logging.getLogger("proofcard")
 BOT_DAILY_CHECKS = 10  # claim checks per Telegram chat per UTC day (Vertex cost guard)
 FORWARD_SPLIT_CHARS = 240  # longer bot texts are forwards: split into their claims
+_SENTENCE_END = re.compile(r"(?<=[.!?।])\s+")
+
+
+def several_claims(text: str) -> bool:
+    """A short forward with 2+ claim-like sentences ("India is 4th. Petrol is cheapest.
+    Every village got power.", 199 chars, checked whole -> UNVERIFIABLE, 16 Oct)."""
+    parts = [p for p in _SENTENCE_END.split(text.strip()) if looks_like_claim(p)]
+    return len(parts) >= 2
+
 
 LIVE_AUTH_TIMEOUT_S = 5.0
 LIVE_MAX_FRAME = 64_000  # 2 s of PCM16 16 kHz mono; the client sends ~100 ms frames
@@ -885,7 +895,7 @@ def create_app(
 
     def split_claims(text: str) -> list[str]:
         """A short line is one claim; a long forward is split into its checkable claims."""
-        if len(text) <= FORWARD_SPLIT_CHARS:
+        if len(text) <= FORWARD_SPLIT_CHARS and not several_claims(text):
             return []
         spotter: Spotter = app.state.live.spotter
         return spotter.spot_claims(text[:3_000])
