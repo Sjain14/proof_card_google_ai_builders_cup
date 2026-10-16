@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SCHEMA_VERSION = 1
 
@@ -44,7 +44,9 @@ class ClaimSource(StrEnum):
 
 
 class PrebunkRequest(Strict):
-    topic: ShortText
+    # Optional when a YouTube link is given: the server takes the video's title (one paste
+    # starts a brief, Team lead VN 16 Oct: cut every input that needn't be typed).
+    topic: Annotated[str, Field(max_length=500)] = ""
     speaker: Annotated[str, Field(max_length=200)] = ""
     youtube_url: AnyHttpUrl | None = None
     context_links: Annotated[list[AnyHttpUrl], Field(max_length=5)] = []
@@ -58,6 +60,12 @@ class PrebunkRequest(Strict):
         if v.scheme != "https" or v.host not in allowed:
             raise ValueError("youtube_url must be an https YouTube link")
         return v
+
+    @model_validator(mode="after")
+    def _topic_or_video(self) -> "PrebunkRequest":
+        if not self.topic.strip() and self.youtube_url is None:
+            raise ValueError("give a topic or a YouTube link")
+        return self
 
 
 class CheckTextRequest(Strict):

@@ -331,9 +331,17 @@ def create_app(
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="daily brief limit reached"
             )
+        topic = body.topic.strip()
+        if not topic and body.youtube_url is not None:
+            title_of = app.state.deps.video_title
+            topic = (title_of(str(body.youtube_url)) if title_of else "").strip()[:500]
+            if not topic:
+                raise HTTPException(
+                    status_code=422, detail="couldn't read that video's title: add a topic"
+                )
         doc = SessionDoc(
             owner_uid=user.uid,
-            topic=body.topic,
+            topic=topic,
             speaker=body.speaker,
             youtube_url=str(body.youtube_url) if body.youtube_url else None,
             status="prebunking",

@@ -65,49 +65,54 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
       <h1>{t("new.h1")}</h1>
       <form onSubmit={(e) => void submit(e)} className="form">
         <label>
-          {t("new.topic")} <span className="req">{t("new.required")}</span>
-          <textarea
-            value={draft.topic}
-            onChange={(e) => setDraft({ topic: e.target.value })}
-            maxLength={500}
-            rows={3}
-            required
-            placeholder={t("new.topicPh")}
-          />
-        </label>
-        <label>
-          {t("new.speaker")}
-          <input
-            value={draft.speaker}
-            onChange={(e) => setDraft({ speaker: e.target.value })}
-            maxLength={200}
-          />
-        </label>
-        <label>
-          {t("new.youtube")}
+          {t("new.youtube")} <span className="muted">{t("new.youtubeHint")}</span>
           <input
             value={draft.youtube}
             onChange={(e) => setDraft({ youtube: e.target.value })}
             type="url"
             inputMode="url"
             placeholder="https://youtu.be/…"
+            autoFocus
           />
         </label>
         <label>
-          {t("new.links")} <span className="muted">{t("new.linksHint")}</span>
-          <input
-            value={draft.links}
-            onChange={(e) => setDraft({ links: e.target.value })}
-            inputMode="url"
+          {t("new.topic")}{" "}
+          <span className="req">{draft.youtube.trim() ? t("new.topicAuto") : t("new.required")}</span>
+          <textarea
+            value={draft.topic}
+            onChange={(e) => setDraft({ topic: e.target.value })}
+            maxLength={500}
+            rows={2}
+            required={!draft.youtube.trim()}
+            placeholder={t("new.topicPh")}
           />
         </label>
+        <details className="more">
+          <summary>{t("new.more")}</summary>
+          <label>
+            {t("new.speaker")}
+            <input
+              value={draft.speaker}
+              onChange={(e) => setDraft({ speaker: e.target.value })}
+              maxLength={200}
+            />
+          </label>
+          <label>
+            {t("new.links")} <span className="muted">{t("new.linksHint")}</span>
+            <input
+              value={draft.links}
+              onChange={(e) => setDraft({ links: e.target.value })}
+              inputMode="url"
+            />
+          </label>
+        </details>
         {error && (
           <p className="error" role="alert">
             {error}
           </p>
         )}
         <div className="row">
-          <button className="btn" disabled={busy || !draft.topic.trim()}>
+          <button className="btn" disabled={busy || (!draft.topic.trim() && !draft.youtube.trim())}>
             {busy ? t("new.starting") : t("new.generate")}
           </button>
           <button

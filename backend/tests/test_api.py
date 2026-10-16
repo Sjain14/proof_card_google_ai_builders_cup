@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -166,10 +167,29 @@ def test_prebunk_creates_owned_session(client: TestClient, store: InMemoryStore)
     assert all(c.card_id for _, c in claims)
 
 
+def test_prebunk_link_only_takes_video_title(client: TestClient, store: InMemoryStore) -> None:
+    url = "https://www.youtube.com/watch?v=7dhIVHRKhvo"
+    # stub mode has no title lookup: a link alone is refused with a clear reason
+    r = client.post("/api/prebunk", json={"youtube_url": url}, headers=ADMIN)
+    assert r.status_code == 422
+    assert "add a topic" in r.json()["detail"]
+    state = client.app.state  # type: ignore[attr-defined]
+    state.deps = dataclasses.replace(
+        state.deps, video_title=lambda u: "  Union Budget 2022 speech, Nirmala Sitharaman  "
+    )
+    r = client.post("/api/prebunk", json={"youtube_url": url}, headers=ADMIN)
+    assert r.status_code == 201
+    s = store.get_session(r.json()["session_id"])
+    assert s is not None
+    assert s.topic == "Union Budget 2022 speech, Nirmala Sitharaman"
+    assert s.youtube_url == url
+
+
 @pytest.mark.parametrize(
     "body",
     [
         {"topic": ""},
+        {"topic": "   "},
         {"topic": "x" * 501},
         {"topic": "x", "is_admin": True},
         {"topic": "x", "youtube_url": "https://evil.example/watch"},
