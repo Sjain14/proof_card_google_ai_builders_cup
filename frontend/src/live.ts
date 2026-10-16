@@ -5,6 +5,9 @@
 import { idToken } from "./auth";
 import type { Verdict } from "./api";
 
+// Why a heard line produced no card: the server always says, never silence.
+export type SkipReason = "not_checkable" | "repeat" | "error";
+
 export type LiveEvent =
   | { type: "ready"; audio: boolean }
   | { type: "heard"; text: string }
@@ -12,6 +15,7 @@ export type LiveEvent =
   | { type: "checking"; claim_id: string; text: string }
   | { type: "proved"; claim_id: string; text: string; card_id: string; verdict: Verdict | null; latency_ms: number }
   | { type: "failed"; claim_id: string; text: string }
+  | { type: "skipped"; text: string; reason: SkipReason }
   | { type: "error"; code: string };
 
 const RATE = 16000;

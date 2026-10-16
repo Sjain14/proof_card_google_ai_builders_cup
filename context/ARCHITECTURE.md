@@ -43,7 +43,7 @@ context/            docs, dev memory, versions/
 | `GET /v/:id` · `/v/:id.png` · `/v/:id.jpg` | public | share page (OG tags, proof, check form) + card image |
 | `POST /v/:id/check` | public, rate limited | upload a forwarded copy, page shows VERIFIED / ALTERED |
 | `POST /tg/webhook` | Telegram secret_token header | photo check, card lookup, inline share |
-| `WS /api/live/:id` | first message `{"type":"auth","token"}`, owner only, Origin allowlist in prod (one close code 4401 for every auth failure, 4403 bad Origin) | tab audio (PCM16 16 kHz binary) or typed lines in; `ready` / `heard` / `match` / `checking` / `proved` / `failed` / `error` events out |
+| `WS /api/live/:id` | first message `{"type":"auth","token"}`, owner only, Origin allowlist in prod (one close code 4401 for every auth failure, 4403 bad Origin) | tab audio (PCM16 16 kHz binary) or typed lines in; `ready` / `heard` / `match` / `checking` / `proved` / `failed` / `skipped{reason: not_checkable, repeat, error}` / `error` events out; every `heard` ends in `match`, `checking`, or `skipped` |
 
 ## Data flow (built)
 ```

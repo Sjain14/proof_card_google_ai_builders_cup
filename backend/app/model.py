@@ -30,6 +30,29 @@ class PredictedClaim:
     why: str = ""
 
 
+# Every Vertex call is bounded: google-genai has no default timeout, so one stalled call
+# hangs its caller forever (rev00012: a brief sat in "prebunking" with 0 claims for 12 min).
+# Retries are the SDK's own (429/5xx, exponential backoff with jitter).
+# Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.HttpOptions
+GENERATE_TIMEOUT_S = 90.0  # grounded assess: search + long answer
+FAST_TIMEOUT_S = 10.0  # live path: spotter, judge, embeddings
+
+
+def vertex_client(project: str, location: str, timeout_s: float) -> Any:  # pragma: no cover
+    from google import genai
+    from google.genai import types
+
+    return genai.Client(
+        vertexai=True,
+        project=project,
+        location=location,
+        http_options=types.HttpOptions(
+            timeout=int(timeout_s * 1000),  # milliseconds
+            retry_options=types.HttpRetryOptions(attempts=3),
+        ),
+    )
+
+
 SUGGESTION_MAX = 50_000  # chars; never truncate (that would modify it), drop if larger
 
 
@@ -183,9 +206,7 @@ class StubModel:
 
 class VertexModel:  # pragma: no cover - needs a GCP project; covered by the parsing tests
     def __init__(self, project: str, location: str, model: str) -> None:
-        from google import genai
-
-        self.client = genai.Client(vertexai=True, project=project, location=location)
+        self.client = vertex_client(project, location, GENERATE_TIMEOUT_S)
         self.model = model
 
     def predict_claims(self, topic: str, speaker: str, n: int) -> list[PredictedClaim]:

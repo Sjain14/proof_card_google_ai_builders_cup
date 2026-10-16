@@ -165,20 +165,36 @@ def verify_claim(session_id: str, claim_id: str, deps: Deps) -> str | None:
 
 
 def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
+    """Build the brief bank. Never leaves a session stuck in "prebunking": a model failure
+    ends it as "failed" (the UI says so). Idempotent: a Cloud Tasks retry (instance died,
+    deadline hit) finishes the same bank instead of adding a second one."""
     session = deps.store.get_session(session_id)
     if session is None:
         return {"predicted": 0, "proved": 0}
     deps.store.update_session(session_id, status="prebunking")
-    predicted = deps.model.predict_claims(session.topic, session.speaker, n)
-    ids = [
-        deps.store.add_claim(
-            session_id, ClaimDoc(text=p.text, lang=p.lang, source=ClaimSource.PREDICTED)
-        )
-        for p in predicted
+    bank = [
+        (cid, c)
+        for cid, c in deps.store.list_claims(session_id)
+        if c.source == ClaimSource.PREDICTED
     ]
+    if not bank:
+        try:
+            predicted = deps.model.predict_claims(session.topic, session.speaker, n)
+        except Exception:
+            log.exception("prebunk prediction failed")
+            deps.store.update_session(session_id, status="failed")
+            return {"predicted": 0, "proved": 0}
+        for p in predicted:
+            doc = ClaimDoc(text=p.text, lang=p.lang, source=ClaimSource.PREDICTED)
+            bank.append((deps.store.add_claim(session_id, doc), doc))
+    todo = [cid for cid, c in bank if c.status not in (ClaimStatus.PROVED, ClaimStatus.FAILED)]
     with ThreadPoolExecutor(max_workers=deps.workers) as pool:
-        results = list(pool.map(lambda cid: verify_claim(session_id, cid, deps), ids))
-    proved = sum(1 for r in results if r)
+        list(pool.map(lambda cid: verify_claim(session_id, cid, deps), todo))
+    proved = sum(
+        1
+        for _, c in deps.store.list_claims(session_id)
+        if c.source == ClaimSource.PREDICTED and c.status == ClaimStatus.PROVED
+    )
     deps.store.update_session(session_id, status="ready")
-    log.info("prebunk done", extra={"fields": {"predicted": len(ids), "proved": proved}})
-    return {"predicted": len(ids), "proved": proved}
+    log.info("prebunk done", extra={"fields": {"predicted": len(bank), "proved": proved}})
+    return {"predicted": len(bank), "proved": proved}

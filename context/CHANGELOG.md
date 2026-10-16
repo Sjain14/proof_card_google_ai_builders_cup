@@ -2,6 +2,16 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.13 · p7-no-silent-line (rev00012 bug 2 + stuck brief)
+- Prod live check 16 Oct 07:3x UTC on 077b2a3: "India per capita GDP is higher than Japan." got `heard`, then nothing for 40 s+ on an open socket; a Trump brief socket died with a keepalive ping timeout while the bank was still prebunking; the earlier brief vVcm1NYvpjTuMkS2yAAxgQ sat in `prebunking` with 0 claims for 12 min.
+- `app/live.py`: every heard line ends in `match`, `checking` or `skipped{reason}`. Spotter is bounded (`SPOT_TIMEOUT_S`); a model error or timeout falls back to the heuristic (check the whole line) instead of dropping it. One line that crashes is reported (`skipped error`), the socket lives on. A crashed cold check still resolves its tile as `failed`. Firestore calls in the live path run off the event loop.
+- `app/model.py` `vertex_client()`: every Vertex call has a timeout (90 s generate, 10 s live path, 300 s clip) + SDK retries (3 attempts). google-genai has no default timeout.
+- `app/pipeline.py` `run_prebunk`: a prediction failure ends the brief as `failed` (never stuck in `prebunking`); a Cloud Tasks redelivery finishes the same bank, never a second one. `app/tasks.py`: dispatch deadline 30 min (default 10 min retried a 7 min run that was still working).
+- Frontend: Live shows why a heard line got no card; Brief shows "Couldn't build this brief" on `failed` and stops polling.
+- Spotter prompt left as is: A/B on gemini-3.5-flash kept both per-capita lines with the current prompt; a recall-biased prompt also flagged "price of eggs out of control" (worse).
+- Tests: `tests/test_rev00012_bug2.py` (9).
+- Docs touched: SNAPSHOT, ARCHITECTURE, versions/v0.7.13, CHANGELOG.
+
 ## 2026-10-16 · v0.7.12 · p7-bank-speaker-language
 - Prod live check (guest, wss, 16 Oct): English Trump brief bank came back 3/12 Hindi + Hinglish; "India per capita GDP is higher than Japan" was dropped by the pre filter (no digit, no superlative).
 - `app/model.py` PREDICT_PROMPT 2026-10-16.1: claims in the language the speaker actually speaks, never translated to pad; include the speaker's already-rated claims.

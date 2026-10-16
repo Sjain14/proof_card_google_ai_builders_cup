@@ -74,9 +74,9 @@ def text_from_response(resp: Any) -> str:
 
 class GeminiClipTranscriber:  # pragma: no cover - needs a GCP project
     def __init__(self, project: str, location: str, model: str = "gemini-3.5-transcribe") -> None:
-        from google import genai
+        from app.model import vertex_client
 
-        self.client = genai.Client(vertexai=True, project=project, location=location)
+        self.client = vertex_client(project, location, 300.0)  # a 15 min clip, one call
         self.model = model
 
     def transcribe(self, data: bytes, mime: str, vocabulary: Sequence[str] = ()) -> str:

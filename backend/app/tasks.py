@@ -15,7 +15,10 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import timedelta
 from typing import Any, Protocol
+
+PREBUNK_DEADLINE_S = 1800
 
 Job = Callable[[], Any]
 OidcVerifier = Callable[[str], dict[str, Any]]
@@ -69,7 +72,11 @@ class CloudTasksQueue:  # pragma: no cover - needs GCP
                 oidc_token=tasks_v2.OidcToken(
                     service_account_email=self.sa_email, audience=self.target_base
                 ),
-            )
+            ),
+            # A 12 claim bank takes ~7 min; the 10 min default deadline would retry a run
+            # that is still working. 30 min is the HTTP target max.
+            # Docs: https://cloud.google.com/tasks/docs/reference/rest/v2/projects.locations.queues.tasks#Task
+            dispatch_deadline=timedelta(seconds=PREBUNK_DEADLINE_S),
         )
         self.client.create_task(parent=self.parent, task=task)
 

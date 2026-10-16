@@ -26,6 +26,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from app.model import FAST_TIMEOUT_S, vertex_client
 from app.pipeline import Deps, verify_claim
 from app.schemas import ClaimDoc, ClaimSource, ClaimStatus
 
@@ -34,6 +35,7 @@ log = logging.getLogger("proofcard.live")
 MATCH_THRESHOLD = 0.80  # cosine; calibrated in tests/test_live.py, re-check on the demo clip
 INSTANT_THRESHOLD = 0.90  # at or above (same numbers): card at once, no judge call
 MAX_SENTENCE_CHARS = 600
+SPOT_TIMEOUT_S = 12.0  # client timeout (10 s) plus slack; past it the heuristic decides
 EMBED_DIMS = 768
 
 
@@ -79,9 +81,7 @@ class HashEmbedder:
 
 class VertexEmbedder:  # pragma: no cover - needs a GCP project
     def __init__(self, project: str, location: str, model: str = "gemini-embedding-001") -> None:
-        from google import genai
-
-        self.client = genai.Client(vertexai=True, project=project, location=location)
+        self.client = vertex_client(project, location, FAST_TIMEOUT_S)
         self.model = model
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -141,9 +141,7 @@ class VertexSpotter:  # pragma: no cover - needs a GCP project
     """Model spotting behind the heuristic pre filter, so chit chat never costs a call."""
 
     def __init__(self, project: str, location: str, model: str) -> None:
-        from google import genai
-
-        self.client = genai.Client(vertexai=True, project=project, location=location)
+        self.client = vertex_client(project, location, FAST_TIMEOUT_S)
         self.model = model
 
     def spot_claims(self, sentence: str) -> list[str]:
@@ -193,9 +191,7 @@ class VertexJudge:  # pragma: no cover - needs a GCP project
     Any model error = not the same claim, so the cold check runs: never a wrong card."""
 
     def __init__(self, project: str, location: str, model: str) -> None:
-        from google import genai
-
-        self.client = genai.Client(vertexai=True, project=project, location=location)
+        self.client = vertex_client(project, location, FAST_TIMEOUT_S)
         self.model = model
 
     def same_claim(self, heard: str, checked: str) -> bool:
@@ -316,67 +312,98 @@ class LiveEngine:
             log.warning("live index warm up failed", exc_info=True)
 
     async def on_sentence(self, sentence: str, heard_at: float | None = None) -> None:
+        """Every heard line ends in exactly one outcome the user sees: a match, a check
+        (checking -> proved/failed) or `skipped` with the reason. Never silence (rev00012
+        bug 2: a checkable line got `heard` and then nothing)."""
         t0 = heard_at or time.monotonic()
         sentence = sentence.strip()[:MAX_SENTENCE_CHARS]
         if not sentence:
             return
         await self.emit({"type": "heard", "text": sentence})
+        try:
+            reason = await self._route(sentence, t0)
+        except Exception:  # one bad line never kills the socket
+            log.exception("live line failed")
+            reason = "error"
+        if reason:
+            await self.emit({"type": "skipped", "text": sentence, "reason": reason})
+
+    async def _route(self, sentence: str, t0: float) -> str | None:
+        """None when the line reached the user, else why it didn't."""
         # Fast path in parallel with the spotter model call: a sentence that is itself a
         # strong match (same numbers, cosine >= instant) shows its card without waiting.
-        spot = asyncio.create_task(asyncio.to_thread(self.live.spotter.spot_claims, sentence))
+        spot = asyncio.create_task(self._spot(sentence))
+        shown = False
         if heuristic_spot(sentence):
             hit, sim = await asyncio.to_thread(self.match, sentence)
             if hit and sim >= self.live.instant and hit not in self._shown:
-                await self._push_match(sentence, hit, sim, t0)
+                shown = await self._push_match(sentence, hit, sim, t0)
         claims = await spot
         for text in claims:
             key = text.lower()
             if key in self._seen:  # the speaker repeated it: one card is enough
                 continue
             self._seen.add(key)
-            await self._handle_claim(text, t0)
+            shown = await self._handle_claim(text, t0) or shown
+        if shown:
+            return None
+        return "repeat" if claims else "not_checkable"
 
-    async def _handle_claim(self, text: str, t0: float) -> None:
+    async def _spot(self, sentence: str) -> list[str]:
+        """Model spotting, bounded. A model error or timeout falls back to the heuristic
+        (check the whole line), so an outage costs precision, never a dropped claim."""
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self.live.spotter.spot_claims, sentence), SPOT_TIMEOUT_S
+            )
+        except Exception:
+            log.warning("spotter failed, heuristic fallback", exc_info=True)
+            return heuristic_spot(sentence)
+
+    async def _handle_claim(self, text: str, t0: float) -> bool:
+        """True when a card was pushed or a check started; False for a card already shown."""
         store = self.live.deps.store
         hit, sim = await asyncio.to_thread(self.match, text)
         if hit and hit in self._shown:  # same prebunked claim, already on screen
-            return
+            return False
         if hit and sim < self.live.instant and self.live.judge is not None:
-            pre = store.get_claim(self.sid, hit)
+            pre = await asyncio.to_thread(store.get_claim, self.sid, hit)
             judge = self.live.judge
             same = pre is not None and await asyncio.to_thread(judge.same_claim, text, pre.text)
             if not same:
                 log.info("judge rejected match", extra={"fields": {"sim": round(sim, 3)}})
                 hit = None
         if hit and await self._push_match(text, hit, sim, t0):
-            return
-        cid = store.add_claim(self.sid, ClaimDoc(text=text, source=ClaimSource.LIVE))
+            return True
+        doc = ClaimDoc(text=text, source=ClaimSource.LIVE)
+        cid = await asyncio.to_thread(store.add_claim, self.sid, doc)
         await self.emit({"type": "checking", "claim_id": cid, "text": text})
         task = asyncio.create_task(self._cold(cid, text, t0))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        return True
 
     async def _push_match(self, text: str, hit: str, sim: float, t0: float) -> bool:
         """Store a LIVE claim pointing at the prebunked card and push it. False if the
         prebunked claim has no card (cannot happen for indexed claims, kept defensive)."""
+        # Firestore calls run off the event loop: a slow write must never stall the
+        # socket (prod 16 Oct: keepalive ping timeout while a brief was prebunking).
         store = self.live.deps.store
-        pre = store.get_claim(self.sid, hit)
+        pre = await asyncio.to_thread(store.get_claim, self.sid, hit)
         if pre is None or not pre.card_id:
             return False
         self._shown.add(hit)
         latency = int((time.monotonic() - t0) * 1000)
-        cid = store.add_claim(
-            self.sid,
-            ClaimDoc(
-                text=text,
-                source=ClaimSource.LIVE,
-                status=ClaimStatus.PROVED,
-                card_id=pre.card_id,
-                verdict=pre.verdict,
-                matched_claim_id=hit,
-                latency_ms=latency,
-            ),
+        doc = ClaimDoc(
+            text=text,
+            source=ClaimSource.LIVE,
+            status=ClaimStatus.PROVED,
+            card_id=pre.card_id,
+            verdict=pre.verdict,
+            matched_claim_id=hit,
+            latency_ms=latency,
         )
+        cid = await asyncio.to_thread(store.add_claim, self.sid, doc)
         await self.emit(
             {
                 "type": "match",
@@ -391,13 +418,18 @@ class LiveEngine:
         return True
 
     async def _cold(self, cid: str, text: str, t0: float) -> None:
-        card_id = await asyncio.to_thread(verify_claim, self.sid, cid, self.live.deps)
+        try:
+            card_id = await asyncio.to_thread(verify_claim, self.sid, cid, self.live.deps)
+        except Exception:  # a "checking" tile must always resolve
+            log.exception("live cold check failed")
+            card_id = None
         latency = int((time.monotonic() - t0) * 1000)
         if card_id is None:
             await self.emit({"type": "failed", "claim_id": cid, "text": text})
             return
-        claim = self.live.deps.store.get_claim(self.sid, cid)
-        self.live.deps.store.update_claim(self.sid, cid, latency_ms=latency)
+        store = self.live.deps.store
+        claim = await asyncio.to_thread(store.get_claim, self.sid, cid)
+        await asyncio.to_thread(store.update_claim, self.sid, cid, latency_ms=latency)
         await self.emit(
             {
                 "type": "proved",

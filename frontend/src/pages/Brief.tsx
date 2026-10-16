@@ -25,7 +25,7 @@ export function Brief({ id, user }: { id: string; user: SignedIn | null | undefi
         if (!alive) return;
         setSession(s);
         const p = progress(s.counts);
-        if (p.total === 0 || p.done < p.total) timer = window.setTimeout(tick, POLL_MS);
+        if (s.status !== "failed" && (p.total === 0 || p.done < p.total)) timer = window.setTimeout(tick, POLL_MS);
       } catch (err) {
         if (alive) setError(err instanceof ApiError && err.status === 404 ? t("brief.none") : t("brief.loadFail"));
       }
@@ -48,6 +48,7 @@ export function Brief({ id, user }: { id: string; user: SignedIn | null | undefi
 
   if (error) return <section className="panel narrow center"><h1>{error}</h1></section>;
   if (!session) return <section className="panel narrow center"><p className="muted">{t("brief.loading")}</p></section>;
+  if (session.status === "failed" && session.claims.length === 0) return <section className="panel narrow center"><h1>{t("brief.failed")}</h1></section>;
 
   const { done, total } = progress(session.counts);
   const pct = total ? Math.round((done / total) * 100) : 0;

@@ -18,6 +18,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [cards, setCards] = useState<Record<string, Card>>({});
   const [heard, setHeard] = useState("");
+  const [skip, setSkip] = useState("");
   const [mode, setMode] = useState<Mode>("idle");
   const [note, setNote] = useState("");
   const [line, setLine] = useState("");
@@ -42,7 +43,10 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   }, [feed, cards]);
 
   const onEvent = (e: LiveEvent) => {
-    if (e.type === "heard") setHeard(e.text);
+    if (e.type === "heard") {
+      setHeard(e.text);
+      setSkip("");
+    } else if (e.type === "skipped") setSkip(t(`live.skip.${e.reason}`));
     else if (e.type === "error") setNote(e.code === "audio_unavailable" ? t("live.audioUnavailable") : t("live.wrong"));
     else if (e.type === "match" || e.type === "checking") {
       const claim: ClaimView = {
@@ -165,7 +169,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
                 {mode === "connecting" ? t("live.connecting") : t("live.start")}
               </button>
             )}
-            <p className="heard" aria-live="polite">{heard ? t("live.heard", { text: heard }) : t("live.privacy")}</p>
+            <p className="heard" aria-live="polite">{heard ? t("live.heard", { text: heard }) : t("live.privacy")}{skip && <span className="skip"> · {skip}</span>}</p>
           </div>
           <form className="line" onSubmit={(e) => void sendLine(e)}>
             <input

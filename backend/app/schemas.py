@@ -85,7 +85,7 @@ class SessionDoc(Strict):
     topic: ShortText
     speaker: str = ""
     youtube_url: str | None = None
-    status: Annotated[str, Field(pattern="^(draft|prebunking|ready|live|closed)$")] = "draft"
+    status: Annotated[str, Field(pattern="^(draft|prebunking|ready|live|closed|failed)$")] = "draft"
     is_anonymous: bool = False
     created_at: datetime = Field(default_factory=_now)
 
