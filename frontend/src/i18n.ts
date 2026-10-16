@@ -59,7 +59,7 @@ const en = {
   "new.sample": "Try a sample topic",
 
   "brief.none": "No such brief.",
-  "brief.loadFail": "Couldn't load.",
+  "brief.retrying": "Can't reach the server, retrying…",
   "brief.loading": "Loading brief…",
   "brief.eyebrow": "Prebunk brief",
   "brief.predicting": "Predicting claims…",
@@ -187,7 +187,7 @@ const hi: Record<Key, string> = {
   "new.sample": "एक नमूना विषय आज़माइए",
 
   "brief.none": "ऐसा कोई ब्रीफ़ नहीं है।",
-  "brief.loadFail": "लोड नहीं हो सका।",
+  "brief.retrying": "सर्वर तक नहीं पहुँच सके, फिर कोशिश कर रहे हैं…",
   "brief.loading": "ब्रीफ़ लोड हो रहा है…",
   "brief.eyebrow": "पहले से जाँच का ब्रीफ़",
   "brief.predicting": "दावों का अनुमान लग रहा है…",

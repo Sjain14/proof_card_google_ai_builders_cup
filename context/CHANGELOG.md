@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.30 · p30-brief-poll
+Demo run (16 Oct): one failed `api.session()` on the brief page (any non-404, e.g. a 503 during a deploy) set the error screen and stopped polling for good, so a brief that finished later never showed.
+- `frontend/src/live.ts` `pollRetry()`: 404 stops; anything else retries with the existing jittered backoff (0.5 s to 15 s).
+- `frontend/src/pages/Brief.tsx`: keeps what is on screen and polls on, with a soft "Can't reach the server, retrying..." note like Watch.tsx; the note clears on the next good poll. Dead `brief.loadFail` string removed, `brief.retrying` added (en + hi).
+- Test: `live.test.ts` pollRetry.
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.29 · p29-claim-not-quote
 Trump demo (16 Oct): a TRUE card on "I got all the hostages back" was proved by news pages reporting that Trump SAID it. That verifies the quote, not the claim.
 - `app/model.py` assess prompt: judge the claim itself, never whether the speaker said it; a report of the speaker making the claim is not evidence; only a quote = UNVERIFIABLE.

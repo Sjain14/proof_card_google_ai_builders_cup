@@ -55,6 +55,13 @@ export function backoffMs(attempt: number, rand: () => number = Math.random): nu
 
 export const MAX_RETRIES = 8;
 
+/** A failed poll: stop only when the thing is gone (404); anything else (network blip,
+ *  503 during a deploy) keeps polling with backoff. Brief.tsx stopped for good after one
+ *  failed load (demo run, 16 Oct 2026). */
+export function pollRetry(status: number | null, failures: number, rand: () => number = Math.random): number | null {
+  return status === 404 ? null : backoffMs(Math.min(failures, 5), rand);
+}
+
 /**
  * A live socket that survives drops (spec B2). Rejects only if the FIRST open fails.
  * After that an unexpected close retries with backoff, re-authenticating every time

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mergeFeed, type FeedClaim } from "./api";
-import { backoffMs, clock, connectLive, MAX_RETRIES, replayDue, youtubeId, type LiveEvent } from "./live";
+import { backoffMs, clock, pollRetry, connectLive, MAX_RETRIES, replayDue, youtubeId, type LiveEvent } from "./live";
 
 class FakeSocket {
   readyState = 1;
@@ -138,5 +138,14 @@ describe("replay", () => {
   it("formats m:ss", () => {
     expect(clock(86.7)).toBe("1:26");
     expect(clock(4)).toBe("0:04");
+  });
+});
+
+describe("pollRetry", () => {
+  it("stops only on 404 and backs off on anything else", () => {
+    expect(pollRetry(404, 0)).toBeNull();
+    expect(pollRetry(503, 0, () => 1)).toBe(500);
+    expect(pollRetry(null, 2, () => 1)).toBe(2000); // network error: keep polling
+    expect(pollRetry(500, 40, () => 1)).toBe(15_000); // capped
   });
 });
