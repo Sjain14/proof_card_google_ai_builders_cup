@@ -473,31 +473,43 @@ class InMemorySnapshots:
     def get(self, sha256: str) -> bytes | None:
         return self.blobs.get(sha256)
 
+    def delete(self, sha256: str) -> None:
+        self.blobs.pop(sha256, None)
+
 
 class GcsSnapshots:  # pragma: no cover - needs GCP
-    """Content addressed: snapshots/<sha256>. if_generation_match=0 makes writes create only."""
+    """Content addressed: <prefix>/<sha256>. if_generation_match=0 makes writes create only.
+    prefix "snapshots" = proof pages (public download); "clips" = uploaded audio waiting
+    for its job (never served, deleted when the job ends)."""
 
-    def __init__(self, bucket: str) -> None:
+    def __init__(self, bucket: str, prefix: str = "snapshots") -> None:
         import google.cloud.storage as storage
 
         self.bucket = storage.Client().bucket(bucket)
+        self.prefix = prefix
 
     def put(self, sha256: str, body: bytes, content_type: str) -> str:
         from google.api_core.exceptions import PreconditionFailed
 
-        blob = self.bucket.blob(f"snapshots/{sha256}")
+        blob = self.bucket.blob(f"{self.prefix}/{sha256}")
         with contextlib.suppress(PreconditionFailed):  # same bytes already stored
             blob.upload_from_string(body, content_type=content_type, if_generation_match=0)
-        return f"gs://{self.bucket.name}/snapshots/{sha256}"
+        return f"gs://{self.bucket.name}/{self.prefix}/{sha256}"
 
     def get(self, sha256: str) -> bytes | None:
         from google.api_core.exceptions import NotFound
 
         try:
-            data: bytes = self.bucket.blob(f"snapshots/{sha256}").download_as_bytes()
+            data: bytes = self.bucket.blob(f"{self.prefix}/{sha256}").download_as_bytes()
         except NotFound:
             return None
         return data
+
+    def delete(self, sha256: str) -> None:
+        from google.api_core.exceptions import NotFound
+
+        with contextlib.suppress(NotFound):
+            self.bucket.blob(f"{self.prefix}/{sha256}").delete()
 
 
 def snapshot(fetched: Fetched, store: SnapshotStore) -> str:

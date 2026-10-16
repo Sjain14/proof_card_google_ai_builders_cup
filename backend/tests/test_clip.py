@@ -1,6 +1,7 @@
 """Clip upload fallback (B2): transcript -> the same live engine as tab audio."""
 
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace as Ns
 
 from fastapi.testclient import TestClient
@@ -18,6 +19,7 @@ from app.main import create_app
 from app.model import StubModel
 from app.pipeline import Deps
 from app.proof import FixtureFetcher, InMemorySnapshots
+from app.schemas import ClipJob, ClipLine
 from app.store import InMemoryStore
 from app.tasks import SyncQueue
 from tests.conftest import fake_oidc, fake_verifier
@@ -79,9 +81,12 @@ def test_clip_runs_the_live_engine(settings: Settings, store: InMemoryStore) -> 
         files={"file": ("talk.mp3", b"ID3fake-mp3-bytes", "audio/mpeg")},
         headers=ADMIN,
     )
-    assert r.status_code == 200, r.text
-    body = r.json()
+    assert r.status_code == 202, r.text
+    assert r.json()["state"] == "queued"  # answers at once; the job runs in the background
+    body = c.get(f"/api/sessions/{sid}/clip", headers=ADMIN).json()
+    assert body["state"] == "done"
     assert body["sentences"] == 2
+    assert body["done"] == 2
     kinds = [e["type"] for e in body["events"]]
     assert "match" in kinds  # the prebunked claim hit instantly, like live speech
     hit = next(e for e in body["events"] if e["type"] == "match")
@@ -103,7 +108,10 @@ def test_clip_rejections(settings: Settings, store: InMemoryStore) -> None:
     assert c.post(url, files=vid, headers=ADMIN).status_code == 415
     big = {"file": ("a.mp3", b"x" * (MAX_CLIP_BYTES + 1), "audio/mpeg")}
     assert c.post(url, files=big, headers=ADMIN).status_code == 413
-    assert c.post(url, files=mp3, headers=ADMIN).status_code == 502  # transcription failed
+    assert c.post(url, files=mp3, headers=ADMIN).status_code == 202
+    job = c.get(url, headers=ADMIN).json()
+    assert job["state"] == "failed"  # transcription failed: the poll says so
+    assert "transcription failed" in job["error"]
     none = app_with(settings, store, None)
     assert none.post(url, files=mp3, headers=ADMIN).status_code == 503
 
@@ -127,7 +135,8 @@ def test_timed_clip_stores_video_offsets(settings: Settings, store: InMemoryStor
     clip.lines = [(3.0, "Good evening and welcome to the show."), (65.5, claim.text + ".")]
     url = f"/api/sessions/{sid}/clip"
     mp3 = {"file": ("talk.mp3", b"ID3fake-mp3-bytes", "audio/mpeg")}
-    body = c.post(url + "?timed=true", files=mp3, headers=ADMIN).json()
+    assert c.post(url + "?timed=true", files=mp3, headers=ADMIN).status_code == 202
+    body = c.get(url, headers=ADMIN).json()
     assert body["timed"] is True
     hit = next(e for e in body["events"] if e["type"] == "match")
     assert hit["t"] == 65.5
@@ -135,8 +144,8 @@ def test_timed_clip_stores_video_offsets(settings: Settings, store: InMemoryStor
     live = [cl for cl in view["claims"] if cl["source"] == "live"]
     assert live[0]["t_offset_s"] == 65.5
     assert live[0]["matched_claim_id"]
-    untimed = c.post(url, files=mp3, headers=ADMIN).json()  # default stays the plain path
-    assert untimed["timed"] is False
+    assert c.post(url, files=mp3, headers=ADMIN).status_code == 202  # a finished job is replaced
+    assert c.get(url, headers=ADMIN).json()["timed"] is False  # default stays the plain path
 
 
 def test_clock_parsing() -> None:
@@ -198,3 +207,53 @@ def test_clip_cors_only_for_our_origins(settings: Settings, store: InMemoryStore
     assert ok.headers.get("access-control-allow-origin") == "https://proofcard.web.app"
     bad = c.options("/api/sessions/x/clip", headers={"Origin": "https://evil.example", **pre})
     assert "access-control-allow-origin" not in bad.headers
+
+
+def test_stalled_clip_job_resumes_from_its_saved_line(
+    settings: Settings, store: InMemoryStore
+) -> None:
+    # A revision swap killed the job after 5 of 7 lines: the poll re-queues it and only the
+    # last 2 lines run; the transcript is not paid for twice.
+    clip = FakeClip("unused")
+    c = app_with(settings, store, clip)
+    sid = c.post("/api/prebunk", json={"topic": "India"}, headers=ADMIN).json()["session_id"]
+    lines = [ClipLine(text=f"Line number {i} of the speech today.") for i in range(7)]
+    old = datetime.now(UTC) - timedelta(minutes=30)
+    job = ClipJob(
+        digest="a" * 64, mime="audio/mpeg", lines=lines, done=5, state="running", beat=old
+    )
+    store.update_session(sid, clip_job=job)
+    url = f"/api/sessions/{sid}/clip"
+    assert (
+        c.post(url, files={"file": ("a.mp3", b"abc", "audio/mpeg")}, headers=ADMIN).status_code
+        == 202
+    )
+    store.update_session(sid, clip_job=job)  # back to the stalled job
+    view = c.get(url, headers=ADMIN).json()
+    assert view["state"] == "running"  # lease taken; SyncQueue already ran it
+    after = c.get(url, headers=ADMIN).json()
+    assert after["state"] == "done"
+    assert after["done"] == 7
+    heard = [e["text"] for e in after["events"] if e["type"] == "heard"]
+    assert heard == [lines[5].text, lines[6].text]
+    assert len(clip.calls) == 1  # only the fresh upload was transcribed
+
+
+def test_second_clip_waits_for_the_running_one(settings: Settings, store: InMemoryStore) -> None:
+    c = app_with(settings, store, FakeClip("x"))
+    sid = c.post("/api/prebunk", json={"topic": "India"}, headers=ADMIN).json()["session_id"]
+    store.update_session(sid, clip_job=ClipJob(digest="b" * 64, mime="audio/mpeg"))
+    mp3 = {"file": ("a.mp3", b"abc", "audio/mpeg")}
+    assert c.post(f"/api/sessions/{sid}/clip", files=mp3, headers=ADMIN).status_code == 409
+    assert c.get("/api/sessions/nope-nope-nope/clip", headers=ADMIN).status_code == 404
+
+
+def test_clip_task_needs_oidc(settings: Settings, store: InMemoryStore) -> None:
+    c = app_with(settings, store, FakeClip("x"))
+    assert c.post("/tasks/clip", json={"session_id": "abcdefghijkl"}).status_code == 404
+    ok = c.post(
+        "/tasks/clip",
+        json={"session_id": "abcdefghijkl"},
+        headers={"Authorization": "Bearer task-token"},
+    )
+    assert ok.status_code == 200  # unknown session: nothing to do

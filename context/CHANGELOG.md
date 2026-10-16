@@ -2,6 +2,15 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.32 · p32-clip-job
+Demo (16 Oct): a 9 min clip upload died in the browser with "Failed to fetch"; the whole clip ran inside one request (~25 min), past the Hosting/proxy timeout.
+- `POST /api/sessions/:id/clip` stores the audio (GCS `clips/`, never served, deleted when the job ends), sets `SessionDoc.clip_job`, enqueues `/tasks/clip` (Cloud Tasks, OIDC) and answers 202. A second upload while one runs = 409.
+- `GET /api/sessions/:id/clip`: state, lines done of total, the events the socket would have pushed, error. A job silent 8 min is re-queued (lease = fresh beat).
+- Runner: transcribe once (lines stored), then 5 lines per saved step; a retry resumes at `done`, never re-transcribes.
+- Frontend `uploadClip` posts then polls every 3 s, rides out 5xx/network blips with `pollRetry`, shows "Checking the clip: n of m lines".
+- Tests: 202 + poll, failed transcription surfaced, stalled job resumes at line 5 of 7 with one transcription, 409, task auth; vitest for the poll loop.
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.31 · p31-prebunk-resume
 Demo run (16 Oct): a deploy swapped the revision while a brief was prebunking; the instance died, nothing resumed it, and the session sat in "prebunking" for good.
 - `SessionDoc.prebunk_beat`: `run_prebunk` stamps it at start, after the fact bank, after prediction and after every claim.

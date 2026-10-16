@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mergeFeed, type FeedClaim } from "./api";
+import { mergeFeed, uploadClip, type FeedClaim } from "./api";
 import { backoffMs, clock, pollRetry, connectLive, MAX_RETRIES, replayDue, youtubeId, type LiveEvent } from "./live";
 
 class FakeSocket {
@@ -147,5 +147,44 @@ describe("pollRetry", () => {
     expect(pollRetry(503, 0, () => 1)).toBe(500);
     expect(pollRetry(null, 2, () => 1)).toBe(2000); // network error: keep polling
     expect(pollRetry(500, 40, () => 1)).toBe(15_000); // capped
+  });
+});
+
+describe("uploadClip", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("posts once, then polls the job through a blip until it is done", async () => {
+    vi.useFakeTimers();
+    const job = (state: string, done: number) => ({ state, timed: true, sentences: 7, done, events: state === "done" ? [{ type: "heard" }] : [], error: "" });
+    const replies = [
+      new Response(JSON.stringify(job("queued", 0)), { status: 202 }),
+      new Response(JSON.stringify(job("running", 5)), { status: 200 }),
+      new Response("", { status: 503 }), // deploy swap: keep polling
+      new Response(JSON.stringify(job("done", 7)), { status: 200 }),
+    ];
+    const fetchMock = vi.fn(async () => replies.shift()!);
+    vi.stubGlobal("fetch", fetchMock);
+    const seen: Array<[number, number | null]> = [];
+    const p = uploadClip("s1", new File(["x"], "a.m4a"), true, (d, n) => seen.push([d, n]));
+    await vi.runAllTimersAsync();
+    await expect(p).resolves.toEqual({ sentences: 7, events: [{ type: "heard" }] });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(seen).toEqual([[5, 7]]);
+  });
+
+  it("surfaces a failed job", async () => {
+    vi.useFakeTimers();
+    const replies = [
+      new Response("{}", { status: 202 }),
+      new Response(JSON.stringify({ state: "failed", error: "transcription failed, try again" }), { status: 200 }),
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => replies.shift()!));
+    const p = uploadClip("s1", new File(["x"], "a.m4a"));
+    const out = expect(p).rejects.toThrow("transcription failed");
+    await vi.runAllTimersAsync();
+    await out;
   });
 });

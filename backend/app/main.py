@@ -31,10 +31,12 @@ from pydantic import ValidationError
 from app import alerts, alter, card_image, share_page
 from app.auth import Principal, Verifier, admin_principal, firebase_verifier
 from app.clip import (
+    CLIP_BATCH,
     MAX_CLIP_BYTES,
     ClipTranscriber,
     GeminiClipTranscriber,
     clip_mime,
+    clip_stalled,
 )
 from app.clip import sentences as clip_sentences
 from app.config import Settings, get_settings
@@ -64,6 +66,9 @@ from app.schemas import (
     CheckTextRequest,
     CheckTextResponse,
     ClaimSource,
+    ClipJob,
+    ClipJobView,
+    ClipLine,
     FactBankDoc,
     FeedView,
     PrebunkRequest,
@@ -182,6 +187,7 @@ def create_app(
     live: LiveDeps | None = None,
     transcriber: Transcriber | None = None,
     clip_transcriber: ClipTranscriber | None = None,
+    clip_store: InMemorySnapshots | GcsSnapshots | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging()
@@ -221,6 +227,12 @@ def create_app(
             settings.gemini_region or settings.gcp_region,
         )
     app.state.clip = clip_transcriber
+    # Uploaded clips wait here for their job: GCS clips/ (never served), else in memory.
+    app.state.clips = clip_store or (
+        GcsSnapshots(settings.proof_bucket, prefix="clips")
+        if settings.proof_bucket
+        else InMemorySnapshots()
+    )
     token = settings.telegram_bot_token.get_secret_value()
     app.state.bot_api = bot_api or (HttpBotApi(token) if token else None)
     app.state.alerter = (
@@ -380,19 +392,20 @@ def create_app(
         claims = app.state.store.list_claims(session_id)
         return FeedView.build(session_id, s, claims, since, now - timedelta(seconds=2))
 
-    @app.post("/api/sessions/{session_id}/clip")
+    @app.post("/api/sessions/{session_id}/clip", status_code=status.HTTP_202_ACCEPTED)
     async def upload_clip(
         session_id: str,
         user: Annotated[Principal, Depends(admin_principal)],
         file: Annotated[UploadFile, File()],
         timed: bool = False,
-    ) -> dict[str, object]:
+    ) -> ClipJobView:
         """?timed=true (replay): sentences carry their second in the clip, stored on each live
         claim, so the Live page pops each card at that moment of the YouTube video.
 
-        Fallback when live audio isn't possible: a recorded clip, transcribed in one
-        call, every sentence through the same live engine. Returns the same events the
-        websocket would have pushed, in order."""
+        Fallback when live audio isn't possible: a recorded clip, transcribed in one call,
+        every sentence through the same live engine. Answers at once (202) and works in the
+        background; the browser polls GET /clip for progress and the events the websocket
+        would have pushed. A 9 min clip outlived the request (demo, 16 Oct 2026)."""
         s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
         if s is None or s.owner_uid != user.uid:
             raise HTTPException(status_code=404, detail="not found")
@@ -406,42 +419,104 @@ def create_app(
             raise HTTPException(status_code=413, detail="clip over 20 MB, trim it")
         if app.state.clip is None:
             raise HTTPException(status_code=503, detail="clip transcription needs the cloud model")
+        job_ = s.clip_job
+        if job_ is not None and job_.state in ("queued", "running") and not clip_stalled(job_):
+            raise HTTPException(status_code=409, detail="a clip is already being checked")
         if not app.state.prebunk_limiter.allow(user.uid):
             raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
-        vocab = vocabulary_for(
-            [
-                c.text
-                for _, c in app.state.store.list_claims(session_id)
-                if c.source == ClaimSource.PREDICTED
-            ]
+        digest = sha256_hex(data)
+        await run_in_threadpool(app.state.clips.put, digest, data, mime)
+        job = ClipJob(digest=digest, mime=mime, timed=timed)
+        app.state.store.update_session(session_id, clip_job=job)
+        await run_in_threadpool(_enqueue_clip, session_id)
+        return ClipJobView.build(job)
+
+    @app.get("/api/sessions/{session_id}/clip")
+    def clip_status(
+        session_id: str, user: Annotated[Principal, Depends(admin_principal)]
+    ) -> ClipJobView:
+        s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
+        if s is None or s.owner_uid != user.uid or s.clip_job is None:
+            raise HTTPException(status_code=404, detail="not found")
+        job = s.clip_job
+        if clip_stalled(job):
+            # Its instance died (revision swap): take the lease, then resume from job.done.
+            job = job.model_copy(update={"beat": datetime.now(UTC)})
+            app.state.store.update_session(session_id, clip_job=job)
+            _enqueue_clip(session_id)
+            log.warning("stalled clip job re-queued", extra={"fields": {"session": session_id}})
+        return ClipJobView.build(job)
+
+    def _enqueue_clip(session_id: str) -> None:
+        app.state.queue.enqueue_clip(session_id, lambda: asyncio.run(_run_clip(session_id)))
+
+    def _save_job(session_id: str, **changes: object) -> ClipJob | None:
+        s = app.state.store.get_session(session_id)
+        if s is None or s.clip_job is None:
+            return None
+        job: ClipJob = ClipJob.model_validate(
+            {**s.clip_job.model_dump(), **changes, "beat": datetime.now(UTC)}
         )
-        try:
-            timed_fn = getattr(app.state.clip, "transcribe_timed", None) if timed else None
-            if timed_fn is not None:
-                timed_lines: list[tuple[float | None, str]] = list(
-                    await run_in_threadpool(timed_fn, data, mime, vocab)
-                )
-            else:
-                transcript = await run_in_threadpool(app.state.clip.transcribe, data, mime, vocab)
-                timed_lines = [(None, line) for line in clip_sentences(transcript)]
-        except Exception:
-            log.exception("clip transcription failed")
-            raise HTTPException(status_code=502, detail="transcription failed, try again") from None
-        events: list[dict[str, object]] = []
+        app.state.store.update_session(session_id, clip_job=job)
+        return job
+
+    async def _run_clip(session_id: str) -> None:
+        """Transcribe once (lines stored), then feed the live engine CLIP_BATCH lines at a
+        time, saving progress and events after each batch. A retry or re-queue resumes at
+        job.done; only a batch cut off mid way runs again."""
+        s = app.state.store.get_session(session_id)
+        if s is None or s.clip_job is None or s.clip_job.state in ("done", "failed"):
+            return
+        job = _save_job(session_id, state="running") or s.clip_job
+        audio = await run_in_threadpool(app.state.clips.get, job.digest)
+        if job.lines is None:
+            if audio is None:
+                _save_job(session_id, state="failed", error="clip expired, upload it again")
+                return
+            vocab = vocabulary_for(
+                [
+                    c.text
+                    for _, c in app.state.store.list_claims(session_id)
+                    if c.source == ClaimSource.PREDICTED
+                ]
+            )
+            try:
+                timed_fn = getattr(app.state.clip, "transcribe_timed", None) if job.timed else None
+                if timed_fn is not None:
+                    pairs = list(await run_in_threadpool(timed_fn, audio, job.mime, vocab))
+                else:
+                    text = await run_in_threadpool(
+                        app.state.clip.transcribe, audio, job.mime, vocab
+                    )
+                    pairs = [(None, line) for line in clip_sentences(text)]
+            except Exception:
+                log.exception("clip transcription failed")
+                _save_job(session_id, state="failed", error="transcription failed, try again")
+                await run_in_threadpool(app.state.clips.delete, job.digest)
+                return
+            lines = [ClipLine(t=t, text=line[:2_000]) for t, line in pairs][:2_000]
+            job = _save_job(session_id, lines=lines, timed=timed_fn is not None) or job
+        events: list[dict[str, object]] = list(job.events)
 
         async def collect(ev: dict[str, object]) -> None:
             events.append(ev)
 
         app.state.store.update_session(session_id, status="live")
+        lines = job.lines or []
         try:
             engine = LiveEngine(session_id, app.state.live, collect, _alert_fn())
             await engine.warm()
-            for t_off, line in timed_lines:
-                await engine.on_sentence(line, t_offset=t_off)
-            await engine.drain()
+            for start in range(job.done, len(lines), CLIP_BATCH):
+                for line in lines[start : start + CLIP_BATCH]:
+                    await engine.on_sentence(line.text, t_offset=line.t)
+                await engine.drain()
+                _save_job(
+                    session_id, done=min(len(lines), start + CLIP_BATCH), events=events[-2_000:]
+                )
+            _save_job(session_id, state="done", done=len(lines), events=events[-2_000:])
         finally:
             app.state.store.update_session(session_id, status="ready")
-        return {"sentences": len(timed_lines), "timed": timed_fn is not None, "events": events}
+        await run_in_threadpool(app.state.clips.delete, job.digest)
 
     def _alert_fn() -> Alert | None:
         return app.state.alerter.alert if app.state.alerter is not None else None
@@ -571,6 +646,21 @@ def create_app(
             body.session_id, app.state.deps, settings.prebunk_claims
         )
         return result
+
+    @app.post("/tasks/clip", include_in_schema=False)
+    async def task_clip(
+        body: TaskPrebunk, authorization: Annotated[str | None, Header()] = None
+    ) -> dict[str, str]:
+        verify = app.state.oidc
+        token = (authorization or "").removeprefix("Bearer ").strip()
+        try:
+            if verify is None or not token:
+                raise ValueError("no task auth")
+            verify(token)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="not found") from exc
+        await _run_clip(body.session_id)
+        return {"ok": "done"}
 
     @app.get("/api/cards/{card_id}")
     def get_card(card_id: str) -> CardDoc:

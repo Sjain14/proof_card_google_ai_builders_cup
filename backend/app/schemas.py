@@ -5,7 +5,7 @@ extra="forbid" rejects unknown fields; max lengths cap abuse and prompt size.
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
 
@@ -79,6 +79,28 @@ class SourceProof(Strict):
     fetched_at: datetime
 
 
+class ClipLine(Strict):
+    t: float | None = None  # second in the clip (timed replay), None = untimed
+    text: Annotated[str, Field(max_length=2_000)]
+
+
+class ClipJob(Strict):
+    """An uploaded clip worked off in the background (POST /clip answers at once; the
+    browser polls GET /clip). A 9 min clip takes ~25 min, longer than any request may
+    stay open (demo, 16 Oct: "Failed to fetch"). Transcript and progress are stored so a
+    retried or re-queued task resumes from the next unprocessed line."""
+
+    state: Annotated[str, Field(pattern="^(queued|running|done|failed)$")] = "queued"
+    digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    mime: str
+    timed: bool = False
+    lines: Annotated[list[ClipLine], Field(max_length=2_000)] | None = None
+    done: Annotated[int, Field(ge=0)] = 0
+    events: Annotated[list[dict[str, Any]], Field(max_length=2_000)] = []
+    error: str = ""
+    beat: datetime = Field(default_factory=_now)
+
+
 class SessionDoc(Strict):
     schema_version: int = SCHEMA_VERSION
     owner_uid: Annotated[str, Field(min_length=1, max_length=128)]
@@ -100,6 +122,7 @@ class SessionDoc(Strict):
     # Last progress of the prebunk job: a revision swap can kill it mid run; a session read
     # that finds it silent for PREBUNK_STALE re-queues it (pipeline.prebunk_stalled).
     prebunk_beat: datetime | None = None
+    clip_job: ClipJob | None = None
 
 
 class ClaimDoc(Strict):
@@ -226,6 +249,26 @@ class ClaimView(BaseModel):
     t_offset_s: float | None = None
     matched: bool = False  # live claim answered by a prebunked card
     fact_ids: list[int] = []  # fact bank facts that decided it (app/facts.py)
+
+
+class ClipJobView(BaseModel):
+    state: str
+    timed: bool
+    sentences: int | None  # None until the clip is transcribed
+    done: int
+    events: list[dict[str, Any]]
+    error: str = ""
+
+    @classmethod
+    def build(cls, job: ClipJob) -> "ClipJobView":
+        return cls(
+            state=job.state,
+            timed=job.timed,
+            sentences=None if job.lines is None else len(job.lines),
+            done=job.done,
+            events=job.events,
+            error=job.error,
+        )
 
 
 class SessionView(BaseModel):

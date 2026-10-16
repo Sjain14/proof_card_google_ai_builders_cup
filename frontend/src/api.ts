@@ -1,6 +1,7 @@
 // Typed client for the Proof Card API (backend/app/main.py). Same origin in prod via
 // Firebase Hosting rewrites, Vite proxy in dev.
 import { idToken } from "./auth";
+import { pollRetry } from "./live";
 
 export type Verdict = "TRUE" | "MISLEADING" | "FALSE" | "UNVERIFIABLE";
 export type ClaimStatus = "queued" | "checking" | "proved" | "failed";
@@ -140,25 +141,62 @@ export const watchUrl = (sessionId: string) => `${location.origin}/watch/${sessi
 
 export const CLIP_MAX_BYTES = 20 * 1024 * 1024;
 
+export interface ClipJob {
+  state: "queued" | "running" | "done" | "failed";
+  timed: boolean;
+  sentences: number | null;
+  done: number;
+  events: unknown[];
+  error: string;
+}
+
+const CLIP_POLL_MS = 3000;
+
 // Clip upload (fallback when tab audio can't be captured). Goes straight to Cloud Run like
-// the live socket (VITE_LIVE_ORIGIN): a long clip outlasts the Hosting rewrite timeout.
+// the live socket (VITE_LIVE_ORIGIN). The server answers at once (202) and works the clip
+// in the background; we poll its progress. A 9 min clip outlived one request (16 Oct).
 export async function uploadClip(
   sessionId: string,
   file: File,
   timed = false,
+  onProgress?: (done: number, total: number | null) => void,
 ): Promise<{ sentences: number; events: unknown[] }> {
   const base = (import.meta.env.VITE_LIVE_ORIGIN as string | undefined) ?? "";
+  const url = `${base}/api/sessions/${encodeURIComponent(sessionId)}/clip`;
+  const auth = async () => {
+    const headers = new Headers();
+    const token = await idToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return headers;
+  };
   const body = new FormData();
   body.append("file", file);
-  const headers = new Headers();
-  const token = await idToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${base}/api/sessions/${encodeURIComponent(sessionId)}/clip${timed ? "?timed=true" : ""}`, { method: "POST", body, headers });
+  const res = await fetch(`${url}${timed ? "?timed=true" : ""}`, { method: "POST", body, headers: await auth() });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { detail?: unknown };
     throw new ApiError(res.status, errorText(res.status, err.detail));
   }
-  return (await res.json()) as { sentences: number; events: unknown[] };
+  let failures = 0;
+  for (;;) {
+    let job: ClipJob | null = null;
+    let status: number | null = null;
+    try {
+      const r = await fetch(url, { headers: await auth() });
+      if (r.ok) job = (await r.json()) as ClipJob;
+      else status = r.status;
+    } catch {
+      status = null; // network blip
+    }
+    if (job) {
+      failures = 0;
+      if (job.state === "done") return { sentences: job.sentences ?? 0, events: job.events };
+      if (job.state === "failed") throw new ApiError(502, job.error || errorText(502, undefined));
+      onProgress?.(job.done, job.sentences);
+    }
+    const wait = job ? CLIP_POLL_MS : pollRetry(status, failures++);
+    if (wait === null) throw new ApiError(404, errorText(404, undefined));
+    await new Promise((ok) => setTimeout(ok, Math.max(wait, CLIP_POLL_MS)));
+  }
 }
 
 export const shareUrl = (cardId: string) => `${location.origin}/v/${cardId}`;

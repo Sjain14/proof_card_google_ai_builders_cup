@@ -1,7 +1,7 @@
 """Background job dispatch.
 
 * InlineQueue (local, tests): runs the job on a small thread pool inside the process.
-* CloudTasksQueue (prod): enqueues an HTTP task that calls POST /tasks/prebunk on this
+* CloudTasksQueue (prod): enqueues an HTTP task that calls POST /tasks/{prebunk,clip} on this
   same service with an OIDC token minted for api-sa. Cloud Tasks retries with backoff,
   so a crashed instance never loses a brief.
   Docs: https://cloud.google.com/tasks/docs/creating-http-target-tasks
@@ -26,6 +26,7 @@ OidcVerifier = Callable[[str], dict[str, Any]]
 
 class TaskQueue(Protocol):
     def enqueue_prebunk(self, session_id: str, job: Job) -> None: ...
+    def enqueue_clip(self, session_id: str, job: Job) -> None: ...
 
 
 class InlineQueue:
@@ -34,6 +35,9 @@ class InlineQueue:
         self.futures: list[Future[Any]] = []
 
     def enqueue_prebunk(self, session_id: str, job: Job) -> None:
+        self.futures.append(self.pool.submit(job))
+
+    def enqueue_clip(self, session_id: str, job: Job) -> None:
         self.futures.append(self.pool.submit(job))
 
     def drain(self) -> None:
@@ -46,6 +50,9 @@ class SyncQueue:
     """Runs the job immediately. Tests use it for deterministic assertions."""
 
     def enqueue_prebunk(self, session_id: str, job: Job) -> None:
+        job()
+
+    def enqueue_clip(self, session_id: str, job: Job) -> None:
         job()
 
 
@@ -61,20 +68,27 @@ class CloudTasksQueue:  # pragma: no cover - needs GCP
         self.sa_email = sa_email
 
     def enqueue_prebunk(self, session_id: str, job: Job) -> None:
+        self._enqueue("prebunk", session_id)
+
+    def enqueue_clip(self, session_id: str, job: Job) -> None:
+        self._enqueue("clip", session_id)
+
+    def _enqueue(self, kind: str, session_id: str) -> None:
         from google.cloud import tasks_v2
 
         task = tasks_v2.Task(
             http_request=tasks_v2.HttpRequest(
                 http_method=tasks_v2.HttpMethod.POST,
-                url=f"{self.target_base}/tasks/prebunk",
+                url=f"{self.target_base}/tasks/{kind}",
                 headers={"Content-Type": "application/json"},
                 body=json.dumps({"session_id": session_id}).encode(),
                 oidc_token=tasks_v2.OidcToken(
                     service_account_email=self.sa_email, audience=self.target_base
                 ),
             ),
-            # A 12 claim bank takes ~7 min; the 10 min default deadline would retry a run
-            # that is still working. 30 min is the HTTP target max.
+            # A 12 claim bank takes ~7 min and a 9 min clip ~25 min; the 10 min default
+            # deadline would retry a run that is still working. 30 min is the HTTP target
+            # max; both jobs store progress, so a retry resumes rather than restarts.
             # Docs: https://cloud.google.com/tasks/docs/reference/rest/v2/projects.locations.queues.tasks#Task
             dispatch_deadline=timedelta(seconds=PREBUNK_DEADLINE_S),
         )

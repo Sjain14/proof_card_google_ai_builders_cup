@@ -35,6 +35,7 @@ Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versi
 - v0.7.29: a TRUE card never rests on a page that only relays the speaker saying the claim (quote or "said he..."); the assess prompt judges the claim, not the quote.
 - v0.7.30: the brief page keeps polling after a failed load (backoff up to 15 s, soft "retrying" note); only a 404 stops it.
 - v0.7.31: a prebunk killed mid run (revision swap) resumes: the job beats on the session; a read that finds it silent 12 min re-queues it.
+- v0.7.32: clip upload is a background job: POST /clip answers 202, the page polls GET /clip (progress + events); transcript and progress are stored, a stalled job resumes from its saved line.
 - Gates: backend ruff, format, mypy strict, pytest (171 passed, coverage 97.89%), pip-audit; frontend tsc strict, vitest (11 passed), build, npm audit; Firestore rules tests.
 
 ## Not built (never claim, see SUBMISSION_DRAFT.md §4)

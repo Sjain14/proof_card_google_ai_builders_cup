@@ -199,7 +199,9 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     setNote(t("live.clipWorking"));
     try {
       const timed = Boolean(session?.youtube_url);
-      const r = await uploadClip(id, file, timed);
+      const r = await uploadClip(id, file, timed, (done, total) =>
+        setNote(total == null ? t("live.clipWorking") : t("live.clipProgress", { done, total })),
+      );
       (r.events as LiveEvent[]).forEach(onEvent);
       if (timed) void api.session(id).then(setSession, () => {});
       setNote(t("live.clipDone", { n: r.sentences }));
