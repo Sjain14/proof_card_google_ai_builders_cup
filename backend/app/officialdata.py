@@ -25,15 +25,21 @@ METRICS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("NY.GDP.PCAP.CD", ("gdp", "per capita")),
     ("NY.GDP.PCAP.CD", ("per capita income",)),
     ("NY.GNP.PCAP.CD", ("gni", "per capita")),
+    ("NY.GDP.PCAP.CD", ("per capita",)),
+    ("NY.GDP.PCAP.CD", ("प्रति व्यक्ति",)),
     ("NY.GDP.MKTP.KD.ZG", ("gdp", "growth")),
     ("NY.GDP.MKTP.CD", ("gdp",)),
+    ("NY.GDP.MKTP.CD", ("जीडीपी",)),
+    ("NY.GDP.MKTP.CD", ("अर्थव्यवस्था",)),
     ("NY.GDP.MKTP.CD", ("economy", "bigger")),
     ("NY.GDP.MKTP.CD", ("economy", "larger")),
     ("NY.GDP.MKTP.CD", ("economy", "badi")),
     ("FP.CPI.TOTL.ZG", ("inflation",)),
     ("FP.CPI.TOTL.ZG", ("mehngai",)),
+    ("FP.CPI.TOTL.ZG", ("महंगाई",)),
     ("SL.UEM.TOTL.ZS", ("unemployment",)),
     ("SL.UEM.TOTL.ZS", ("berozgari",)),
+    ("SL.UEM.TOTL.ZS", ("बेरोजगारी",)),
     ("SP.DYN.LE00.IN", ("life expectancy",)),
     ("SE.ADT.LITR.ZS", ("literacy",)),
     ("SP.DYN.TFRT.IN", ("fertility",)),
@@ -41,6 +47,8 @@ METRICS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("SP.POP.TOTL", ("population",)),
     ("SP.POP.TOTL", ("aabadi",)),
     ("SP.POP.TOTL", ("jansankhya",)),
+    ("SP.POP.TOTL", ("आबादी",)),
+    ("SP.POP.TOTL", ("जनसंख्या",)),
 )
 
 # name (lower, Latin + common Hindi spellings) -> ISO3
@@ -102,6 +110,13 @@ def official_evidence(*texts: str) -> list[Evidence]:
                 )
             ]
     return []
+
+
+def is_country_figure(text: str) -> bool:
+    """A sentence naming an official country figure is checkable even with no number in it
+    ("India's per capita income is higher than Japan's"); the live spotter returned [] for
+    these on prod (16 Oct 2026, Hindi + Hinglish comparison lines skipped as not_checkable)."""
+    return bool(metric_of(text)) and bool(countries_of(text))
 
 
 def is_worldbank(url: str) -> bool:

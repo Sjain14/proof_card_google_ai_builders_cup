@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.model import FAST_TIMEOUT_S, _fast_thinking, vertex_client
+from app.officialdata import is_country_figure
 from app.pipeline import Deps, verify_claim
 from app.schemas import ClaimDoc, ClaimSource, ClaimStatus
 
@@ -134,7 +135,9 @@ class HeuristicSpotter:
 SPOT_PROMPT = """You are a live fact-check desk. From this sentence heard on air, return the
 factual claims a fact checker can verify against public records (numbers, dates, rankings,
 official statistics). Copy each claim as said, keep its language (English, Hindi or
-Hinglish). Return [] for opinions, questions, predictions or greetings.
+Hinglish). Comparisons of countries or states on official figures (bigger economy,
+higher per capita income, more populous) are claims even without a number.
+Return [] for opinions, questions, predictions or greetings.
 Sentence: "{sentence}"
 """
 
@@ -365,6 +368,8 @@ class LiveEngine:
             if hit and sim >= self.live.instant and hit not in self._shown:
                 shown = await self._push_match(sentence, hit, sim, t0, t_offset)
         claims = await spot
+        if not claims and is_country_figure(sentence):
+            claims = [sentence]  # deterministic floor under the model spotter
         for text in claims:
             key = text.lower()
             if key in self._seen:  # the speaker repeated it: one card is enough

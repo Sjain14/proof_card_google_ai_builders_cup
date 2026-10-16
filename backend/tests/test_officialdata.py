@@ -103,3 +103,14 @@ def test_json_only_from_official_hosts_and_no_metric_no_change() -> None:
         )
         is None
     )
+
+
+def test_devanagari_metrics_and_country_figure() -> None:
+    from app.officialdata import is_country_figure, metric_of
+
+    assert metric_of("भारत की प्रति व्यक्ति आय जापान से अधिक है।") == "NY.GDP.PCAP.CD"
+    assert metric_of("भारत की जीडीपी अमेरिका से बड़ी है") == "NY.GDP.MKTP.CD"
+    assert metric_of("चीन की आबादी") == "SP.POP.TOTL"
+    assert is_country_figure("India ki GDP America se badi hai")
+    assert not is_country_figure("India is a great country")
+    assert not is_country_figure("per capita income is rising")

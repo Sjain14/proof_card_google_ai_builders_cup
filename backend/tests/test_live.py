@@ -409,3 +409,32 @@ def test_heuristic_lets_comparatives_through() -> None:
     assert heuristic_spot("India ki GDP Japan se zyada hai ab")
     assert not heuristic_spot("Thank you all for coming tonight")
     assert not heuristic_spot("Good evening and welcome everyone")
+
+
+class _Ortho:
+    """Lines naming Japan sit orthogonal to the prebunked claim: no match, a cold check."""
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[0.0, 1.0] if "Japan" in t or "जापान" in t else [1.0, 0.0] for t in texts]
+
+
+def test_country_figure_without_a_number_is_still_checked() -> None:
+    # prod 16 Oct 2026: the spotter returned [] for these comparisons -> skipped not_checkable
+    lines = ("भारत की प्रति व्यक्ति आय जापान से अधिक है।", "India ka per capita GDP Japan se zyada hai")
+    for line in lines:
+        eng, events, _ = _engine(_Judge(False), _Ortho())
+        asyncio.run(eng.on_sentence(line))
+        asyncio.run(eng.drain())
+        kinds = [e["type"] for e in events]
+        assert "checking" in kinds, kinds
+        assert "skipped" not in kinds
+
+
+def test_line_with_no_figure_stays_skipped() -> None:
+    eng, events, _ = _engine(_Judge(False), _Ortho())
+    asyncio.run(eng.on_sentence("Japan is a really beautiful country to visit"))
+    assert events[-1] == {
+        "type": "skipped",
+        "text": "Japan is a really beautiful country to visit",
+        "reason": "not_checkable",
+    }
