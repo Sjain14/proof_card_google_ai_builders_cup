@@ -5,7 +5,14 @@ from types import SimpleNamespace as Ns
 
 from fastapi.testclient import TestClient
 
-from app.clip import MAX_CLIP_BYTES, clip_mime, sentences, text_from_response
+from app.clip import (
+    MAX_CLIP_BYTES,
+    clip_mime,
+    parse_clock,
+    sentences,
+    text_from_response,
+    timed_from_json,
+)
 from app.config import Settings
 from app.main import create_app
 from app.model import StubModel
@@ -99,6 +106,59 @@ def test_clip_rejections(settings: Settings, store: InMemoryStore) -> None:
     assert c.post(url, files=mp3, headers=ADMIN).status_code == 502  # transcription failed
     none = app_with(settings, store, None)
     assert none.post(url, files=mp3, headers=ADMIN).status_code == 503
+
+
+class TimedClip(FakeClip):
+    def __init__(self) -> None:
+        super().__init__("")
+        self.lines: list[tuple[float, str]] = []
+
+    def transcribe_timed(
+        self, data: bytes, mime: str, vocabulary: Sequence[str] = ()
+    ) -> list[tuple[float, str]]:
+        return self.lines
+
+
+def test_timed_clip_stores_video_offsets(settings: Settings, store: InMemoryStore) -> None:
+    clip = TimedClip()
+    c = app_with(settings, store, clip)
+    sid = c.post("/api/prebunk", json={"topic": "India"}, headers=ADMIN).json()["session_id"]
+    claim = next(cl for _, cl in store.list_claims(sid) if cl.card_id)
+    clip.lines = [(3.0, "Good evening and welcome to the show."), (65.5, claim.text + ".")]
+    url = f"/api/sessions/{sid}/clip"
+    mp3 = {"file": ("talk.mp3", b"ID3fake-mp3-bytes", "audio/mpeg")}
+    body = c.post(url + "?timed=true", files=mp3, headers=ADMIN).json()
+    assert body["timed"] is True
+    hit = next(e for e in body["events"] if e["type"] == "match")
+    assert hit["t"] == 65.5
+    view = c.get(f"/api/sessions/{sid}", headers=ADMIN).json()
+    live = [cl for cl in view["claims"] if cl["source"] == "live"]
+    assert live[0]["t_offset_s"] == 65.5
+    assert live[0]["matched_claim_id"]
+    untimed = c.post(url, files=mp3, headers=ADMIN).json()  # default stays the plain path
+    assert untimed["timed"] is False
+
+
+def test_clock_parsing() -> None:
+    assert parse_clock("1:05") == 65
+    assert parse_clock("01:02:03") == 3723
+    assert parse_clock("12.5") == 12.5
+    assert parse_clock(7) == 7.0
+    assert parse_clock(-1) is None
+    assert parse_clock(True) is None
+    assert parse_clock("soon") is None
+    assert parse_clock(None) is None
+    lines = timed_from_json(
+        [
+            {"start": "0:40", "text": "second line is here"},
+            {"start": "0:05", "text": "first line is here"},
+            {"start": "x", "text": "dropped no time"},
+            {"start": "0:09", "text": "hi"},
+            "junk",
+        ]
+    )
+    assert lines == [(5.0, "first line is here"), (40.0, "second line is here")]
+    assert timed_from_json({"not": "a list"}) == []
 
 
 def test_clip_cors_only_for_our_origins(settings: Settings, store: InMemoryStore) -> None:

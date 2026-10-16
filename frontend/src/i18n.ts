@@ -110,6 +110,9 @@ const en = {
   "live.clipFail": "Couldn't process the clip.",
   "live.tg": "Get FALSE / MISLEADING alerts on Telegram",
   "live.tgOpen": "Telegram opened: tap Start in the bot chat to switch alerts on.",
+  "live.replay": "Replay with video: cards pop at the second they're said",
+  "live.replayOff": "Back to live",
+  "live.replayNote": "Replay of a recorded clip. Every card was checked from its audio; times follow the video.",
   "live.empty": "Claims appear here the moment they're said. Prebunked ones arrive instantly.",
 
   "verdict.TRUE": "True",
@@ -227,6 +230,9 @@ const hi: Record<Key, string> = {
   "live.clipFail": "क्लिप प्रोसेस नहीं हो सकी।",
   "live.tg": "गलत / भ्रामक दावों के अलर्ट Telegram पर पाएं",
   "live.tgOpen": "Telegram खुल गया: अलर्ट चालू करने के लिए बॉट चैट में Start दबाएं।",
+  "live.replay": "वीडियो के साथ रीप्ले: हर कार्ड उसी सेकंड पर दिखेगा जब दावा बोला गया",
+  "live.replayOff": "लाइव पर वापस",
+  "live.replayNote": "रिकॉर्ड की हुई क्लिप का रीप्ले। हर कार्ड उसकी ऑडियो से जांचा गया; समय वीडियो के साथ चलता है।",
   "live.empty": "दावे बोलते ही यहाँ दिखते हैं। पहले से जाँचे दावे तुरंत आते हैं।",
 
   // Same words as the card image and share page (context/05_UI_UX.md §3, verdict.ts).

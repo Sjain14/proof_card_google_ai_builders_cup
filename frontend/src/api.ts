@@ -13,6 +13,8 @@ export interface ClaimView {
   status: ClaimStatus;
   card_id: string | null;
   verdict: Verdict | null;
+  matched_claim_id?: string | null;
+  t_offset_s?: number | null; // replay: second in the YouTube video
 }
 
 export interface SessionView {
@@ -100,14 +102,18 @@ export const CLIP_MAX_BYTES = 20 * 1024 * 1024;
 
 // Clip upload (fallback when tab audio can't be captured). Goes straight to Cloud Run like
 // the live socket (VITE_LIVE_ORIGIN): a long clip outlasts the Hosting rewrite timeout.
-export async function uploadClip(sessionId: string, file: File): Promise<{ sentences: number; events: unknown[] }> {
+export async function uploadClip(
+  sessionId: string,
+  file: File,
+  timed = false,
+): Promise<{ sentences: number; events: unknown[] }> {
   const base = (import.meta.env.VITE_LIVE_ORIGIN as string | undefined) ?? "";
   const body = new FormData();
   body.append("file", file);
   const headers = new Headers();
   const token = await idToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${base}/api/sessions/${encodeURIComponent(sessionId)}/clip`, { method: "POST", body, headers });
+  const res = await fetch(`${base}/api/sessions/${encodeURIComponent(sessionId)}/clip${timed ? "?timed=true" : ""}`, { method: "POST", body, headers });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { detail?: unknown };
     throw new ApiError(res.status, errorText(res.status, err.detail));

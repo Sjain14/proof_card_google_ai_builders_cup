@@ -105,6 +105,7 @@ class ClaimDoc(Strict):
     verdict: Verdict | None = None  # copied from the card so list views need no join
     matched_claim_id: str | None = None  # live claim answered instantly by a prebunked one
     latency_ms: Annotated[int, Field(ge=0)] | None = None  # live: heard to card shown
+    t_offset_s: Annotated[float, Field(ge=0)] | None = None  # replay: second in the video
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -172,6 +173,8 @@ class ClaimView(BaseModel):
     status: ClaimStatus
     card_id: str | None
     verdict: Verdict | None
+    matched_claim_id: str | None = None
+    t_offset_s: float | None = None
 
 
 class SessionView(BaseModel):
@@ -194,6 +197,8 @@ class SessionView(BaseModel):
                 status=c.status,
                 card_id=c.card_id,
                 verdict=c.verdict,
+                matched_claim_id=c.matched_claim_id,
+                t_offset_s=c.t_offset_s,
             )
             for cid, c in claims
         ]

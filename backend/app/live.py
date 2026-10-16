@@ -315,24 +315,28 @@ class LiveEngine:
         except Exception:
             log.warning("live index warm up failed", exc_info=True)
 
-    async def on_sentence(self, sentence: str, heard_at: float | None = None) -> None:
+    async def on_sentence(
+        self, sentence: str, heard_at: float | None = None, t_offset: float | None = None
+    ) -> None:
         """Every heard line ends in exactly one outcome the user sees: a match, a check
         (checking -> proved/failed) or `skipped` with the reason. Never silence (rev00012
-        bug 2: a checkable line got `heard` and then nothing)."""
+        bug 2: a checkable line got `heard` and then nothing).
+        t_offset: second in the source video (replay clips), stored on every live claim
+        so the Live page can pop the card at that exact moment of the YouTube player."""
         t0 = heard_at or time.monotonic()
         sentence = sentence.strip()[:MAX_SENTENCE_CHARS]
         if not sentence:
             return
         await self.emit({"type": "heard", "text": sentence})
         try:
-            reason = await self._route(sentence, t0)
+            reason = await self._route(sentence, t0, t_offset)
         except Exception:  # one bad line never kills the socket
             log.exception("live line failed")
             reason = "error"
         if reason:
             await self.emit({"type": "skipped", "text": sentence, "reason": reason})
 
-    async def _route(self, sentence: str, t0: float) -> str | None:
+    async def _route(self, sentence: str, t0: float, t_offset: float | None = None) -> str | None:
         """None when the line reached the user, else why it didn't."""
         # Fast path in parallel with the spotter model call: a sentence that is itself a
         # strong match (same numbers, cosine >= instant) shows its card without waiting.
@@ -341,14 +345,14 @@ class LiveEngine:
         if heuristic_spot(sentence):
             hit, sim = await asyncio.to_thread(self.match, sentence)
             if hit and sim >= self.live.instant and hit not in self._shown:
-                shown = await self._push_match(sentence, hit, sim, t0)
+                shown = await self._push_match(sentence, hit, sim, t0, t_offset)
         claims = await spot
         for text in claims:
             key = text.lower()
             if key in self._seen:  # the speaker repeated it: one card is enough
                 continue
             self._seen.add(key)
-            shown = await self._handle_claim(text, t0) or shown
+            shown = await self._handle_claim(text, t0, t_offset) or shown
         if shown:
             return None
         return "repeat" if claims else "not_checkable"
@@ -364,7 +368,7 @@ class LiveEngine:
             log.warning("spotter failed, heuristic fallback", exc_info=True)
             return heuristic_spot(sentence)
 
-    async def _handle_claim(self, text: str, t0: float) -> bool:
+    async def _handle_claim(self, text: str, t0: float, t_offset: float | None = None) -> bool:
         """True when a card was pushed or a check started; False for a card already shown."""
         store = self.live.deps.store
         hit, sim = await asyncio.to_thread(self.match, text)
@@ -377,17 +381,19 @@ class LiveEngine:
             if not same:
                 log.info("judge rejected match", extra={"fields": {"sim": round(sim, 3)}})
                 hit = None
-        if hit and await self._push_match(text, hit, sim, t0):
+        if hit and await self._push_match(text, hit, sim, t0, t_offset):
             return True
-        doc = ClaimDoc(text=text, source=ClaimSource.LIVE)
+        doc = ClaimDoc(text=text, source=ClaimSource.LIVE, t_offset_s=t_offset)
         cid = await asyncio.to_thread(store.add_claim, self.sid, doc)
-        await self.emit({"type": "checking", "claim_id": cid, "text": text})
+        await self.emit({"type": "checking", "claim_id": cid, "text": text, "t": t_offset})
         task = asyncio.create_task(self._cold(cid, text, t0))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return True
 
-    async def _push_match(self, text: str, hit: str, sim: float, t0: float) -> bool:
+    async def _push_match(
+        self, text: str, hit: str, sim: float, t0: float, t_offset: float | None = None
+    ) -> bool:
         """Store a LIVE claim pointing at the prebunked card and push it. False if the
         prebunked claim has no card (cannot happen for indexed claims, kept defensive)."""
         # Firestore calls run off the event loop: a slow write must never stall the
@@ -406,6 +412,7 @@ class LiveEngine:
             verdict=pre.verdict,
             matched_claim_id=hit,
             latency_ms=latency,
+            t_offset_s=t_offset,
         )
         cid = await asyncio.to_thread(store.add_claim, self.sid, doc)
         await self.emit(
@@ -417,6 +424,7 @@ class LiveEngine:
                 "verdict": pre.verdict,
                 "similarity": round(sim, 3),
                 "latency_ms": latency,
+                "t": t_offset,
             }
         )
         self._notify(pre.card_id, pre.verdict, text)

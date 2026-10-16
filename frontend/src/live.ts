@@ -111,3 +111,45 @@ export function youtubeId(url: string): string | null {
     return null;
   }
 }
+
+// ---------- replay: YouTube IFrame Player API ----------
+// https://developers.google.com/youtube/iframe_api_reference
+// Cards of a timed clip carry t_offset_s; the Live page polls getCurrentTime() and shows
+// every card whose second has been reached, so seek / pause / rewind stay in sync.
+
+export interface YtPlayer {
+  getCurrentTime(): number;
+  destroy(): void;
+}
+
+interface YtNamespace {
+  Player: new (el: HTMLElement, opts: Record<string, unknown>) => YtPlayer;
+}
+
+let ytReady: Promise<YtNamespace> | null = null;
+
+export function loadYouTube(): Promise<YtNamespace> {
+  const w = window as unknown as { YT?: YtNamespace; onYouTubeIframeAPIReady?: () => void };
+  if (w.YT?.Player) return Promise.resolve(w.YT);
+  ytReady ??= new Promise((resolve, reject) => {
+    w.onYouTubeIframeAPIReady = () => (w.YT ? resolve(w.YT) : reject(new Error("youtube")));
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    tag.onerror = () => reject(new Error("youtube"));
+    document.head.appendChild(tag);
+  });
+  return ytReady;
+}
+
+/** Live claims of a timed clip that the video has reached, newest first. */
+export function replayDue<T extends { source: string; t_offset_s?: number | null }>(claims: T[], now: number): T[] {
+  return claims
+    .filter((c) => c.source === "live" && c.t_offset_s != null && c.t_offset_s <= now)
+    .sort((a, b) => (b.t_offset_s ?? 0) - (a.t_offset_s ?? 0));
+}
+
+export function clock(s: number): string {
+  const m = Math.floor(s / 60);
+  const r = Math.floor(s % 60);
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}

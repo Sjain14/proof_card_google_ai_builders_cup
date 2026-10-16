@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.16 · p7-replay-mode
+- `backend/app/clip.py`: `GeminiClipTranscriber.transcribe_timed` (Gemini 3.5 Flash, JSON `[{start:"MM:SS",text}]`), `parse_clock`, `timed_from_json`.
+- `POST /api/sessions/{id}/clip?timed=true`; `LiveEngine.on_sentence(t_offset=)`; `ClaimDoc.t_offset_s`; `ClaimView` adds `matched_claim_id`, `t_offset_s`; events carry `t`.
+- Frontend: YouTube IFrame Player API, `replayDue` / `clock`, "Replay with video" toggle, en + hi strings.
+- Docs touched: SNAPSHOT, versions/v0.7.16, CHANGELOG.
+
 ## 2026-10-16 · v0.7.15 · p7-comparison-proof
 - Prod check 16 Oct on 4e59b1f (brief sMHV3ThmpAigYXsuXqpsZQ): "India per capita GDP is higher than Japan." got model verdict FALSE (IMF: Japan $35,700, India $2,810), but the best 2 sentence window on worldometers scored 0.429 and the faithfulness gate showed UNVERIFIABLE. "India ka per capita GDP Japan se zyada hai" found no source over 0.35 and ended `failed`.
 - Root cause: a comparison with no figure is proved by each side's figure, which a page states on separate lines (table rows 90 lines apart, metric in the caption). Window matching needs "higher than Japan" in one window; the contradiction path needs a number in the claim. Neither can fire.

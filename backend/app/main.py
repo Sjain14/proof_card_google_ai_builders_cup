@@ -191,7 +191,11 @@ def create_app(
     app.state.live, app.state.transcriber = live, transcriber
     if clip_transcriber is None and settings.model_mode == "vertex":  # pragma: no cover
         clip_transcriber = GeminiClipTranscriber(
-            settings.gcp_project, settings.live_region, settings.clip_model
+            settings.gcp_project,
+            settings.live_region,
+            settings.clip_model,
+            settings.gemini_model,
+            settings.gemini_region or settings.gcp_region,
         )
     app.state.clip = clip_transcriber
     token = settings.telegram_bot_token.get_secret_value()
@@ -302,8 +306,12 @@ def create_app(
         session_id: str,
         user: Annotated[Principal, Depends(admin_principal)],
         file: Annotated[UploadFile, File()],
+        timed: bool = False,
     ) -> dict[str, object]:
-        """Fallback when live audio isn't possible: a recorded clip, transcribed in one
+        """?timed=true (replay): sentences carry their second in the clip, stored on each live
+        claim, so the Live page pops each card at that moment of the YouTube video.
+
+        Fallback when live audio isn't possible: a recorded clip, transcribed in one
         call, every sentence through the same live engine. Returns the same events the
         websocket would have pushed, in order."""
         s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
@@ -329,11 +337,17 @@ def create_app(
             ]
         )
         try:
-            transcript = await run_in_threadpool(app.state.clip.transcribe, data, mime, vocab)
+            timed_fn = getattr(app.state.clip, "transcribe_timed", None) if timed else None
+            if timed_fn is not None:
+                timed_lines: list[tuple[float | None, str]] = list(
+                    await run_in_threadpool(timed_fn, data, mime, vocab)
+                )
+            else:
+                transcript = await run_in_threadpool(app.state.clip.transcribe, data, mime, vocab)
+                timed_lines = [(None, line) for line in clip_sentences(transcript)]
         except Exception:
             log.exception("clip transcription failed")
             raise HTTPException(status_code=502, detail="transcription failed, try again") from None
-        lines = clip_sentences(transcript)
         events: list[dict[str, object]] = []
 
         async def collect(ev: dict[str, object]) -> None:
@@ -343,12 +357,12 @@ def create_app(
         try:
             engine = LiveEngine(session_id, app.state.live, collect, _alert_fn())
             await engine.warm()
-            for line in lines:
-                await engine.on_sentence(line)
+            for t_off, line in timed_lines:
+                await engine.on_sentence(line, t_offset=t_off)
             await engine.drain()
         finally:
             app.state.store.update_session(session_id, status="ready")
-        return {"sentences": len(lines), "events": events}
+        return {"sentences": len(timed_lines), "timed": timed_fn is not None, "events": events}
 
     def _alert_fn() -> Alert | None:
         return app.state.alerter.alert if app.state.alerter is not None else None

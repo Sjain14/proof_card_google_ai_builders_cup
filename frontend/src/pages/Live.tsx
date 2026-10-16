@@ -2,7 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { api, CLIP_MAX_BYTES, uploadClip, type Card, type ClaimView, type SessionView } from "../api";
 import type { SignedIn } from "../auth";
 import { CardTile } from "../components/CardTile";
-import { captureTabAudio, openLive, youtubeId, type Capture, type LiveEvent } from "../live";
+import {
+  captureTabAudio,
+  clock,
+  loadYouTube,
+  openLive,
+  replayDue,
+  youtubeId,
+  type Capture,
+  type LiveEvent,
+  type YtPlayer,
+} from "../live";
 import { t } from "../i18n";
 
 interface FeedItem {
@@ -22,6 +32,9 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   const [mode, setMode] = useState<Mode>("idle");
   const [note, setNote] = useState("");
   const [line, setLine] = useState("");
+  const [replay, setReplay] = useState(false);
+  const [now, setNow] = useState(0);
+  const playerEl = useRef<HTMLDivElement | null>(null);
   const ws = useRef<WebSocket | null>(null);
   const cap = useRef<Capture | null>(null);
 
@@ -34,13 +47,48 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     ws.current?.close();
   }, []);
 
+  const replayVid = session?.youtube_url ? youtubeId(session.youtube_url) : null;
+  useEffect(() => {
+    if (!replay || !replayVid || !playerEl.current) return;
+    let player: YtPlayer | null = null;
+    let alive = true;
+    const el = playerEl.current;
+    void loadYouTube().then((YT) => {
+      if (!alive) return;
+      // The API replaces its target node: give it one React doesn't own.
+      const target = document.createElement("div");
+      el.replaceChildren(target);
+      player = new YT.Player(target, {
+        videoId: replayVid,
+        width: "100%",
+        height: "100%",
+        playerVars: { rel: 0, playsinline: 1 },
+      });
+    }, () => setNote(t("live.wrong")));
+    const tick = window.setInterval(() => {
+      const s = player?.getCurrentTime?.();
+      if (typeof s === "number") setNow(s);
+    }, 250);
+    return () => {
+      alive = false;
+      window.clearInterval(tick);
+      player?.destroy();
+      el.replaceChildren();
+    };
+  }, [replay, replayVid]);
+
+  const shown: FeedItem[] =
+    replay && session
+      ? replayDue(session.claims, now).map((c) => ({ claim: c, prebunked: Boolean(c.matched_claim_id) }))
+      : feed;
+
   // Cards are immutable: fetch each once, as soon as an event names it.
   useEffect(() => {
-    for (const f of feed) {
+    for (const f of shown) {
       const cid = f.claim.card_id;
       if (cid && !cards[cid]) void api.card(cid).then((c) => setCards((m) => ({ ...m, [cid]: c })), () => {});
     }
-  }, [feed, cards]);
+  }, [shown, cards]);
 
   const onEvent = (e: LiveEvent) => {
     if (e.type === "heard") {
@@ -109,8 +157,10 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     if (file.size > CLIP_MAX_BYTES) return setNote(t("live.clipBig"));
     setNote(t("live.clipWorking"));
     try {
-      const r = await uploadClip(id, file);
+      const timed = Boolean(session?.youtube_url);
+      const r = await uploadClip(id, file, timed);
       (r.events as LiveEvent[]).forEach(onEvent);
+      if (timed) void api.session(id).then(setSession, () => {});
       setNote(t("live.clipDone", { n: r.sentences }));
     } catch (e) {
       setNote(e instanceof Error ? e.message : t("live.clipFail"));
@@ -145,7 +195,8 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   if (!session) return <section className="panel narrow center"><p className="muted">{note || t("live.loading")}</p></section>;
   const vid = session.youtube_url ? youtubeId(session.youtube_url) : null;
   const ready = session.claims.filter((c) => c.source === "predicted" && c.card_id).length;
-  const hits = feed.filter((f) => f.prebunked);
+  const hits = shown.filter((f) => f.prebunked);
+  const canReplay = Boolean(vid) && session.claims.some((c) => c.source === "live" && c.t_offset_s != null);
   const fastest = hits.length ? Math.min(...hits.map((h) => h.latency ?? Infinity)) : null;
 
   return (
@@ -157,14 +208,16 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
         </div>
         <div className="live-stats" aria-live="polite">
           <span><b>{hits.length}</b> {t("live.instant")}</span>
-          <span><b>{feed.length - hits.length}</b> {t("live.checkedLive")}</span>
+          <span><b>{shown.length - hits.length}</b> {t("live.checkedLive")}</span>
           {fastest !== null && <span className="latency">{t("live.fastest", { ms: fastest })}</span>}
         </div>
       </div>
 
       <div className="live-grid">
         <div className="stage">
-          {vid ? (
+          {replay && vid ? (
+            <div className="player" ref={playerEl} />
+          ) : vid ? (
             <iframe
               className="player"
               src={`https://www.youtube-nocookie.com/embed/${vid}?rel=0&playsinline=1`}
@@ -175,6 +228,12 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
           ) : (
             <div className="player empty"><p className="muted">{t("live.noVideo")}</p></div>
           )}
+          {canReplay && (
+            <button className="btn ghost small" type="button" onClick={() => setReplay((r) => !r)}>
+              {replay ? t("live.replayOff") : t("live.replay")}
+            </button>
+          )}
+          {replay && <p className="note">{t("live.replayNote")} · {clock(now)}</p>}
           <div className="controls">
             {mode === "listening" ? (
               <button className="btn ghost" onClick={stop}><span className="rec" aria-hidden="true" /> {t("live.stop")}</button>
@@ -206,13 +265,14 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
         </div>
 
         <div className="feed">
-          {feed.length === 0 && (
+          {shown.length === 0 && (
             <div className="tile pending feed-empty"><p className="muted">{t("live.empty")}</p></div>
           )}
-          {feed.map((f) => (
+          {shown.map((f) => (
             <div className="feed-item" key={f.claim.id}>
               <div className="feed-meta">
                 <span className={`badge ${f.prebunked ? "b-pre" : "b-live"}`}>{f.prebunked ? "PREBUNKED" : "LIVE"}</span>
+                {replay && f.claim.t_offset_s != null && <span className="latency">{clock(f.claim.t_offset_s)}</span>}
                 {f.latency !== undefined && <span className="latency">{f.latency} ms</span>}
               </div>
               <CardTile claim={f.claim} card={f.claim.card_id ? cards[f.claim.card_id] : undefined} />

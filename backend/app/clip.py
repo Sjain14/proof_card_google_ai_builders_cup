@@ -45,6 +45,46 @@ class ClipTranscriber(Protocol):
     def transcribe(self, data: bytes, mime: str, vocabulary: Sequence[str] = ()) -> str: ...
 
 
+TimedLine = tuple[float, str]  # (second in the clip, sentence)
+
+_MMSS = re.compile(r"^\s*(?:(\d+):)?(\d{1,2}):(\d{2}(?:\.\d+)?)\s*$")
+
+
+def parse_clock(v: object) -> float | None:
+    """ "1:05" / "01:02:03" / "65.5" / 65 -> seconds, else None."""
+    if isinstance(v, int | float) and not isinstance(v, bool):
+        return float(v) if v >= 0 else None
+    if not isinstance(v, str):
+        return None
+    if m := _MMSS.match(v):
+        h, mm, ss = m.groups()
+        return int(h or 0) * 3600 + int(mm) * 60 + float(ss)
+    try:
+        f = float(v)
+    except ValueError:
+        return None
+    return f if f >= 0 else None
+
+
+def timed_from_json(items: object) -> list[TimedLine]:
+    """Model output [{"start": "MM:SS", "text": ...}] -> sorted, cleaned timed sentences."""
+    out: list[TimedLine] = []
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict):
+            continue
+        t, text = parse_clock(it.get("start")), str(it.get("text") or "").strip()
+        if t is not None and len(text.split()) >= 3:
+            out.append((t, text))
+    return sorted(out, key=lambda p: p[0])[:MAX_SENTENCES]
+
+
+TIMED_PROMPT = """Transcribe this audio verbatim, one item per sentence, in the language
+spoken (English, Hindi or Hinglish; Hinglish in Latin script). For each sentence give the
+time it starts as MM:SS. Do not summarise, translate or skip anything.
+Names and terms that may occur: {vocab}
+"""
+
+
 def clip_mime(content_type: str | None) -> str | None:
     """Canonical mime for an allowed upload, None otherwise."""
     return CLIP_MIME.get((content_type or "").split(";")[0].strip().lower())
@@ -73,11 +113,22 @@ def text_from_response(resp: Any) -> str:
 
 
 class GeminiClipTranscriber:  # pragma: no cover - needs a GCP project
-    def __init__(self, project: str, location: str, model: str = "gemini-3.5-transcribe") -> None:
+    def __init__(
+        self,
+        project: str,
+        location: str,
+        model: str = "gemini-3.5-transcribe",
+        timed_model: str = "gemini-3.5-flash",
+        timed_location: str = "global",
+    ) -> None:
+        from google import genai
+
         from app.model import vertex_client
 
         self.client = vertex_client(project, location, 300.0)  # a 15 min clip, one call
         self.model = model
+        self.timed_client = genai.Client(vertexai=True, project=project, location=timed_location)
+        self.timed_model = timed_model
 
     def transcribe(self, data: bytes, mime: str, vocabulary: Sequence[str] = ()) -> str:
         from google.genai import types
@@ -92,3 +143,38 @@ class GeminiClipTranscriber:  # pragma: no cover - needs a GCP project
             ),
         )
         return text_from_response(resp)
+
+    def transcribe_timed(
+        self, data: bytes, mime: str, vocabulary: Sequence[str] = ()
+    ) -> list[TimedLine]:
+        """Replay clips: sentences with start times, so cards can follow the video.
+        Gemini understands audio timestamps in MM:SS:
+        https://ai.google.dev/gemini-api/docs/audio#refer-to-timestamps"""
+        import json
+
+        from google.genai import types
+
+        contents: list[Any] = [
+            types.Part.from_bytes(data=data, mime_type=mime),
+            TIMED_PROMPT.format(vocab=", ".join(list(vocabulary)[:200]) or "none"),
+        ]
+        resp = self.timed_client.models.generate_content(
+            model=self.timed_model,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                temperature=0.0,
+                response_mime_type="application/json",
+                response_schema={
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {"start": {"type": "STRING"}, "text": {"type": "STRING"}},
+                        "required": ["start", "text"],
+                    },
+                },
+            ),
+        )
+        try:
+            return timed_from_json(json.loads(resp.text or "[]"))
+        except ValueError:
+            return []
