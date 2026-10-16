@@ -200,9 +200,15 @@ def verify_claim(session_id: str, claim_id: str, deps: Deps) -> str | None:
         return None
     deps.store.update_claim(session_id, claim_id, status=ClaimStatus.CHECKING)
     try:
-        session = deps.store.get_session(session_id)
-        hint = search_hint(session.speaker if session else "", claim.text)
-        card = build_card(claim.text, deps.model.assess(claim.text, hint), deps)
+        # Plain check first, exactly as before #50. The speaker-country hint only gets a
+        # second try when that found no proof: it can add cards, never lose one. With the
+        # hint on every call (#50) prod bank fill read 4/12 (7/12 and 11/12 before).
+        card = build_card(claim.text, deps.model.assess(claim.text), deps)
+        if card is None:
+            session = deps.store.get_session(session_id)
+            hint = search_hint(session.speaker if session else "", claim.text)
+            if hint:
+                card = build_card(claim.text, deps.model.assess(claim.text, hint), deps)
     except Exception:
         log.exception("verify failed")
         card = None
