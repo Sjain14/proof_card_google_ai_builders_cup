@@ -250,6 +250,8 @@ def test_build_card_gates_weak_evidence() -> None:
     card = build_card("Eighth Schedule languages of the Republic number 24", d.model.assess(""), d)
     assert card is not None
     assert card.verdict is Verdict.UNVERIFIABLE  # number missing caps support below gate
+    # the text argued FALSE: the card says it leans false, never contradicts its verdict
+    assert card.explanation.startswith("Leans false:")
 
 
 def test_false_claim_with_wrong_number_stays_false() -> None:

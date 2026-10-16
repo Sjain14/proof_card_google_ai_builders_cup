@@ -449,10 +449,15 @@ def build_card(
             return None
         proofs, scores = [p for p, _ in kept], [sc for _, sc in kept]
     support = round(max(scores), 3)
+    explanation = assessment.explanation
+    if verdict == Verdict.UNVERIFIABLE and assessment.verdict in LEANS:
+        # The gate took the hard verdict away; the text still argued it (prod e2e 16 Oct:
+        # "Not enough proof" over "this is not the worst in 48 years"). Say both.
+        explanation = f"{LEANS[assessment.verdict]} {explanation}"
     fields = {
         "claim": claim,
         "verdict": verdict,
-        "explanation": assessment.explanation,
+        "explanation": explanation,
         "sources": [p.model_dump(mode="json") for p in proofs],
         "support_score": support,
     }
@@ -462,6 +467,19 @@ def build_card(
         **fields,
     )
 
+
+LEANS = {
+    Verdict.FALSE: (
+        "Leans false: the saved source doesn't state it in words strong enough for a hard verdict."
+    ),
+    Verdict.MISLEADING: (
+        "Leans misleading: the saved source doesn't state it in words strong enough for a "
+        "hard verdict."
+    ),
+    Verdict.TRUE: (
+        "Leans true: the saved source doesn't state it in words strong enough for a hard verdict."
+    ),
+}
 
 QUOTE_SAID = 0.6  # the quote's own words on a page that names the speaker: "said it"
 QUOTE_HINT = (
