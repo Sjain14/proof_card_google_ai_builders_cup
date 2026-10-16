@@ -28,6 +28,7 @@ Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versi
 - v0.7.22: fact bank keep bar = card gate + figure on page, sturdier answer parse, stored diagnostics (stage times, drop reasons, samples) even for an empty bank.
 - v0.7.23: fetcher sends a crawler shaped UA + Accept headers (PIB 403'd 67/84 fact sources).
 - v0.7.24: PIB blocks Cloud Run by IP: research cites MoSPI/RBI originals; a blocked official page counts only when Google Search grounding backs the statement from that same host (`checked: search`).
+- v0.7.25: a failed claim prediction no longer fails a session that has a verified fact bank (it ends ready, live lines ruled against the bank).
 - Gates: backend ruff, format, mypy strict, pytest (171 passed, coverage 97.89%), pip-audit; frontend tsc strict, vitest (11 passed), build, npm audit; Firestore rules tests.
 
 ## Not built (never claim, see SUBMISSION_DRAFT.md §4)

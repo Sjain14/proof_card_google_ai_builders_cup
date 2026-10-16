@@ -540,7 +540,10 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
             predicted = _predict(deps, topic, session.speaker, n, session.topic)
         except Exception:
             log.exception("prebunk prediction failed")
-            deps.store.update_session(session_id, status="failed")
+            # A verified fact bank still rules every live line: the session stays usable.
+            fb = deps.store.get_fact_bank(session.fact_bank_key) if session.fact_bank_key else None
+            status = "ready" if fb is not None and fb.facts else "failed"
+            deps.store.update_session(session_id, status=status)
             return {"predicted": 0, "proved": 0}
         for p in predicted:
             doc = ClaimDoc(text=p.text, lang=p.lang, source=ClaimSource.PREDICTED)

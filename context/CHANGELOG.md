@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.25 · p25-bank-survives-predict
+Prod run on v0.7.24 (7dhIVHRKhvo brief): the MoSPI/RBI prompt worked. PIB 403 drops fell from 67 to 35, and the bank kept 9 facts, 8 of them official (MoSPI CPI + GDP press releases, IMF WEO Oct 2026, BEA). But Vertex was slow in that window (angles 182 s, against 4 s before), the claim prediction failed after the bank was built, and the whole session ended "failed" with its verified facts unused.
+- `run_prebunk`: a prediction failure on a session whose linked fact bank holds facts ends it "ready" (no predicted claims, but every live line is still ruled against the bank). Without facts it still ends "failed".
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.24 · p24-blocked-official
 Prod run on v0.7.23 (7dhIVHRKhvo brief): headers changed nothing. 96 researched, 2 kept, 67 drops still `pib.gov.in` 403 (an IP block on Cloud Run; it also times out from other datacenter and India proxy lines, and the Wayback Machine holds no copies).
 - Research prompt: for Indian figures cite the issuing body's own page or PDF (mospi.gov.in, rbi.org.in, dea.gov.in, indiabudget.gov.in, data.gov.in) instead of the PIB copy.

@@ -380,6 +380,32 @@ def test_prebunk_without_verified_facts_links_empty_bank() -> None:
     assert s.status == "ready"
 
 
+class DeadPredictModel(CountingModel):
+    def predict_claims(self, topic: str, speaker: str, n: int) -> list[Any]:
+        raise TimeoutError("vertex slow")
+
+
+def test_predict_failure_with_fact_bank_stays_ready() -> None:
+    store = InMemoryStore()
+    d = Deps(store, DeadPredictModel(), MapFetcher(PAGES), InMemorySnapshots(), facts=FakeDesk())
+    sid = _session(store, None)
+    run_prebunk(sid, d, n=1)
+    s = store.get_session(sid)
+    assert s
+    assert s.status == "ready"
+    assert s.fact_bank_key
+
+
+def test_predict_failure_without_facts_fails() -> None:
+    store = InMemoryStore()
+    d = Deps(store, DeadPredictModel(), MapFetcher({}), InMemorySnapshots(), facts=FakeDesk())
+    sid = _session(store, None)
+    run_prebunk(sid, d, n=1)
+    s = store.get_session(sid)
+    assert s
+    assert s.status == "failed"
+
+
 def test_parse_json_list() -> None:
     assert parse_json_list('```json\n[{"statement": "a"}]\n```') == [{"statement": "a"}]
     assert parse_json_list("no json") == []
