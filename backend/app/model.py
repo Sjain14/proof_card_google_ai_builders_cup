@@ -93,7 +93,7 @@ class ModelClient(Protocol):
 
 # ---------- prompts (kept here so they are versioned and reviewable) ----------
 
-PROMPT_VERSION = "2026-10-16.1"
+PROMPT_VERSION = "2026-10-16.2"
 
 PREDICT_PROMPT = """You are the research desk of an Indian fact-checking newsroom preparing
 for a live broadcast. Topic: {topic}
@@ -134,8 +134,11 @@ VERDICT: <TRUE|FALSE|MISLEADING|UNVERIFIABLE>
 CLAIM_EN: <the claim restated as one plain English sentence, same numbers and names>
 EXPLANATION: <at most 60 words, plain English, cite the official figure and its date>
 
-Use UNVERIFIABLE when reliable sources disagree or are missing. Prefer official and
-primary sources (government statistics, regulators, court records) over news.
+Use UNVERIFIABLE when reliable sources disagree or are missing. Search official and
+primary sources FIRST and prefer them over news: Indian government portals (pib.gov.in,
+mospi.gov.in, rbi.org.in, indiabudget.gov.in, data.gov.in, censusindia.gov.in,
+eci.gov.in, sansad.in, the relevant ministry site), regulators, court records, and
+World Bank / IMF / UN data for international comparisons.
 """
 
 _VERDICT_RE = re.compile(r"VERDICT:\s*(TRUE|FALSE|MISLEADING|UNVERIFIABLE)", re.IGNORECASE)
@@ -295,4 +298,7 @@ def evidence_from_grounding(resp: Any) -> list[Evidence]:
             )
         )
     out.sort(key=lambda e: e.confidence, reverse=True)
-    return out
+    # official records first, then fact checkers, model order inside each tier
+    from app.trusted import rank
+
+    return rank(out)
