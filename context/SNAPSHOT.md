@@ -2,7 +2,7 @@
 
 Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versions/`.
 
-**As of:** 16 Oct 2026 IST · **Version:** v0.7.14 · **Phase:** P7 Live testing & guest mode
+**As of:** 16 Oct 2026 IST · **Version:** v0.7.15 · **Phase:** P7 Live testing & guest mode
 
 ## Done
 - v0.1.0 to v0.5.0: backend spine, prebunk pipeline, proof snapshots, Cloud Tasks, card image + ALTERED check, `/v/:id`, Telegram bot, React frontend, live bridge.
@@ -19,6 +19,7 @@ Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versi
 - v0.7.10 to v0.7.12 (#31 to #37): bank in the speaker's language, comparatives reach the spotter, faithfulness gate on the best source, bank seeded with the speaker's already rated claims (needs E16).
 - v0.7.13: no silent live line (every `heard` ends in a card, a check or `skipped` with a reason), bounded Vertex calls, a brief never stuck in `prebunking`, retry-safe prebunk task.
 - v0.7.14: Telegram alerts: "Get alerts on Telegram" on `/live/:id` → bot deep link (single use, 15 min, hash only) → FALSE / MISLEADING cards pushed as the card PNG + "Open proof", max 10 per session.
+- v0.7.15: figure-less comparisons ("per capita GDP higher than Japan", Hinglish too) proved by each side's figure line + the metric line, so a FALSE stays FALSE instead of UNVERIFIABLE / `failed`.
 - Gates: backend ruff, format, mypy strict, pytest (171 passed, coverage 97.89%), pip-audit; frontend tsc strict, vitest (11 passed), build, npm audit; Firestore rules tests.
 
 ## Not built (never claim, see SUBMISSION_DRAFT.md §4)

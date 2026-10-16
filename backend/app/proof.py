@@ -318,6 +318,76 @@ def best_contradiction(query: str, text: str, window: int = 2) -> Match:
     return Match(best.passage[:1_500], round(best.score, 3), round(best.topic, 3), best.conflict)
 
 
+# Words that state the RELATION of a comparison, not its topic. A source proves
+# "India's per capita GDP is higher than Japan's" by stating both figures; it never
+# repeats "higher than" (prod 16 Oct: the model said FALSE with the IMF figures, the best
+# window on worldometers scored 0.429 and the gate turned the card UNVERIFIABLE).
+_RELATION = {
+    "higher", "lower", "bigger", "smaller", "larger", "greater", "richer", "poorer",
+    "more", "less", "fewer", "better", "worse", "than", "ahead", "behind", "exceeds",
+    "exceed", "overtook", "overtaken", "surpassed", "compared", "versus", "vs",
+    "zyada", "jyada", "kam", "aage", "peeche", "adhik",
+    "ज़्यादा", "ज्यादा", "अधिक", "कम", "आगे", "पीछे",
+}  # fmt: skip
+_COMPARE = {"than", "versus", "vs", "compared", "ahead", "behind", "exceeds", "overtook",
+            "surpassed", "zyada", "jyada", "aage", "peeche", "adhik",
+            "ज़्यादा", "ज्यादा", "अधिक", "आगे", "पीछे"}  # fmt: skip
+
+
+def is_comparison(query: str) -> bool:
+    """A comparison with no stated figure: 'X is higher than Y', 'X ka Y se zyada'."""
+    t = set(_TOKEN.findall(_norm(query)))
+    return bool(t & _COMPARE) and not any(w.isdigit() for w in t)
+
+
+def _figure(t: str) -> bool:
+    """A number that can be one side's value; a year ("by Country (2026)") is not."""
+    return t.isdigit() and not (len(t) == 4 and 1900 <= int(t) <= 2100)
+
+
+def comparison_match(query: str, text: str, max_rows: int = 2) -> Match:
+    """Evidence for a figure-less comparison: the lines that give each side's figure plus
+    the line that names the metric, from the same page. Tables keep each country on its
+    own row, far apart, so no 2 sentence window holds both sides. Score = share of the
+    claim's topic words (relation words removed) covered; needs >= 2 lines with a number."""
+    # len > 1 drops the possessive "s" of "Japan's"
+    q = {t for t in tokens(query) if t not in _RELATION and (len(t) > 1 or t.isdigit())}
+    if not q:
+        return Match("", 0.0, 0.0, False)
+    lines = [ln.strip() for ln in re.split(r"\n+|(?<=[.!?।])\s+", text) if ln.strip()]
+    toks = [set(tokens(ln)) for ln in lines]
+
+    def cover(i: int, need: set[str]) -> set[str]:
+        return {t for t in need if _hit(t, toks[i])}
+
+    picked: list[int] = []
+    left = set(q)
+    for _ in range(max_rows):  # one row per side: each must carry a figure
+        best = max(
+            (i for i, tk in enumerate(toks) if i not in picked and any(map(_figure, tk))),
+            key=lambda i: len(cover(i, left)),
+            default=None,
+        )
+        if best is None or not cover(best, left):
+            break
+        picked.append(best)
+        left -= cover(best, left)
+    if len(picked) < 2:
+        return Match("", 0.0, 0.0, False)
+    if left:  # the metric usually sits in the heading or the table caption
+        ctx = max(
+            (i for i in range(len(lines)) if i not in picked and len(lines[i]) > 20),
+            key=lambda i: len(cover(i, left)),
+            default=None,
+        )
+        if ctx is not None and cover(ctx, left):
+            left -= cover(ctx, left)
+            picked.insert(0, ctx)
+    score = round(1 - len(left) / len(q), 3)
+    passage = " … ".join(lines[i][:400] for i in picked)
+    return Match(passage[:1_500], score, score, False)
+
+
 def best_passage(query: str, text: str, window: int = 2) -> tuple[str, float]:
     m = best_match(query, text, window)
     return m.passage, m.score

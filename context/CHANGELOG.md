@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.15 · p7-comparison-proof
+- Prod check 16 Oct on 4e59b1f (brief sMHV3ThmpAigYXsuXqpsZQ): "India per capita GDP is higher than Japan." got model verdict FALSE (IMF: Japan $35,700, India $2,810), but the best 2 sentence window on worldometers scored 0.429 and the faithfulness gate showed UNVERIFIABLE. "India ka per capita GDP Japan se zyada hai" found no source over 0.35 and ended `failed`.
+- Root cause: a comparison with no figure is proved by each side's figure, which a page states on separate lines (table rows 90 lines apart, metric in the caption). Window matching needs "higher than Japan" in one window; the contradiction path needs a number in the claim. Neither can fire.
+- `app/proof.py`: `is_comparison()` (en / Hinglish / Devanagari relation words, no figure in the claim) + `comparison_match()`: one figure line per side (a year is not a figure) + the line naming the metric; score = topic words covered, relation words removed; fewer than 2 figure lines = no proof. `app/pipeline.py` `support_for` uses it for both verdict directions.
+- Same page now scores 1.0 (header + Japan row + India row) for the English, Hinglish and possessive wordings.
+- Tests: `tests/test_comparison_proof.py` (5).
+- Docs touched: SNAPSHOT, versions/v0.7.15, CHANGELOG.
+
 ## 2026-10-16 · v0.7.14 · p7-telegram-alerts
 - `backend/app/alerts.py`: `new_link` / `redeem` (deep link `t.me/<bot>?start=alert<sid><secret>`, sha256 only on the session, single use, 15 min) + `Alerter` (sendPhoto of `/v/<card>.png`, caption + "Open proof", FALSE / MISLEADING only, cap 10 per session).
 - `POST /api/sessions/{id}/telegram-link` (owner only, 503 if the bot isn't configured). Bot `/start alert...` links the chat. `LiveEngine` fires alerts off the hot path on match and proved.

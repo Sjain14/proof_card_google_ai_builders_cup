@@ -18,7 +18,9 @@ from app.proof import (
     SnapshotStore,
     best_contradiction,
     best_match,
+    comparison_match,
     extract_text,
+    is_comparison,
     snapshot,
 )
 from app.schemas import (
@@ -60,6 +62,13 @@ def support_for(claim: str, a: Assessment, snippet: str, text: str) -> tuple[str
             c = best_contradiction(q, text) if q else None
             if c and c.topic > score:
                 passage, score = c.passage, c.topic
+    # "X is higher than Y" with no figure: proof is each side's figure, wherever on the
+    # page it sits (tables), plus the line naming the metric. Either verdict direction.
+    for q in [claim, a.claim_en]:
+        if q and is_comparison(q):
+            c = comparison_match(q, text)
+            if c.score > score:
+                passage, score = c.passage, c.score
     return passage, score
 
 
