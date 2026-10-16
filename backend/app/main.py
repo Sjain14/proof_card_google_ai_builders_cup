@@ -55,7 +55,7 @@ from app.live import (
 )
 from app.logging_setup import configure_logging
 from app.model import ModelClient, StubModel, VertexModel
-from app.pipeline import Deps, run_prebunk, youtube_published, youtube_title
+from app.pipeline import Deps, prebunk_stalled, run_prebunk, youtube_published, youtube_title
 from app.proof import FixtureFetcher, GcsSnapshots, HttpFetcher, InMemorySnapshots
 from app.schemas import (
     CardDoc,
@@ -324,6 +324,15 @@ def create_app(
         # 404 for "not yours" too: never confirm another user's session exists.
         if s is None or s.owner_uid != user.uid:
             raise HTTPException(status_code=404, detail="not found")
+        if prebunk_stalled(s):
+            # Take the lease first (fresh beat) so the next poll doesn't queue it again;
+            # run_prebunk is idempotent, so a late duplicate only finishes the same bank.
+            app.state.store.update_session(session_id, prebunk_beat=datetime.now(UTC))
+            n = settings.prebunk_claims
+            app.state.queue.enqueue_prebunk(
+                session_id, lambda: run_prebunk(session_id, app.state.deps, n)
+            )
+            log.warning("stalled prebunk re-queued", extra={"fields": {"session": session_id}})
         claims = app.state.store.list_claims(session_id)
         return SessionView.build(session_id, s, claims)
 

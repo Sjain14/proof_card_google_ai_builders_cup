@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -9,7 +9,7 @@ from app.main import create_app
 from app.model import StubModel
 from app.pipeline import Deps
 from app.proof import FixtureFetcher, InMemorySnapshots
-from app.schemas import CardDoc, SourceProof, Verdict
+from app.schemas import CardDoc, SessionDoc, SourceProof, Verdict
 from app.security import card_fingerprint, sha256_hex
 from app.store import InMemoryStore
 from app.tasks import SyncQueue
@@ -339,3 +339,30 @@ def test_search_suggestion_frame_and_route(client: TestClient, store: InMemorySt
     assert "frame-src 'self'" in page.headers["content-security-policy"]
     assert CHIP not in page.text  # never inline on our origin
     assert client.get("/api/cards/bad!/search-suggestion").status_code == 404
+
+
+def test_stalled_prebunk_is_requeued_on_read(client: TestClient, store: InMemoryStore) -> None:
+    # A revision swap killed the job mid run (16 Oct): the brief sat in "prebunking".
+    old = datetime.now(UTC) - timedelta(minutes=30)
+    sid = store.create_session(
+        SessionDoc(owner_uid="admin-1", topic="budget speech", status="prebunking", created_at=old)
+    )
+    r = client.get(f"/api/sessions/{sid}", headers=ADMIN)
+    assert r.status_code == 200
+    # SyncQueue ran the re-queued job inline: the brief finished.
+    assert store.sessions[sid].status == "ready"
+    assert len(store.list_claims(sid)) == 6
+
+
+def test_live_prebunk_is_left_alone(client: TestClient, store: InMemoryStore) -> None:
+    sid = store.create_session(
+        SessionDoc(
+            owner_uid="admin-1",
+            topic="budget speech",
+            status="prebunking",
+            prebunk_beat=datetime.now(UTC),
+        )
+    )
+    assert client.get(f"/api/sessions/{sid}", headers=ADMIN).status_code == 200
+    assert store.sessions[sid].status == "prebunking"
+    assert store.list_claims(sid) == []

@@ -552,3 +552,15 @@ def test_published_date_reads_watch_page_formats() -> None:
     )
     assert published_date('"uploadDate":"2021-02-03T00:00:00-08:00"') == "2021-02-03"
     assert published_date("<html>no date</html>") == ""
+
+
+def test_prebunk_stalled_reads_the_beat() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.pipeline import PREBUNK_STALE, prebunk_stalled
+
+    now = datetime.now(UTC)
+    s = SessionDoc(owner_uid="u", topic="t", status="prebunking", prebunk_beat=now)
+    assert not prebunk_stalled(s, now + PREBUNK_STALE - timedelta(seconds=1))
+    assert prebunk_stalled(s, now + PREBUNK_STALE + timedelta(seconds=1))
+    assert not prebunk_stalled(s.model_copy(update={"status": "ready"}), now + 2 * PREBUNK_STALE)

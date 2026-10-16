@@ -15,7 +15,7 @@ import urllib.request
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
 from app.facts import FactDesk, Ruling, ensure_bank
@@ -578,6 +578,26 @@ def _with_fact_bank(session_id: str, session: SessionDoc, deps: Deps, desk: Fact
     return deps.store.get_session(session_id) or session
 
 
+# Longest silent stretch of a healthy prebunk is the fact research (448 s on run 5).
+PREBUNK_STALE = timedelta(minutes=12)
+
+
+def prebunk_stalled(s: SessionDoc, now: datetime | None = None) -> bool:
+    """A "prebunking" session whose job went silent: the instance running it died (a
+    revision swap kills it and nothing retried, 16 Oct 2026)."""
+    last = s.prebunk_beat or s.created_at
+    return s.status == "prebunking" and (now or datetime.now(UTC)) - last > PREBUNK_STALE
+
+
+def _beat(session_id: str, deps: Deps) -> None:
+    deps.store.update_session(session_id, prebunk_beat=datetime.now(UTC))
+
+
+def _verify_and_beat(session_id: str, claim_id: str, deps: Deps) -> None:
+    verify_claim(session_id, claim_id, deps)
+    _beat(session_id, deps)
+
+
 def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
     """Build the brief bank. Never leaves a session stuck in "prebunking": a model failure
     ends it as "failed" (the UI says so). Idempotent: a Cloud Tasks retry (instance died,
@@ -585,9 +605,10 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
     session = deps.store.get_session(session_id)
     if session is None:
         return {"predicted": 0, "proved": 0}
-    deps.store.update_session(session_id, status="prebunking")
+    deps.store.update_session(session_id, status="prebunking", prebunk_beat=datetime.now(UTC))
     if deps.facts is not None and not session.fact_bank_key:
         session = _with_fact_bank(session_id, session, deps, deps.facts)
+        _beat(session_id, deps)
     bank = [
         (cid, c)
         for cid, c in deps.store.list_claims(session_id)
@@ -613,9 +634,10 @@ def run_prebunk(session_id: str, deps: Deps, n: int = 12) -> dict[str, int]:
         for p in predicted:
             doc = ClaimDoc(text=p.text, lang=p.lang, source=ClaimSource.PREDICTED)
             bank.append((deps.store.add_claim(session_id, doc), doc))
+        _beat(session_id, deps)
     todo = [cid for cid, c in bank if c.status not in (ClaimStatus.PROVED, ClaimStatus.FAILED)]
     with ThreadPoolExecutor(max_workers=deps.workers) as pool:
-        list(pool.map(lambda cid: verify_claim(session_id, cid, deps), todo))
+        list(pool.map(lambda cid: _verify_and_beat(session_id, cid, deps), todo))
     proved = sum(
         1
         for _, c in deps.store.list_claims(session_id)

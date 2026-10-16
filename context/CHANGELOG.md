@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.31 · p31-prebunk-resume
+Demo run (16 Oct): a deploy swapped the revision while a brief was prebunking; the instance died, nothing resumed it, and the session sat in "prebunking" for good.
+- `SessionDoc.prebunk_beat`: `run_prebunk` stamps it at start, after the fact bank, after prediction and after every claim.
+- `pipeline.prebunk_stalled()`: "prebunking" and silent for 12 min (the longest healthy silent stretch is fact research, 448 s on run 5).
+- `GET /api/sessions/:id` (the brief page polls it): a stalled session takes the lease (fresh beat) and re-queues the prebunk task. `run_prebunk` is idempotent, so a resume finishes the same bank.
+- Tests: re-queued on read and finished; a live prebunk left alone; stalled window.
 ## 2026-10-16 · v0.7.30 · p30-brief-poll
 Demo run (16 Oct): one failed `api.session()` on the brief page (any non-404, e.g. a 503 during a deploy) set the error screen and stopped polling for good, so a brief that finished later never showed.
 - `frontend/src/live.ts` `pollRetry()`: 404 stops; anything else retries with the existing jittered backoff (0.5 s to 15 s).

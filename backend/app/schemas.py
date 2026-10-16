@@ -97,6 +97,9 @@ class SessionDoc(Strict):
     fact_bank_key: str | None = (
         None  # fact_banks/{key}: researched facts this session checks against
     )
+    # Last progress of the prebunk job: a revision swap can kill it mid run; a session read
+    # that finds it silent for PREBUNK_STALE re-queues it (pipeline.prebunk_stalled).
+    prebunk_beat: datetime | None = None
 
 
 class ClaimDoc(Strict):
