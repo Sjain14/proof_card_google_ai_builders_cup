@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace as Ns
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.clip import (
@@ -27,14 +28,19 @@ from tests.conftest import fake_oidc, fake_verifier
 ADMIN = {"Authorization": "Bearer admin-token"}
 
 
+@pytest.fixture(autouse=True)
+def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.main.CLIP_BACKOFF_S", 0.0)
+
+
 class FakeClip:
-    def __init__(self, transcript: str = "", fail: bool = False) -> None:
-        self.transcript, self.fail = transcript, fail
+    def __init__(self, transcript: str = "", fail: bool = False, fail_times: int = 0) -> None:
+        self.transcript, self.fail, self.fail_times = transcript, fail, fail_times
         self.calls: list[tuple[int, str, list[str]]] = []
 
     def transcribe(self, data: bytes, mime: str, vocabulary: Sequence[str] = ()) -> str:
         self.calls.append((len(data), mime, list(vocabulary)))
-        if self.fail:
+        if self.fail or len(self.calls) <= self.fail_times:
             raise RuntimeError("vertex down")
         return self.transcript
 
@@ -257,3 +263,18 @@ def test_clip_task_needs_oidc(settings: Settings, store: InMemoryStore) -> None:
         headers={"Authorization": "Bearer task-token"},
     )
     assert ok.status_code == 200  # unknown session: nothing to do
+
+
+def test_clip_transient_failure_is_retried(settings: Settings, store: InMemoryStore) -> None:
+    # prod 16 Oct: Gemini 429 under load failed two clips in 11 s; a retry gets through
+    fake = FakeClip("India has 22 scheduled languages. It grew 8 percent.", fail_times=2)
+    c = app_with(settings, store, fake)
+    sid = c.post("/api/prebunk", json={"topic": "India"}, headers=ADMIN).json()["session_id"]
+    url = f"/api/sessions/{sid}/clip"
+    assert (
+        c.post(url, files={"file": ("a.mp3", b"abc", "audio/mpeg")}, headers=ADMIN).status_code
+        == 202
+    )
+    job = c.get(url, headers=ADMIN).json()
+    assert job["state"] == "done"
+    assert len(fake.calls) == 3

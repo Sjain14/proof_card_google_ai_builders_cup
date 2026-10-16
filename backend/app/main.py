@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import (
     Depends,
@@ -95,6 +95,7 @@ from app.security import TokenBucket, sha256_hex, telegram_secret_ok
 from app.store import FirestoreStore, InMemoryStore, Store
 from app.tasks import CloudTasksQueue, InlineQueue, OidcVerifier, TaskQueue, google_oidc_verifier
 from app.telegram import (
+    MAX_FORWARD_CLAIMS,
     BotApi,
     BotDeps,
     HttpBotApi,
@@ -106,6 +107,9 @@ from app.telegram import (
 
 log = logging.getLogger("proofcard")
 BOT_DAILY_CHECKS = 10  # claim checks per Telegram chat per UTC day (Vertex cost guard)
+CLIP_TRIES = 3  # transcription attempts per clip (transient Gemini 429/503)
+CLIP_BACKOFF_S = 8.0
+FORWARD_SENTENCES = 8  # sentences of a forward read by the spotter, at most
 FORWARD_SPLIT_CHARS = 240  # longer bot texts are forwards: split into their claims
 _SENTENCE_END = re.compile(r"(?<=[.!?।])\s+")
 
@@ -526,6 +530,13 @@ def create_app(
         app.state.store.update_session(session_id, clip_job=job)
         return job
 
+    async def _transcribe(audio: bytes, job: ClipJob, vocab: list[str]) -> list[Any]:
+        timed_fn = getattr(app.state.clip, "transcribe_timed", None) if job.timed else None
+        if timed_fn is not None:
+            return list(await run_in_threadpool(timed_fn, audio, job.mime, vocab))
+        text = await run_in_threadpool(app.state.clip.transcribe, audio, job.mime, vocab)
+        return [(None, line) for line in clip_sentences(text)]
+
     async def _run_clip(session_id: str) -> None:
         """Transcribe once (lines stored), then feed the live engine CLIP_BATCH lines at a
         time, saving progress and events after each batch. A retry or re-queue resumes at
@@ -546,22 +557,31 @@ def create_app(
                     if c.source == ClaimSource.PREDICTED
                 ]
             )
-            try:
-                timed_fn = getattr(app.state.clip, "transcribe_timed", None) if job.timed else None
-                if timed_fn is not None:
-                    pairs = list(await run_in_threadpool(timed_fn, audio, job.mime, vocab))
-                else:
-                    text = await run_in_threadpool(
-                        app.state.clip.transcribe, audio, job.mime, vocab
-                    )
-                    pairs = [(None, line) for line in clip_sentences(text)]
-            except Exception:
-                log.exception("clip transcription failed")
+            # Gemini under load answers 429/503 in seconds (prod e2e 16 Oct 21:5x: two clips
+            # at once both failed in 11 s). Retry with backoff before telling the user.
+            pairs = None
+            for attempt in range(CLIP_TRIES):
+                try:
+                    pairs = await _transcribe(audio, job, vocab)
+                    break
+                except Exception:
+                    log.warning("clip transcription attempt failed", exc_info=True)
+                    if attempt + 1 < CLIP_TRIES:
+                        await asyncio.sleep(CLIP_BACKOFF_S * (attempt + 1))
+            if pairs is None:
+                log.error("clip transcription failed")
                 _save_job(session_id, state="failed", error="transcription failed, try again")
                 await run_in_threadpool(app.state.clips.delete, job.digest)
                 return
             lines = [ClipLine(t=t, text=line[:2_000]) for t, line in pairs][:2_000]
-            job = _save_job(session_id, lines=lines, timed=timed_fn is not None) or job
+            job = (
+                _save_job(
+                    session_id,
+                    lines=lines,
+                    timed=job.timed and hasattr(app.state.clip, "transcribe_timed"),
+                )
+                or job
+            )
         events: list[dict[str, object]] = list(job.events)
 
         async def collect(ev: dict[str, object]) -> None:
@@ -898,7 +918,17 @@ def create_app(
         if len(text) <= FORWARD_SPLIT_CHARS and not several_claims(text):
             return []
         spotter: Spotter = app.state.live.spotter
-        return spotter.spot_claims(text[:3_000])
+        # The spotter reads one sentence heard on air; handed a whole forward it returns it
+        # as one claim (prod e2e 16 Oct, 3 claims -> 1 MISLEADING). Spot sentence by sentence.
+        sentences = [p for p in _SENTENCE_END.split(text[:3_000].strip()) if looks_like_claim(p)]
+        if len(sentences) < 2:
+            return spotter.spot_claims(text[:3_000])
+        out: list[str] = []
+        for sentence in sentences[:FORWARD_SENTENCES]:
+            out += [c for c in spotter.spot_claims(sentence) if c not in out]
+            if len(out) >= MAX_FORWARD_CLAIMS:
+                break
+        return out
 
     def check_claim(claims: list[str], chat_id: int, ack: Callable[[], None]) -> str:
         text = claims[0]

@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.live import Embedder, Judge, cosine, numbers
+from app.pipeline import claim_key
 from app.store import Store
 
 log = logging.getLogger(__name__)
@@ -90,7 +91,12 @@ class SimilarCards:
         since = datetime.now(UTC) - AGE
         rows = self.store.recent_claim_cards(since, MAX_ENTRIES)
         with self._lock:
-            new = [r for r in rows if r.key not in self._entries and r.text]
+            # a key from an older CACHE_VERSION is a verdict a later fix may have changed
+            new = [
+                r
+                for r in rows
+                if r.key not in self._entries and r.text and r.key == claim_key(r.text, r.context)
+            ]
         for i in range(0, len(new), EMBED_BATCH):
             chunk = new[i : i + EMBED_BATCH]
             vecs = self.embedder.embed([r.text for r in chunk])

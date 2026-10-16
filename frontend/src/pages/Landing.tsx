@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SignedIn } from "../auth";
-import { signIn } from "../auth";
 import { VerdictPill } from "../components/VerdictPill";
 import { navigate } from "../router";
 import { t, type Key } from "../i18n";
@@ -290,8 +289,9 @@ function Tamper() {
   );
 }
 
-export function Landing({ user }: { user: SignedIn | null | undefined }) {
-  const start = () => (user ? navigate("/new") : void signIn().then(() => navigate("/new")));
+export function Landing(_props: { user: SignedIn | null | undefined }) {
+  // /new offers Google or guest; never a direct Google popup from here.
+  const start = () => navigate("/new");
   const bot = (
     <a className="btn ghost" href={`https://t.me/${BOT}?start=try`} target="_blank" rel="noreferrer">
       {t("land.bot")}

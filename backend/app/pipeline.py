@@ -251,13 +251,18 @@ def youtube_published(url: str) -> str:  # pragma: no cover - network
 CLAIM_CACHE_AGE = timedelta(days=7)  # same window as a fact bank: statistics get revised
 
 
+# Bump when a checker fix makes saved verdicts wrong: older keys stop matching, exact and
+# similar reuse both skip them. v2 (16 Oct): quote cards before the speaker check (p45).
+CACHE_VERSION = "v2"
+
+
 def claim_key(text: str, context: str = "") -> str:
     """Index id for a claim as said: case, spacing and ASCII punctuation don't matter.
     context = the speech link (same words in another speech can mean another year);
     empty for the bot, so every chat shares one verdict per claim."""
     quotes = "\u201c\u201d\u2018\u2019"
     norm = " ".join(re.sub(rf"[!-/:-@\[-`{{-~{quotes}]+", " ", text.lower()).split())
-    return hashlib.sha256(f"{norm}|{context}".encode()).hexdigest()[:40]
+    return hashlib.sha256(f"{CACHE_VERSION}|{norm}|{context}".encode()).hexdigest()[:40]
 
 
 def cached_card(text: str, context: str, deps: Deps) -> tuple[str, CardDoc] | None:

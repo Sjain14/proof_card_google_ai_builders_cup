@@ -162,13 +162,13 @@ class GeminiClipTranscriber:  # pragma: no cover - needs a GCP project
         timed_model: str = "gemini-3.5-flash",
         timed_location: str = "global",
     ) -> None:
-        from google import genai
 
         from app.model import vertex_client
 
         self.client = vertex_client(project, location, 300.0)  # a 15 min clip, one call
         self.model = model
-        self.timed_client = genai.Client(vertexai=True, project=project, location=timed_location)
+        # retries 429/503 under load (prod e2e 16 Oct: two clips failed in 11 s)
+        self.timed_client = vertex_client(project, timed_location, 300.0, attempts=4)
         self.timed_model = timed_model
 
     def transcribe(self, data: bytes, mime: str, vocabulary: Sequence[str] = ()) -> str:

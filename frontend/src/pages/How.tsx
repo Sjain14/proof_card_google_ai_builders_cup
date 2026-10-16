@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SignedIn } from "../auth";
-import { signIn } from "../auth";
 import { VerdictPill } from "../components/VerdictPill";
 import { getLang } from "../i18n";
 import { navigate } from "../router";
@@ -448,9 +447,10 @@ function ScrollProgress() {
   return <div className="hw-progress" style={{ transform: `scaleX(${p})` }} aria-hidden="true" />;
 }
 
-export function How({ user }: { user: SignedIn | null | undefined }) {
+export function How(_props: { user: SignedIn | null | undefined }) {
   const c = useCopy();
-  const sample = () => (user ? navigate("/new?sample=trump") : void signIn().then(() => navigate("/new?sample=trump")));
+  // /new shows Google AND guest sign-in, then fills the sample (no direct Google popup).
+  const sample = () => navigate("/new?sample=trump");
   const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const botLink = `https://t.me/${BOT}?start=try`;
   return (

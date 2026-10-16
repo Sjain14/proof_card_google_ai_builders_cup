@@ -154,3 +154,13 @@ def test_proved_card_is_added_to_the_index() -> None:
     assert hit[0] == "card-9"
     rows = store.recent_claim_cards(datetime.now(UTC) - timedelta(days=1), 10)
     assert rows == []  # add() is index-only; the pipeline writes the store row
+
+
+def test_rows_from_an_older_cache_version_are_skipped() -> None:
+    # p45 changed quote verdicts: a card saved under an older key must not come back
+    store = InMemoryStore()
+    store.put_card("card-1", card())
+    store.put_claim_card("0" * 40, "card-1", SAID, "")
+    sim = SimilarCards(store, Fixed({SAID: 1.0}), None)
+    sim.refresh()
+    assert len(sim) == 0
