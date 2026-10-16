@@ -32,7 +32,15 @@ from app.security import (
 
 MAX_BYTES = 2_000_000
 MAX_REDIRECTS = 4
-USER_AGENT = "ProofCardBot/0.2 (+fact check snapshot)"
+# Crawler shaped (like Googlebot's): still names the bot. pib.gov.in answered 403 to the
+# bare token for 67 of 84 fact sources on prod (16 Oct); WAFs drop requests without
+# Accept / Accept-Language.
+USER_AGENT = "Mozilla/5.0 (compatible; ProofCardBot/0.3; +fact check snapshot)"
+HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-IN,en;q=0.9,hi;q=0.6",
+}
 
 
 @dataclass(frozen=True)
@@ -102,7 +110,7 @@ class HttpFetcher:
         with httpx.Client(
             timeout=self.timeout,
             follow_redirects=False,
-            headers={"User-Agent": USER_AGENT},
+            headers=HEADERS,
             transport=self.transport,
         ) as c:
             for _ in range(MAX_REDIRECTS + 1):

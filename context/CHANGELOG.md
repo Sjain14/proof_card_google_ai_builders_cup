@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.23 · p23-fetch-headers
+Prod run on v0.7.22 (7dhIVHRKhvo brief): research found 84 facts, kept 4 (all official: IMF, World Bank, newsonair). 67 of the 80 drops were `pib.gov.in` answering 403 to the fetcher, 10 low support, 3 figure missing; research took 449 s of the 767 s brief.
+- `app/proof.py`: crawler shaped User-Agent (`Mozilla/5.0 (compatible; ProofCardBot/0.3; ...)`, still names the bot) plus Accept and Accept-Language on every fetch. If PIB still blocks, the bank's `drop_fetch` count shows it on the next run.
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.22 · p22-fact-bank-diag
 First prod run of the fact bank (7dhIVHRKhvo brief) kept 0 facts and the brief took 1042 s, against 361 s before. `match_passage` caps a window at 0.5 when any number in the query is missing from it, and a fact sentence states its figure AND its period, so the 0.45 bar dropped almost everything.
 - `app/facts.py`: the keep bar is now the card gate (0.35) plus the figure on the page. Grounding chunks count as a fact's backup source when they cover >= 60% of its words (a JSON segment also holds keys, so Jaccard missed them). The answer parser takes the first JSON array of objects (`raw_decode`), so trailing text or citation marks like `[1]` no longer drop a whole angle.
