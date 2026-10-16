@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.24 · p24-blocked-official
+Prod run on v0.7.23 (7dhIVHRKhvo brief): headers changed nothing. 96 researched, 2 kept, 67 drops still `pib.gov.in` 403 (an IP block on Cloud Run; it also times out from other datacenter and India proxy lines, and the Wayback Machine holds no copies).
+- Research prompt: for Indian figures cite the issuing body's own page or PDF (mospi.gov.in, rbi.org.in, dea.gov.in, indiabudget.gov.in, data.gov.in) instead of the PIB copy.
+- `verify_candidate`: when every source failed because an OFFICIAL host refused us (403/401/429/timeout) and Google Search grounding backed this exact statement from that same official host, the fact is kept with `checked="search"`, support 0.35, a passage that says so, and a `[search]` mark in the rule prompt. Anything else blocked stays dropped. Page-read facts rank first. `stats.kept_search` counts them.
+- `chunk_hosts_for`: host of each grounding chunk (web.domain, else web.title when it is a hostname).
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.23 · p23-fetch-headers
 Prod run on v0.7.22 (7dhIVHRKhvo brief): research found 84 facts, kept 4 (all official: IMF, World Bank, newsonair). 67 of the 80 drops were `pib.gov.in` answering 403 to the fetcher, 10 low support, 3 figure missing; research took 449 s of the 767 s brief.
 - `app/proof.py`: crawler shaped User-Agent (`Mozilla/5.0 (compatible; ProofCardBot/0.3; ...)`, still names the bot) plus Accept and Accept-Language on every fetch. If PIB still blocks, the bank's `drop_fetch` count shows it on the next run.

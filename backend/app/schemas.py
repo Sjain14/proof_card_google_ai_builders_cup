@@ -5,7 +5,7 @@ extra="forbid" rejects unknown fields; max lengths cap abuse and prompt size.
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
 
@@ -130,6 +130,9 @@ class Fact(Strict):
     passage: LongText
     support: Annotated[float, Field(ge=0.0, le=1.0)]
     official: bool = False
+    # page = passage read on the fetched page; search = official page blocks our server,
+    # the statement was backed by Google Search grounding on that same official host.
+    checked: Literal["page", "search"] = "page"
 
 
 class FactBankDoc(Strict):

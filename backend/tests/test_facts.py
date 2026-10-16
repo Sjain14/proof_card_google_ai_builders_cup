@@ -16,6 +16,8 @@ from app.facts import (
     build_bank,
     candidates_from,
     checked_ruling,
+    chunk_hosts_for,
+    chunk_urls_for,
     ensure_bank,
     official,
     parse_json_list,
@@ -125,7 +127,8 @@ def test_verify_candidate_needs_page_and_figure() -> None:
     f = MapFetcher({**PAGES, "https://blog.example/a": CHATTER})
     got = verify_candidate(GDP_FACT, f)
     assert not isinstance(got, str)
-    url, passage, score = got
+    url, passage, score, checked = got
+    assert checked == "page"
     assert url == "https://mospi.gov.in/gdp"
     assert "8.2" in passage
     assert score >= 0.35
@@ -154,6 +157,53 @@ def test_build_bank_keeps_verified_official_first() -> None:
     assert bank.stats["angles"] == 2
     assert bank.stats["drop_fetch"] == 1
     assert bank.samples[0].startswith("fetch:")
+
+
+def test_verify_candidate_search_grounded_when_official_page_blocks() -> None:
+    class Blocked(MapFetcher):
+        def fetch(self, url: str) -> Fetched:
+            raise FetchError("status 403")
+
+    pib = "https://pib.gov.in/PressReleasePage.aspx?PRID=1"
+    st = "India's real GDP grew 7.8% in Q1 of FY2026-27, per MoSPI."
+    ok = Candidate(st, "7.8%", urls=(pib,), grounded=("pib.gov.in",))
+    got = verify_candidate(ok, Blocked({}))
+    assert not isinstance(got, str)
+    assert got[0] == pib
+    assert got[3] == "search"
+    assert "Google Search grounding" in got[1]
+    # grounding from another host, a non official host, or no figure: dropped
+    other = Candidate(st, "7.8%", urls=(pib,), grounded=("someblog.com",))
+    assert isinstance(verify_candidate(other, Blocked({})), str)
+    blog = Candidate(st, "7.8%", urls=("https://blog.example/x",), grounded=("blog.example",))
+    assert isinstance(verify_candidate(blog, Blocked({})), str)
+    nofig = Candidate("India grew fast.", "", urls=(pib,), grounded=("pib.gov.in",))
+    assert isinstance(verify_candidate(nofig, Blocked({})), str)
+
+
+def test_chunk_hosts_for_reads_domain_or_title() -> None:
+    st = "India's real GDP grew 7.8% in Q1 of FY2026-27"
+    chunks = [
+        SimpleNamespace(
+            web=SimpleNamespace(uri="https://vertexaisearch/x", domain=None, title="pib.gov.in")
+        ),
+        SimpleNamespace(
+            web=SimpleNamespace(
+                uri="https://vertexaisearch/y", domain="www.rbi.org.in", title="RBI"
+            )
+        ),
+        SimpleNamespace(web=SimpleNamespace(uri="", domain=None, title="Some Page Title")),
+    ]
+    sup = SimpleNamespace(
+        segment=SimpleNamespace(text=st),
+        grounding_chunk_indices=[0, 1, 2],
+        confidence_scores=[0.9, 0.8, 0.7],
+    )
+    meta = SimpleNamespace(grounding_chunks=chunks, grounding_supports=[sup])
+    resp = SimpleNamespace(candidates=[SimpleNamespace(grounding_metadata=meta)])
+    assert chunk_hosts_for(st, resp) == ["pib.gov.in", "rbi.org.in"]
+    assert chunk_urls_for(st, resp) == ["https://vertexaisearch/x", "https://vertexaisearch/y"]
+    assert chunk_hosts_for(st, object()) == []
 
 
 def test_verify_candidate_survives_broken_page() -> None:

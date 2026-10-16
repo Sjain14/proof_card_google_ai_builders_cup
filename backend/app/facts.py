@@ -50,6 +50,7 @@ MAX_AGE = timedelta(days=7)  # statistics get revised; a week old bank is rebuil
 # must be on the page. 0.45 kept 0 facts on prod (16 Oct): a fact sentence states the
 # figure AND its period, and any number missing from a window caps it at 0.5.
 FACT_SUPPORT = 0.35
+SEARCH_SUPPORT = 0.35  # a search-grounded fact never outranks one read on its page
 SAMPLES = 20
 URLS_PER_FACT = 3
 VERIFY_WORKERS = 8
@@ -108,6 +109,8 @@ class Candidate:
     angle: str = ""
     trigger: str = ""
     urls: tuple[str, ...] = ()
+    # Hosts of the Google Search grounding chunks that back this statement (chunk_hosts_for).
+    grounded: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -127,17 +130,33 @@ class FactDesk(Protocol):
 # ---------- building the bank ----------
 
 
-def verify_candidate(c: Candidate, fetcher: Fetcher) -> tuple[str, str, float] | str:
-    """(page url, passage, score) of the first source that states the fact, else the reason
-    the last source failed. The figure itself must be in the passage: an on topic page with
-    another number is not the source of this fact."""
+def _host(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower().removeprefix("www.")
+
+
+def _blocked(exc: Exception) -> bool:
+    """The server refused us (WAF / geo block / rate limit), not that the page is missing."""
+    msg = str(exc) or type(exc).__name__
+    return any(k in msg for k in ("403", "401", "429", "Timeout", "Connect"))
+
+
+def verify_candidate(c: Candidate, fetcher: Fetcher) -> tuple[str, str, float, str] | str:
+    """(url, passage, score, checked) of the first source that states the fact, else the
+    reason the last source failed. checked="page": we fetched the page and the figure is on
+    it (an on topic page with another number is not the source of this fact).
+    checked="search": the official page blocks our server (pib.gov.in 403s every Cloud Run
+    request), but Google Search grounding backed this exact statement from that same official
+    host; the figure is still required in the statement. Anything else is dropped."""
     want = _numbers(c.value) or _numbers(c.statement)
     reason = "no_url"
+    blocked: list[str] = []
     for url in list(dict.fromkeys(u for u in c.urls if u.startswith("http")))[:URLS_PER_FACT]:
         try:
             fetched = fetcher.fetch(url)
         except Exception as exc:  # FetchError, timeouts: try the next source
             reason = f"fetch:{str(exc)[:40] or type(exc).__name__}"
+            if official(url) and _blocked(exc):
+                blocked.append(url)
             continue
         try:
             if is_worldbank(fetched.final_url):
@@ -157,7 +176,13 @@ def verify_candidate(c: Candidate, fetcher: Fetcher) -> tuple[str, str, float] |
         if want and not (want & _numbers(m.passage)):
             reason = "figure_missing"
             continue
-        return fetched.final_url, m.passage, m.score
+        return fetched.final_url, m.passage, m.score, "page"
+    if reason.startswith("fetch:") and want:
+        grounded = {h.removeprefix("www.") for h in c.grounded}
+        for url in blocked:
+            if _host(url) in grounded:
+                note = f"Google Search grounding, {_host(url)} (page blocks our server)"
+                return url, f"{c.statement} [{note}]", SEARCH_SUPPORT, "search"
     return reason
 
 
@@ -215,9 +240,10 @@ def build_bank(
         "verify_s": round(t3 - t2, 1),
         **{f"drop_{k}": n for k, n in reasons.items()},
     }
-    kept.sort(key=lambda cv: (not official(cv[1][0]), -cv[1][2]))
+    kept.sort(key=lambda cv: (not official(cv[1][0]), cv[1][3] == "search", -cv[1][2]))
     facts: list[Fact] = []
-    for c, (url, passage, score) in kept:
+    stats["kept_search"] = sum(v[3] == "search" for _, v in kept)
+    for c, (url, passage, score, how) in kept:
         if len(facts) >= MAX_FACTS:
             break
         try:
@@ -233,6 +259,7 @@ def build_bank(
                     passage=passage[:4_000],
                     support=min(1.0, round(score, 3)),
                     official=official(url),
+                    checked=how,
                 )
             )
         except ValueError:  # pydantic ValidationError: an odd URL or empty field
@@ -317,13 +344,16 @@ For each fact return:
 - as_of: the period or date the figure is for
 - source_url: the exact page that states this figure. Official statistics pages, central
   banks, parliaments, IMF / World Bank first, then established newsrooms. Never a blog,
-  law firm, SEO or content farm page.
+  law firm, SEO or content farm page. pib.gov.in pages cannot be opened by our checker:
+  for Indian figures cite the issuing body's own page or PDF (mospi.gov.in press release,
+  rbi.org.in, dea.gov.in, indiabudget.gov.in, data.gov.in) instead of the PIB copy.
 - trigger: one line the speaker could say on air that this fact decides (accurate,
   exaggerated or wrong)
 Return ONLY a JSON array of objects with exactly those keys. No prose, no markdown."""
 
 RULE_PROMPT = """A line was just said on air. Below is a researched fact bank; every fact was
-checked against its source page. Decide whether some facts DECIDE the line: same subject,
+checked against its source page (or, marked [search], backed by Google Search on an official
+page that blocks our checker). Decide whether some facts DECIDE the line: same subject,
 same measure, same place and the same period (or the line names no period and the fact is
 the latest figure). Same topic is NOT enough: GDP growth vs GDP size, rank vs growth rate,
 state vs country, a forecast vs an actual = does not decide.
@@ -370,9 +400,26 @@ def _words(s: str) -> set[str]:
 
 
 def chunk_urls_for(statement: str, resp: Any) -> list[str]:
-    """Grounding chunks whose supported segment covers most of this statement (>= 60% of
-    its words; a JSON segment also holds keys and other fields, so not Jaccard), best
-    confidence first. Backup sources when the model's own URL is wrong."""
+    """Grounding chunk URIs that back this statement, best confidence first. Backup sources
+    when the model's own URL is wrong."""
+    return list(dict.fromkeys(u for _, u, _ in _support_chunks(statement, resp) if u))
+
+
+def chunk_hosts_for(statement: str, resp: Any) -> list[str]:
+    """Source hosts (chunk web.domain, else web.title when it is a hostname) of the grounding
+    chunks that back this statement. The URIs are search redirects, the host is the page."""
+    out = []
+    for _, _, host in _support_chunks(statement, resp):
+        h = host.strip().lower()
+        if h and " " not in h and "." in h:
+            out.append(h.removeprefix("www."))
+    return list(dict.fromkeys(out))
+
+
+def _support_chunks(statement: str, resp: Any) -> list[tuple[float, str, str]]:
+    """(confidence, uri, host) of grounding chunks whose supported segment covers most of
+    this statement (>= 60% of its words; a JSON segment also holds keys and other fields,
+    so not Jaccard), best confidence first."""
     try:
         meta = resp.candidates[0].grounding_metadata
         chunks = list(meta.grounding_chunks or [])
@@ -380,22 +427,21 @@ def chunk_urls_for(statement: str, resp: Any) -> list[str]:
     except (AttributeError, IndexError, TypeError):
         return []
     want = _words(statement)
-    scored: list[tuple[float, str]] = []
+    scored: list[tuple[float, str, str]] = []
     for sup in supports:
         seg = _words(getattr(getattr(sup, "segment", None), "text", "") or "")
         if not seg or not want or len(seg & want) / len(want) < 0.6:
             continue
         confs = list(getattr(sup, "confidence_scores", None) or [])
         for pos, idx in enumerate(getattr(sup, "grounding_chunk_indices", None) or []):
-            uri = (
-                getattr(getattr(chunks[idx], "web", None), "uri", None)
-                if idx < len(chunks)
-                else None
-            )
-            if uri:
-                scored.append((float(confs[pos]) if pos < len(confs) else 0.0, uri))
+            web = getattr(chunks[idx], "web", None) if idx < len(chunks) else None
+            uri = getattr(web, "uri", None) or ""
+            host = getattr(web, "domain", None) or getattr(web, "title", None) or ""
+            if uri or host:
+                conf = float(confs[pos]) if pos < len(confs) else 0.0
+                scored.append((conf, str(uri), str(host)))
     scored.sort(reverse=True)
-    return list(dict.fromkeys(u for _, u in scored))
+    return scored
 
 
 def candidates_from(raw: str, resp: Any, angle: str) -> list[Candidate]:
@@ -413,6 +459,7 @@ def candidates_from(raw: str, resp: Any, angle: str) -> list[Candidate]:
                 angle=angle,
                 trigger=str(item.get("trigger", "")).strip(),
                 urls=tuple(([own] if own else []) + chunk_urls_for(st, resp)),
+                grounded=tuple(chunk_hosts_for(st, resp)),
             )
         )
     return out
@@ -420,7 +467,10 @@ def candidates_from(raw: str, resp: Any, angle: str) -> list[Candidate]:
 
 def render_facts(facts: list[Fact]) -> str:
     return "\n".join(
-        f"[{f.id}] {f.statement}" + (f" (as of {f.as_of})" if f.as_of else "") for f in facts
+        f"[{f.id}] {f.statement}"
+        + (f" (as of {f.as_of})" if f.as_of else "")
+        + (" [search]" if f.checked == "search" else "")
+        for f in facts
     )
 
 
