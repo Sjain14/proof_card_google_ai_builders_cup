@@ -139,6 +139,10 @@ VERDICT: <TRUE|FALSE|MISLEADING|UNVERIFIABLE>
 CLAIM_EN: <the claim restated as one plain English sentence, same numbers and names>
 EXPLANATION: <at most 60 words, plain English, cite the official figure and its date>
 
+Judge whether the claim itself is true, never whether the speaker said it: a report that
+the speaker made this claim ("he said...", a quote of the speech) is NOT evidence for it.
+TRUE needs a source that states the fact independently (records, official data, reporting
+of what actually happened). Only a quote = UNVERIFIABLE.
 Use UNVERIFIABLE when reliable sources disagree or are missing. Prefer official and
 primary sources (government statistics, regulators, court records) over news.
 """

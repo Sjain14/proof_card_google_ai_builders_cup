@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.29 · p29-claim-not-quote
+Trump demo (16 Oct): a TRUE card on "I got all the hostages back" was proved by news pages reporting that Trump SAID it. That verifies the quote, not the claim.
+- `app/model.py` assess prompt: judge the claim itself, never whether the speaker said it; a report of the speaker making the claim is not evidence; only a quote = UNVERIFIABLE.
+- `app/proof.py` `reports_claim()`: a passage is reported speech when a quoted span covers >= half the claim's content words, or the claim is first person and the passage relays it ("said he", "he claimed"). An official source speaking ("NSO said GDP grew 8.2%") is not reported speech.
+- `app/pipeline.py` `build_card`: for TRUE, such passages are skipped (`reported_speech` trace reason).
 ## 2026-10-16 · v0.7.28 · p28-spotter-events
 Trump demo replay (16 Oct): "I got all the hostages back" and "Iran will never have a nuclear weapon" were skipped as not_checkable. Neither carries a digit or superlative, so the heuristic pre filter never let the model spotter see them.
 - `app/live.py`: the pre filter also passes done deeds (ended, stopped, released, freed, signed, passed, built, banned, destroyed, obliterated, brought back, returned; Hindi/Hinglish khatam, band kar, सभी, कभी नहीं) and absolutes ("all the", "every single", "none of", never, nobody, no one). The spotter prompt counts statements of what already happened and absolutes about the past or present as claims; a pure promise about the future ("Iran will never have...") stays out, because no record can rule on it yet.

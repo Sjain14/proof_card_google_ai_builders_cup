@@ -310,6 +310,40 @@ def score_passage(query: str, passage: str) -> float:
     return match_passage(query, passage).score
 
 
+# A passage that only REPORTS the speaker making the claim ("Trump said he got all the
+# hostages back") proves he said it, not that it is true (Trump demo card, 16 Oct 2026).
+_QUOTED = re.compile(
+    r"[\"\u201c\u201d\u2018\u2019']([^\"\u201c\u201d]{12,600})[\"\u201c\u201d\u2019']"
+)
+_VERB = (
+    r"(?:said|says|claimed|claims|boasted|boasts|asserted|asserts|insisted|insists|told|"
+    r"declared|declares|touted|touts|repeated|bragged)"
+)
+# The speaker relaying his own line: "said he got", "he claimed", "she told reporters".
+# "NSO said GDP grew 8.2%" is an official source speaking, not reported speech.
+_SPEECH = re.compile(
+    rf"\b{_VERB}\s+(?:that\s+)?(?:he|she|they)\b|\b(?:he|she|they)\s+(?:has\s+|had\s+)?{_VERB}\b",
+    re.IGNORECASE,
+)
+_FIRST_PERSON = re.compile(r"\b(?:i|we|my|our|us|me|maine|hamne|humne|mera|hamara)\b|मैंने|हमने")
+
+
+def _content(s: str) -> set[str]:
+    return {t for t in _TOKEN.findall(_norm(s)) if t not in _STOP and len(t) > 2}
+
+
+def reports_claim(claim: str, passage: str) -> bool:
+    """True when the passage is the speaker's claim relayed (quoted, or a first person line
+    paraphrased under a speech verb), not an independent statement of the fact."""
+    want = _content(claim)
+    if not want:
+        return False
+    for q in _QUOTED.findall(passage):
+        if len(want & _content(q)) / len(want) >= 0.5:
+            return True
+    return bool(_FIRST_PERSON.search(_norm(claim)) and _SPEECH.search(passage))
+
+
 def best_match(query: str, text: str, window: int = 2) -> Match:
     """Best window by score, and separately the best contradicting window by topic."""
     best = Match("", 0.0, 0.0, False)

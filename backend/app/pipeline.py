@@ -33,6 +33,7 @@ from app.proof import (
     comparison_match,
     extract_text,
     is_comparison,
+    reports_claim,
     snapshot,
 )
 from app.schemas import (
@@ -351,6 +352,11 @@ def build_card(
             _skip(fetched.final_url, "low support", score=round(score, 3))
             trace.skip("low_support")
             continue
+        if assessment.verdict == Verdict.TRUE and reports_claim(claim, passage):
+            # The page relays the speaker saying it; that proves the quote, not the fact.
+            _skip(fetched.final_url, "reported speech")
+            trace.skip("reported_speech")
+            continue
         digest = snapshot(fetched, deps.snapshots)
         proofs.append(
             SourceProof(
@@ -366,6 +372,8 @@ def build_card(
             trace.reason = "no_evidence"
         elif trace.skips.get("low_support"):
             trace.reason = "low_support"
+        elif trace.skips.get("reported_speech"):
+            trace.reason = "reported_speech"
         else:
             trace.reason = "fetch_failed"
         log.info(

@@ -6,7 +6,7 @@ A source proves a comparison by stating both figures (here: table rows 90 lines 
 metric in the heading), never by repeating "higher than"."""
 
 from app.pipeline import build_card
-from app.proof import comparison_match, is_comparison
+from app.proof import comparison_match, is_comparison, reports_claim
 from app.schemas import Verdict
 from app.store import InMemoryStore
 from tests.test_pipeline import FakeModel, MapFetcher, deps
@@ -94,3 +94,35 @@ def test_both_sides_in_one_sentence() -> None:
     assert card.verdict is Verdict.FALSE
     # one side named, one figure: still not proof
     assert comparison_match(EN, "India's per capita GDP is $2,810, below Japan.").score < 1.0
+
+
+def test_reports_claim_spots_the_speaker_relayed_not_the_fact() -> None:
+    claim = "I got all the hostages back"
+    assert reports_claim(claim, 'Trump said, "I got all the hostages back," at the rally.')
+    assert reports_claim(claim, "Trump said he got all the hostages back from Gaza.")
+    assert reports_claim(claim, "He claimed every hostage was home.")
+    # independent statements of the fact pass
+    assert not reports_claim(claim, "Hamas released all 20 living hostages on 13 October.")
+    assert not reports_claim(
+        "We grew at 8.2 per cent", "The NSO said real GDP grew 8.2 per cent in 2023-24."
+    )
+    assert not reports_claim("", "Trump said he did it.")
+
+
+def test_true_card_never_rests_on_a_quote_of_the_speaker() -> None:
+    quote = "<p>Trump said he got all the hostages back, speaking at the rally on Monday.</p>"
+    fact = "<p>All the hostages were back in Israel after Hamas released them, officials said.</p>"
+    claim = "I got all the hostages back"
+    d = deps(
+        InMemoryStore(),
+        FakeModel(Verdict.TRUE, ["https://w/q"]),
+        MapFetcher({"https://w/q": quote}),
+    )
+    card = build_card(claim, d.model.assess(claim), d)
+    assert card is None or card.verdict is not Verdict.TRUE
+    d = deps(
+        InMemoryStore(), FakeModel(Verdict.TRUE, ["https://w/f"]), MapFetcher({"https://w/f": fact})
+    )
+    card = build_card(claim, d.model.assess(claim), d)
+    assert card is not None
+    assert card.verdict is Verdict.TRUE
