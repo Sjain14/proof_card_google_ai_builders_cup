@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.18 · p7-comparison-one-line
+- Prod regression on c668467 (brief 32aPEZxatdFuViIsQtmZWg): Hinglish per capita line now FALSE (was `failed`); the English line ended `failed` with a different grounded source set.
+- `app/proof.py` `comparison_match`: one line that names every topic word and states two whole figures ("Japan's is $35,700, while India's is $2,810") is proof on its own; `_figures()` counts "$35,700" as one number, years excluded.
+- Tests: `tests/test_comparison_proof.py::test_both_sides_in_one_sentence`.
+- Docs touched: SNAPSHOT, versions/v0.7.18, CHANGELOG.
+
 ## 2026-10-16 · v0.7.17 · p7-viewer-reconnect
 - Viewer link (spec §5, B1): owner toggles "Share viewer link" on `/s/:id/live` (`POST /api/sessions/{id}/share`, owner only); anyone with `/watch/:id` sees the live card stream on any phone, no audio, no sign in. Backed by public `GET /api/sessions/{id}/feed?since=` (opt in only, 404 otherwise, own token bucket `PC_FEED_RATE_PER_MIN`=60/min/IP, heard claims only, no owner fields), polled every 2 s, paused while the tab is hidden.
 - `ClaimDoc.updated_at` stamped by both stores on every update, so the feed cursor catches claims proved after they were heard. `ClaimView.matched` so a resumed desk keeps PREBUNKED badges.

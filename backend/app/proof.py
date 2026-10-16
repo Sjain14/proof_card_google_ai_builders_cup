@@ -345,6 +345,14 @@ def _figure(t: str) -> bool:
     return t.isdigit() and not (len(t) == 4 and 1900 <= int(t) <= 2100)
 
 
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _figures(line: str) -> int:
+    """Whole numbers in a line ("$35,700" is one), years left out."""
+    return sum(_figure(n.replace(",", "").split(".")[0]) for n in _NUMBER.findall(_norm(line)))
+
+
 def comparison_match(query: str, text: str, max_rows: int = 2) -> Match:
     """Evidence for a figure-less comparison: the lines that give each side's figure plus
     the line that names the metric, from the same page. Tables keep each country on its
@@ -372,7 +380,11 @@ def comparison_match(query: str, text: str, max_rows: int = 2) -> Match:
             break
         picked.append(best)
         left -= cover(best, left)
-    if len(picked) < 2:
+    # One line can hold both sides ("Japan's is $35,700, while India's is $2,810"): it
+    # names every topic word and carries at least two figures (prod 16 Oct, English
+    # wording ended `failed` when the grounded source stated the pair in one sentence).
+    both = len(picked) == 1 and not left and _figures(lines[picked[0]]) >= 2
+    if len(picked) < 2 and not both:
         return Match("", 0.0, 0.0, False)
     if left:  # the metric usually sits in the heading or the table caption
         ctx = max(

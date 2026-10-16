@@ -73,3 +73,24 @@ def test_a_number_claim_is_untouched() -> None:
     )
     card = build_card("India per capita GDP is 99,999 dollars", d.model.assess(""), d)
     assert card is None or card.support_score < 1.0
+
+
+def test_both_sides_in_one_sentence() -> None:
+    page = (
+        "According to the IMF, Japan's nominal GDP per capita is estimated at $35,700, "
+        "while India's per capita GDP is $2,810 in 2026."
+    )
+    for q in (EN, HINGLISH):
+        m = comparison_match(q, page)
+        assert m.score == 1.0, q
+        assert "$2,810" in m.passage
+    d = deps(
+        InMemoryStore(),
+        FakeModel(Verdict.FALSE, ["https://w/one"]),
+        MapFetcher({"https://w/one": f"<p>{page}</p>"}),
+    )
+    card = build_card(EN, d.model.assess(EN), d)
+    assert card is not None
+    assert card.verdict is Verdict.FALSE
+    # one side named, one figure: still not proof
+    assert comparison_match(EN, "India's per capita GDP is $2,810, below Japan.").score < 1.0
