@@ -2,6 +2,11 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-16 · v0.7.27 · p27-wayback-official
+pib.gov.in refuses every Cloud Run request (403) and times out from every datacenter and proxy line tried; run 5 lost 50 of 108 facts to fetch failures, mostly PIB. The Wayback Machine holds dated copies of PIB press releases (PRID 1847862: 4 Aug 2022), and archive.org serves datacenter IPs.
+- `app/facts.py`: when an OFFICIAL source refused us (403/401/429/timeout), `verify_candidate` reads its raw Wayback copy (`web.archive.org/web/<speech day>id_/<url>`, nearest snapshot) with the same gate: passage >= 0.35 and the figure on it. Kept as `checked: "archive"`, citing the archive URL. `official()` judges an archive URL by its original. Search grounding stays the last fallback. `stats.kept_archive` counts them.
+- Docs touched: CHANGELOG, SNAPSHOT.
+
 ## 2026-10-16 · v0.7.26 · p26-dated-fact-bank
 Prod run 5 on v0.7.25 (7dhIVHRKhvo, a 1 Aug 2022 speech): 108 researched, 10 kept (all official), 0 live lines decided. The bank held September 2026 figures; the speech cites the IMF's July 2022 cut (8.2% to 7.4%), so no fact ever matched the period of a line. 35 drops were low support on mospi.gov.in / rbi.org.in pages that do state the figure: the statement's attribution tail ("..., according to provisional estimates released by MoSPI") is never on the page and dragged the score to 0.04-0.27.
 - `app/pipeline.py`: `youtube_published()` reads the publish date from the watch page (schema.org `datePublished` / `uploadDate`, or ytInitialData `publishDate`; oEmbed has no date). `Deps.video_date` wires it on prod. The prediction prompt and the fact research get the speech day.

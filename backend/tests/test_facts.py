@@ -12,6 +12,7 @@ from app.facts import (
     MIN_REUSE,
     Candidate,
     Ruling,
+    archived_original,
     bank_key,
     build_bank,
     candidates_from,
@@ -24,6 +25,7 @@ from app.facts import (
     parse_json_list,
     render_facts,
     verify_candidate,
+    wayback_url,
     when_line,
 )
 from app.model import Assessment
@@ -523,3 +525,26 @@ def test_prebunk_researches_the_video_day_and_rules_with_it() -> None:
     assert "-d20220801-" in s.fact_bank_key
     assert desk.dates[0] == "2022-08-01"
     assert "2022-08-01" in desk.dates[1:]  # the ruling sees the speech date too
+
+
+class BlockedFetcher(MapFetcher):
+    def fetch(self, url: str) -> Fetched:
+        if "pib.gov.in" in url and "web.archive.org" not in url:
+            self.calls.append(url)
+            raise FetchError("status 403")
+        return super().fetch(url)
+
+
+def test_blocked_official_page_is_read_from_its_wayback_copy() -> None:
+    orig = "https://pib.gov.in/PressReleasePage.aspx?PRID=1847862"
+    copy = wayback_url(orig, "2022-08-01")
+    assert copy == f"https://web.archive.org/web/20220801id_/{orig}"
+    assert archived_original(copy) == orig
+    assert official(copy)
+    assert not official("https://web.archive.org/web/2id_/https://blog.example.com/x")
+    c = Candidate("India's real GDP grew 8.2 per cent in 2023-24", value="8.2", urls=(orig,))
+    got = verify_candidate(c, BlockedFetcher({copy: GDP}), "2022-08-01")
+    assert not isinstance(got, str)
+    assert got[0] == copy
+    assert got[3] == "archive"
+    assert verify_candidate(c, BlockedFetcher({}), "2022-08-01") == "fetch:archive nope"

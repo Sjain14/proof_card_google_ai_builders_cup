@@ -30,6 +30,7 @@ Updated by every PR. Newest state only; history lives in CHANGELOG.md and `versi
 - v0.7.24: PIB blocks Cloud Run by IP: research cites MoSPI/RBI originals; a blocked official page counts only when Google Search grounding backs the statement from that same host (`checked: search`).
 - v0.7.25: a failed claim prediction no longer fails a session that has a verified fact bank (it ends ready, live lines ruled against the bank).
 - v0.7.26: fact bank anchored to the video's publish date (own bank per date, research + rulings told the speech day), 12 angles, facts matched without their attribution tail.
+- v0.7.27: an official page that blocks our server (pib.gov.in) is read from its Wayback Machine copy nearest the speech day (`checked: archive`), still with passage + figure.
 - Gates: backend ruff, format, mypy strict, pytest (171 passed, coverage 97.89%), pip-audit; frontend tsc strict, vitest (11 passed), build, npm audit; Firestore rules tests.
 
 ## Not built (never claim, see SUBMISSION_DRAFT.md §4)

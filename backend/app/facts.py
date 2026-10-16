@@ -75,8 +75,25 @@ _OFFICIAL_HOSTS = frozenset(
 _NUM = re.compile(r"\d+(?:[.,]\d+)*")
 
 
+_WAYBACK = re.compile(r"^https?://web\.archive\.org/web/\d{1,14}(?:id_)?/(https?://.+)$")
+
+
+def archived_original(url: str) -> str:
+    """The page a Wayback Machine copy is of (web.archive.org/web/<ts>id_/<url>), else url."""
+    m = _WAYBACK.match(url)
+    return m.group(1) if m else url
+
+
+def wayback_url(url: str, said_on: str = "") -> str:
+    """Raw (id_) Wayback copy nearest the speech day; the latest copy when undated.
+    Docs: https://archive.org/developers/wayback-cdx-server.html (URL form + id_ flag)."""
+    stamp = said_on.replace("-", "") or "2"
+    return f"https://web.archive.org/web/{stamp}id_/{url}"
+
+
 def official(url: str) -> bool:
-    host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+    """An official record, also when read through its Wayback Machine copy."""
+    host = (urlsplit(archived_original(url)).hostname or "").lower().removeprefix("www.")
     return host.endswith(_OFFICIAL_SUFFIXES) or any(
         host == h or host.endswith("." + h) for h in _OFFICIAL_HOSTS
     )
@@ -164,7 +181,32 @@ def _blocked(exc: Exception) -> bool:
     return any(k in msg for k in ("403", "401", "429", "Timeout", "Connect"))
 
 
-def verify_candidate(c: Candidate, fetcher: Fetcher) -> tuple[str, str, float, str] | str:
+def _read(c: Candidate, fetcher: Fetcher, url: str) -> tuple[str, str, float] | str:
+    """(final_url, passage, score) when this page states the fact, else the drop reason.
+    Raises on fetch failure."""
+    want = _numbers(c.value) or _numbers(c.statement)
+    fetched = fetcher.fetch(url)
+    try:
+        if is_worldbank(fetched.final_url):
+            text = render_official(fetched.body)
+        else:
+            text = extract_text(fetched.body, fetched.content_type)
+        queries = dict.fromkeys([c.statement, core_statement(c.statement)])
+        m = max((best_match(q, text) for q in queries), key=lambda x: x.score) if text else None
+    except Exception as exc:  # a broken PDF or page never sinks the whole bank
+        return f"parse:{type(exc).__name__}"
+    if m is None:
+        return "no_text"
+    if m.score < FACT_SUPPORT or not m.passage:
+        return f"low_support:{m.score:.2f}"
+    if want and not (want & _numbers(m.passage)):
+        return "figure_missing"
+    return fetched.final_url, m.passage, m.score
+
+
+def verify_candidate(
+    c: Candidate, fetcher: Fetcher, said_on: str = ""
+) -> tuple[str, str, float, str] | str:
     """(url, passage, score, checked) of the first source that states the fact, else the
     reason the last source failed. checked="page": we fetched the page and the figure is on
     it (an on topic page with another number is not the source of this fact).
@@ -176,32 +218,29 @@ def verify_candidate(c: Candidate, fetcher: Fetcher) -> tuple[str, str, float, s
     blocked: list[str] = []
     for url in list(dict.fromkeys(u for u in c.urls if u.startswith("http")))[:URLS_PER_FACT]:
         try:
-            fetched = fetcher.fetch(url)
+            got = _read(c, fetcher, url)
         except Exception as exc:  # FetchError, timeouts: try the next source
             reason = f"fetch:{str(exc)[:40] or type(exc).__name__}"
             if official(url) and _blocked(exc):
                 blocked.append(url)
             continue
+        if isinstance(got, str):
+            reason = got
+            continue
+        return got[0], got[1], got[2], "page"
+    # An official page that refuses our server (pib.gov.in 403s every Cloud Run request):
+    # read the same page from its Wayback Machine copy nearest the speech day. The card
+    # cites the archive URL, which names the official original.
+    for url in blocked:
         try:
-            if is_worldbank(fetched.final_url):
-                text = render_official(fetched.body)
-            else:
-                text = extract_text(fetched.body, fetched.content_type)
-            queries = dict.fromkeys([c.statement, core_statement(c.statement)])
-            m = max((best_match(q, text) for q in queries), key=lambda x: x.score) if text else None
-        except Exception as exc:  # a broken PDF or page never sinks the whole bank
-            reason = f"parse:{type(exc).__name__}"
+            got = _read(c, fetcher, wayback_url(url, said_on))
+        except Exception as exc:
+            reason = f"fetch:archive {str(exc)[:30] or type(exc).__name__}"
             continue
-        if m is None:
-            reason = "no_text"
+        if isinstance(got, str):
+            reason = got
             continue
-        if m.score < FACT_SUPPORT or not m.passage:
-            reason = f"low_support:{m.score:.2f}"
-            continue
-        if want and not (want & _numbers(m.passage)):
-            reason = "figure_missing"
-            continue
-        return fetched.final_url, m.passage, m.score, "page"
+        return got[0], got[1], got[2], "archive"
     if reason.startswith("fetch:") and want:
         grounded = {h.removeprefix("www.") for h in c.grounded}
         for url in blocked:
@@ -254,7 +293,7 @@ def build_bank(
     cands = _dedupe(c for batch in batches for c in batch)
     t2 = time.monotonic()
     with ThreadPoolExecutor(max_workers=VERIFY_WORKERS, thread_name_prefix="factsrc") as p:
-        checked = list(p.map(lambda c: verify_candidate(c, fetcher), cands))
+        checked = list(p.map(lambda c: verify_candidate(c, fetcher, said_on), cands))
     t3 = time.monotonic()
     kept = [(c, v) for c, v in zip(cands, checked, strict=True) if not isinstance(v, str)]
     reasons = Counter(v.split(":")[0] for v in checked if isinstance(v, str))
@@ -274,6 +313,7 @@ def build_bank(
     kept.sort(key=lambda cv: (not official(cv[1][0]), cv[1][3] == "search", -cv[1][2]))
     facts: list[Fact] = []
     stats["kept_search"] = sum(v[3] == "search" for _, v in kept)
+    stats["kept_archive"] = sum(v[3] == "archive" for _, v in kept)
     for c, (url, passage, score, how) in kept:
         if len(facts) >= MAX_FACTS:
             break

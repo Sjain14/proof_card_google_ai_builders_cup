@@ -131,8 +131,9 @@ class Fact(Strict):
     support: Annotated[float, Field(ge=0.0, le=1.0)]
     official: bool = False
     # page = passage read on the fetched page; search = official page blocks our server,
-    # the statement was backed by Google Search grounding on that same official host.
-    checked: Literal["page", "search"] = "page"
+    # the statement was backed by Google Search grounding on that same official host;
+    # archive = official page blocks our server, read on its Wayback Machine copy.
+    checked: Literal["page", "search", "archive"] = "page"
 
 
 class FactBankDoc(Strict):
