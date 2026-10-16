@@ -83,7 +83,7 @@ class Inner:
     def predict_claims(self, topic: str, speaker: str, n: int) -> list[PredictedClaim]:
         return [PredictedClaim("c")]
 
-    def assess(self, claim: str) -> Assessment:
+    def assess(self, claim: str, hint: str = "") -> Assessment:
         return Assessment(
             Verdict.FALSE,
             "why",

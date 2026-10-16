@@ -41,7 +41,7 @@ class Inner:
     def predict_claims(self, topic: str, speaker: str, n: int) -> list[PredictedClaim]:
         return [PredictedClaim(f"model guess {i} with 1{i} percent") for i in range(n)]
 
-    def assess(self, claim: str) -> Assessment:
+    def assess(self, claim: str, hint: str = "") -> Assessment:
         return Assessment(Verdict.UNVERIFIABLE, "x", [], claim_en=claim)
 
 

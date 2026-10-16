@@ -88,12 +88,12 @@ class Assessment:
 
 class ModelClient(Protocol):
     def predict_claims(self, topic: str, speaker: str, n: int) -> list[PredictedClaim]: ...
-    def assess(self, claim: str) -> Assessment: ...
+    def assess(self, claim: str, hint: str = "") -> Assessment: ...
 
 
 # ---------- prompts (kept here so they are versioned and reviewable) ----------
 
-PROMPT_VERSION = "2026-10-16.1"
+PROMPT_VERSION = "2026-10-16.3"
 
 PREDICT_PROMPT = """You are the research desk of an Indian fact-checking newsroom preparing
 for a live broadcast. Topic: {topic}
@@ -196,7 +196,7 @@ class StubModel:
             PredictedClaim(text=c.text, lang=c.lang, why=c.why) for c in claims_for_topic(topic)
         ][:n]
 
-    def assess(self, claim: str) -> Assessment:
+    def assess(self, claim: str, hint: str = "") -> Assessment:
         from app.fixtures import assessment_for
 
         fx = assessment_for(claim)
@@ -232,12 +232,12 @@ class VertexModel:  # pragma: no cover - needs a GCP project; covered by the par
         )
         return parse_predictions(resp.text or "", n)
 
-    def assess(self, claim: str) -> Assessment:
+    def assess(self, claim: str, hint: str = "") -> Assessment:
         from google.genai import types
 
         resp = self.client.models.generate_content(
             model=self.model,
-            contents=ASSESS_PROMPT.format(claim=claim),
+            contents=ASSESS_PROMPT.format(claim=claim) + (f"\n{hint}\n" if hint else ""),
             config=types.GenerateContentConfig(
                 temperature=0.0,
                 tools=[types.Tool(google_search=types.GoogleSearch())],

@@ -13,6 +13,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from app.govsources import search_hint
 from app.model import Assessment, Evidence, ModelClient
 from app.officialdata import is_worldbank, official_evidence, official_proof
 from app.officialdata import render as render_official
@@ -199,7 +200,9 @@ def verify_claim(session_id: str, claim_id: str, deps: Deps) -> str | None:
         return None
     deps.store.update_claim(session_id, claim_id, status=ClaimStatus.CHECKING)
     try:
-        card = build_card(claim.text, deps.model.assess(claim.text), deps)
+        session = deps.store.get_session(session_id)
+        hint = search_hint(session.speaker if session else "", claim.text)
+        card = build_card(claim.text, deps.model.assess(claim.text, hint), deps)
     except Exception:
         log.exception("verify failed")
         card = None

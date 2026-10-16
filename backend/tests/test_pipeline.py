@@ -205,7 +205,7 @@ class FakeModel:
     def predict_claims(self, topic: str, speaker: str, n: int) -> list[Any]:
         return []
 
-    def assess(self, claim: str) -> Assessment:
+    def assess(self, claim: str, hint: str = "") -> Assessment:
         return Assessment(self.verdict, "why", [Evidence(url=u) for u in self.urls])
 
 
@@ -278,7 +278,7 @@ def test_true_claim_with_wrong_number_is_never_true() -> None:
 def test_hinglish_claim_matches_english_page_via_claim_en() -> None:
     @dataclass
     class Translating(FakeModel):
-        def assess(self, claim: str) -> Assessment:
+        def assess(self, claim: str, hint: str = "") -> Assessment:
             return Assessment(
                 self.verdict,
                 "why",
@@ -336,7 +336,7 @@ def test_verify_claim_failure_marks_failed() -> None:
 
 def test_verify_claim_model_crash_is_contained() -> None:
     class Boom(FakeModel):
-        def assess(self, claim: str) -> Assessment:
+        def assess(self, claim: str, hint: str = "") -> Assessment:
             raise RuntimeError("quota")
 
     store = InMemoryStore()

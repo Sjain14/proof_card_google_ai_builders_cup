@@ -33,7 +33,7 @@ class GoldModel:
     def predict_claims(self, topic: str, speaker: str, n: int) -> list[PredictedClaim]:
         return []
 
-    def assess(self, claim: str) -> Assessment:
+    def assess(self, claim: str, hint: str = "") -> Assessment:
         if claim.startswith("crash"):
             raise RuntimeError("model down")
         return Assessment(self.label[claim], "why", [Evidence("https://src.example/" + claim)])

@@ -144,8 +144,8 @@ class FactCheckedModel:
         log.info("bank seeded", extra={"fields": {"rated": len(seeds), "model": len(model)}})
         return merged[:n]
 
-    def assess(self, claim: str) -> Assessment:
-        a = self.inner.assess(claim)
+    def assess(self, claim: str, hint: str = "") -> Assessment:
+        a = self.inner.assess(claim, hint)
         reviews = self.client.search(claim)
         if not reviews:
             return a
