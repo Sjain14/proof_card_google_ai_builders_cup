@@ -38,6 +38,15 @@ GENERATE_TIMEOUT_S = 90.0  # grounded assess: search + long answer
 FAST_TIMEOUT_S = 10.0  # live path: spotter, judge, embeddings
 
 
+def _fast_thinking() -> Any:
+    """Live path classifiers (spotter, judge) answer yes/no or a short list: minimal
+    thinking keeps them at ~1 s instead of seconds. The grounded assess keeps the default.
+    Docs: https://cloud.google.com/vertex-ai/generative-ai/docs/thinking"""
+    from google.genai import types
+
+    return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
+
+
 def vertex_client(project: str, location: str, timeout_s: float) -> Any:  # pragma: no cover
     from google import genai
     from google.genai import types

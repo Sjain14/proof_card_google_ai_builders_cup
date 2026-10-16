@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -40,12 +41,10 @@ from app.store import Store, new_card_id
 log = logging.getLogger("proofcard.pipeline")
 
 MIN_PASSAGE_SCORE = 0.35
-# Sources are fetched in parallel under ONE budget for the whole card. Sequential fetches
-# (8 s timeout per source, up to ~10 grounding chunks) made one live card take 120 s
-# (rev00012 prod verify, "power plants" line). A source still loading at the deadline is
-# skipped like any other failed fetch.
-FETCH_BUDGET_S = 20.0
-MAX_CANDIDATES = 8
+# ONE fetch budget for the whole card. Without it, 8 s per source over ~10 grounding
+# chunks made one live card take 120 s (rev00012 prod verify, "power plants" line).
+# A source still loading at the deadline is skipped like any other failed fetch.
+FETCH_BUDGET_S = 25.0
 
 
 @dataclass(frozen=True)
@@ -93,28 +92,33 @@ def _skip(url: str, reason: str, **more: object) -> None:
 
 def fetch_all(
     evidence: list[Evidence], fetcher: Fetcher, budget_s: float = FETCH_BUDGET_S
-) -> list[tuple[Evidence, Fetched]]:
-    """Fetch up to MAX_CANDIDATES sources at once; keep the model's order (best first)."""
-    cands = evidence[:MAX_CANDIDATES]
-    if not cands:
-        return []
-    pool = ThreadPoolExecutor(max_workers=len(cands), thread_name_prefix="fetch")
-    futures: list[Future[Fetched]] = [pool.submit(fetcher.fetch, ev.url) for ev in cands]
+) -> Iterator[tuple[Evidence, Fetched]]:
+    """Sources in the model's order (best first), one at a time, under ONE budget for the
+    whole card. Each fetch runs in a worker so a slow drip page can't outlive the budget.
+    Sequential on purpose: the parallel version (#41) sent up to 8 requests at once
+    through the grounding redirect host and the per capita comparison card stopped
+    proving on prod (FAILED 3 of 3 vs FALSE before)."""
     deadline = time.monotonic() + budget_s
-    out: list[tuple[Evidence, Fetched]] = []
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fetch")
     try:
-        for ev, fut in zip(cands, futures, strict=True):
+        for ev in evidence:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                _skip(ev.url, "fetch budget")
+                continue
+            fut: Future[Fetched] = pool.submit(fetcher.fetch, ev.url)
             try:
-                out.append((ev, fut.result(timeout=max(0.0, deadline - time.monotonic()))))
+                yield ev, fut.result(timeout=left)
             except FetchError as exc:
                 _skip(ev.url, str(exc))
             except TimeoutError:
                 _skip(ev.url, "fetch budget")
+                pool.shutdown(wait=False, cancel_futures=True)
+                pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fetch")
             except Exception as exc:  # one broken source never fails the card
                 _skip(ev.url, type(exc).__name__)
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
-    return out
 
 
 def build_card(claim: str, assessment: Assessment, deps: Deps) -> CardDoc | None:

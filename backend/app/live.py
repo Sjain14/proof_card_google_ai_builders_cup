@@ -26,7 +26,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from app.model import FAST_TIMEOUT_S, vertex_client
+from app.model import FAST_TIMEOUT_S, _fast_thinking, vertex_client
 from app.pipeline import Deps, verify_claim
 from app.schemas import ClaimDoc, ClaimSource, ClaimStatus
 
@@ -35,7 +35,9 @@ log = logging.getLogger("proofcard.live")
 MATCH_THRESHOLD = 0.80  # cosine; calibrated in tests/test_live.py, re-check on the demo clip
 INSTANT_THRESHOLD = 0.90  # at or above (same numbers): card at once, no judge call
 MAX_SENTENCE_CHARS = 600
-SPOT_TIMEOUT_S = 12.0  # client timeout (10 s) plus slack; past it the heuristic decides
+# Past this the heuristic decides (check the whole line). 12 s used to eat most of a live
+# card's budget when the spotter stalled (rev00012: heard -> checking took 12 s).
+SPOT_TIMEOUT_S = 4.0
 EMBED_DIMS = 768
 
 
@@ -158,6 +160,7 @@ class VertexSpotter:  # pragma: no cover - needs a GCP project
                 temperature=0.0,
                 response_mime_type="application/json",
                 response_schema={"type": "ARRAY", "items": {"type": "STRING"}},
+                thinking_config=_fast_thinking(),
             ),
         )
         try:
@@ -205,6 +208,7 @@ class VertexJudge:  # pragma: no cover - needs a GCP project
                 contents=JUDGE_PROMPT.format(heard=heard, checked=checked),
                 config=types.GenerateContentConfig(
                     temperature=0.0,
+                    thinking_config=_fast_thinking(),
                     response_mime_type="application/json",
                     response_schema={
                         "type": "OBJECT",

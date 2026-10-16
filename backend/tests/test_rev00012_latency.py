@@ -1,6 +1,7 @@
 """rev00012 prod verify (16 Oct 2026): the live "power plants" card took 120 s. Sources
-were fetched one after another (8 s timeout each, up to ~10 grounding chunks). Now they
-are fetched in parallel under one budget per card, best source first as before."""
+were fetched one after another with no cap on the total (8 s timeout each, up to ~10
+grounding chunks). Now one budget covers the whole card, still one source at a time and
+best first (a parallel fetch broke the per capita comparison card on prod)."""
 
 from __future__ import annotations
 
@@ -61,44 +62,47 @@ def _assessment(urls: list[str]) -> Assessment:
     )
 
 
-def test_sources_fetch_in_parallel() -> None:
+def test_budget_caps_the_whole_card() -> None:
     f = _Slow(sleep=0.3)
-    urls = [f"https://s{i}.example/a" for i in range(6)]
+    urls = [f"https://s{i}.example/a" for i in range(10)]
     t0 = time.monotonic()
-    got = fetch_all([_ev(u) for u in urls], f)
-    assert time.monotonic() - t0 < 1.2  # 6 x 0.3 s sequential would be 1.8 s
-    assert f.peak == 6
-    assert [ev.url for ev, _ in got] == urls  # model order kept
+    got = list(fetch_all([_ev(u) for u in urls], f, budget_s=1.0))
+    assert time.monotonic() - t0 < 1.6  # 10 x 0.3 s unbounded would be 3 s
+    assert f.peak == 1  # one at a time, like before
+    assert [ev.url for ev, _ in got] == urls[: len(got)]  # model order kept
+    assert 2 <= len(got) <= 4
 
 
-def test_budget_skips_a_hanging_source_and_failures() -> None:
+def test_hanging_source_and_failures_are_skipped() -> None:
     f = _Slow(sleep=0.05)
     urls = [
-        "https://hang.example/a",
         "https://bad.example/a",
         "https://boom.example/a",
         "https://ok.example/a",
+        "https://hang.example/a",
+        "https://ok2.example/a",
     ]
     t0 = time.monotonic()
-    got = fetch_all([_ev(u) for u in urls], f, budget_s=0.5)
+    got = list(fetch_all([_ev(u) for u in urls], f, budget_s=0.8))
     assert time.monotonic() - t0 < 1.5
     assert [ev.url for ev, _ in got] == ["https://ok.example/a"]
+    assert list(fetch_all([], f)) == []
 
 
-def test_candidates_capped_and_empty() -> None:
-    f = _Slow(sleep=0)
-    many = [_ev(f"https://s{i}.example/a") for i in range(20)]
-    assert len(fetch_all(many, f)) == pipeline_mod.MAX_CANDIDATES
-    assert fetch_all([], f) == []
-
-
-def test_card_built_from_parallel_fetch_fast() -> None:
-    f = _Slow(sleep=0.3)
+def test_card_stops_fetching_after_enough_proofs() -> None:
+    f = _Slow(sleep=0.05)
     deps = Deps(InMemoryStore(), None, f, InMemorySnapshots())  # type: ignore[arg-type]
-    urls = ["https://bad.example/a"] + [f"https://s{i}.example/a" for i in range(5)]
-    t0 = time.monotonic()
+    urls = ["https://bad.example/a"] + [f"https://s{i}.example/a" for i in range(8)]
     card = build_card("Biden closed more than 100 power plants", _assessment(urls), deps)
-    assert time.monotonic() - t0 < 1.2
     assert card is not None
     assert len(card.sources) == deps.max_sources
     assert str(card.sources[0].url) == "https://s0.example/a"
+    assert pipeline_mod.FETCH_BUDGET_S <= 30
+
+
+def test_live_classifiers_are_fast() -> None:
+    import app.live as live_mod
+    from app.model import _fast_thinking
+
+    assert live_mod.SPOT_TIMEOUT_S <= 5.0  # heard -> checking took 12 s on prod
+    assert str(_fast_thinking().thinking_level).endswith("MINIMAL")
