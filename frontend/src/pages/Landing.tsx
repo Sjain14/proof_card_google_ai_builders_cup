@@ -297,20 +297,106 @@ const VS: readonly [Key, Key][] = [
   ["land.vs5h", "land.vs5"],
 ];
 
-/** "Why not just ask an AI?": the points slide in one by one and get stamped as they arrive. */
+/** Section scroll progress (0..1) as --vs-p, a stage phase, and which points the scroll has reached. */
+function useVsScroll(n: number) {
+  const sec = useRef<HTMLElement | null>(null);
+  const stage = useRef<HTMLDivElement | null>(null);
+  const rows = useRef<(HTMLLIElement | null)[]>([]);
+  useEffect(() => {
+    const el = sec.current;
+    if (!el) return;
+    const paint = (p: number, lit: number) => {
+      el.style.setProperty("--vs-p", p.toFixed(3));
+      if (stage.current) stage.current.dataset.phase = String(p < 0.18 ? 0 : p < 0.42 ? 1 : 2);
+      rows.current.forEach((r, k) => r?.classList.toggle("on", k < lit));
+    };
+    if (reducedMotion() || typeof IntersectionObserver === "undefined") {
+      paint(1, n);
+      return;
+    }
+    let raf = 0;
+    const tick = () => {
+      raf = 0;
+      const vh = window.innerHeight || 800;
+      const r = el.getBoundingClientRect();
+      const line = vh * 0.62;
+      const p = Math.min(1, Math.max(0, (line - r.top) / Math.max(1, r.height - vh * 0.25)));
+      let lit = 0;
+      rows.current.forEach((row) => {
+        if (row && row.getBoundingClientRect().top + 24 < line) lit++;
+      });
+      paint(p, lit);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(tick);
+    };
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e?.isIntersecting) {
+          window.addEventListener("scroll", onScroll, { passive: true });
+          window.addEventListener("resize", onScroll);
+          onScroll();
+        } else {
+          window.removeEventListener("scroll", onScroll);
+          window.removeEventListener("resize", onScroll);
+        }
+      },
+      { threshold: 0 },
+    );
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [n]);
+  return { sec, stage, rows };
+}
+
+/** "Why not just ask an AI?": as you scroll, a plain answer turns into a proof card and each point lights up. */
 function WhyNotAi() {
+  const { sec, stage, rows } = useVsScroll(VS.length);
+  const claim = t("land.s2.claim");
   return (
-    <section id="why-ai" className="vs" aria-labelledby="vs-h">
+    <section id="why-ai" className="vs" aria-labelledby="vs-h" ref={sec}>
       <Reveal className="vs-copy">
         <p className="eyebrow">{t("land.vsEyebrow")}</p>
         <h2 id="vs-h" className="big serif">
           {t("land.vsH")}
         </h2>
         <p className="lede">{t("land.vsBody")}</p>
+        <div className="vs-stage" ref={stage} data-phase="0" aria-hidden="true">
+          <p className="vs-claim">{claim}</p>
+          <div className="vs-ans">
+            <span className="mono label">{t("land.vsAnsLabel")}</span>
+            <p>{t("land.vsAns")}</p>
+          </div>
+          <div className="vs-proof">
+            <span className="mono label">
+              {t("land.passage")} · legislative.gov.in
+            </span>
+            <mark>{t("land.s2.why")}</mark>
+            <div className="vs-verdict">
+              <span className="stamp">
+                <VerdictPill verdict="TRUE" />
+              </span>
+              <span className="mono fp">
+                {t("land.fingerprint")} {demoHash(claim + "TRUE")}
+              </span>
+            </div>
+          </div>
+          <span className="live-ill">{t("land.illustrative")}</span>
+        </div>
       </Reveal>
       <ol className="vs-list">
         {VS.map(([h, b], i) => (
-          <li key={h}>
+          <li
+            key={h}
+            ref={(r) => {
+              rows.current[i] = r;
+            }}
+          >
             <Reveal delay={i * 110} className="vs-row">
               <span className="vs-tick" aria-hidden="true">
                 ✓
