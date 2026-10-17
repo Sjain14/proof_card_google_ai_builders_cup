@@ -996,16 +996,22 @@ def create_app(
                 i = futures[fut]
                 card_id = fut.result()
                 card = store.get_card(card_id) if card_id else None
-                send_claim_result(
-                    app.state.bot_api,
-                    s.alert_chat_id,
-                    claims[i][1].text,
-                    card,
-                    card_id,
-                    settings.public_base_url,
-                    reply_to=s.tg_reply_to,
-                    label=f"{i + 1}/{n}" if n > 1 else "",
-                )
+                try:
+                    send_claim_result(
+                        app.state.bot_api,
+                        s.alert_chat_id,
+                        claims[i][1].text,
+                        card,
+                        card_id,
+                        settings.public_base_url,
+                        reply_to=s.tg_reply_to,
+                        label=f"{i + 1}/{n}" if n > 1 else "",
+                    )
+                except Exception:
+                    # One failed send (network blip to Telegram) must not drop the other
+                    # verdicts of the forward, nor make a Cloud Tasks retry re-send the
+                    # ones already delivered.
+                    log.warning("bot verdict send failed", exc_info=True)
         # shortcut: a Cloud Tasks retry after a crash mid-loop re-sends verdicts already
         # out; per-claim sent flags if that ever shows up in prod.
         store.update_session(session_id, status="closed")
@@ -1054,7 +1060,12 @@ def create_app(
                 sid, ClaimDoc(text=c[:4_000], lang=claim_lang(c), source=ClaimSource.LIVE)
             )
         log.info("bot claim queued", extra={"fields": {"session": sid}})
-        ack()
+        try:
+            ack()
+        except Exception:
+            # The "checking" line is a courtesy: if it fails the check must still be
+            # queued, or the person waits for a verdict that never comes.
+            log.warning("bot ack failed, checking anyway", exc_info=True)
         app.state.queue.enqueue_check(sid, lambda: run_bot_check(sid))
         return "queued"
 

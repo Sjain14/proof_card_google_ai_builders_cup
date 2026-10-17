@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.63 · p63-bot-check-resilience
+Code review (17 Oct, no live runs): one failed Telegram call could leave a person without a verdict.
+- `check_claim`: if the "Checking this claim" line fails (network blip), the check is still queued; before, the session was created but never checked.
+- `run_bot_check`: one verdict that fails to send no longer drops the other verdicts of a forward, and the run still closes, so a Cloud Tasks retry doesn't re-send verdicts already delivered.
+- Tests: `tests/test_bot_check_resilience.py` (both fail on the old code, pass now).
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.62 · p62-tg-verdict-always-delivered
 Code review (17 Oct, no live runs): two ways a Telegram verdict or live alert could silently never arrive.
 - A long card caption was cut at 997 chars of finished HTML. The cut could land inside an escaped entity (an apostrophe is `&#x27;`) and Telegram then refuses the whole photo, so the person got nothing; every cut also dropped the Sources line and card id. `telegram.fit_caption` now shortens the explanation, then the claim, as plain text before escaping; verdict, sources and card id always stay.
