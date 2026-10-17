@@ -177,5 +177,8 @@ npx firebase emulators:exec --only firestore --project demo-proofcard --config .
 - Project docs, plans and dev memory: [`context/`](context/00_README.md)
 - Where the build is right now: [`context/SNAPSHOT.md`](context/SNAPSHOT.md)
 
+## License
+MIT, see [`LICENSE`](LICENSE). Third party packages and the Noto fonts keep their own licences, listed below.
+
 ## Credits and licences
 Built on open source and Google services; full list with licences in [`NOTICES.md`](NOTICES.md). Fonts: Noto Sans + Noto Sans Devanagari (SIL OFL 1.1, `backend/app/assets/fonts/OFL.txt`).
