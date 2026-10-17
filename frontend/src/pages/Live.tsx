@@ -195,6 +195,22 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     setMode("ended");
   };
 
+  const [link, setLink] = useState("");
+  const addVideo = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    const url = link.trim();
+    if (!session) return;
+    if (!youtubeId(url)) return setNote(t("live.linkBad"));
+    try {
+      const r = await api.setVideo(id, url);
+      setSession({ ...session, youtube_url: r.youtube_url });
+      setLink("");
+      setNote(t("live.linkAdded"));
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : t("live.wrong"));
+    }
+  };
+
   const [copied, setCopied] = useState(false);
   const toggleShare = async () => {
     if (!session) return;
@@ -305,7 +321,20 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
               allowFullScreen
             />
           ) : (
-            <div className="player empty"><p className="muted">{t("live.noVideo")}</p></div>
+            <div className="player empty">
+              <p className="muted">{t("live.noVideo")}</p>
+              <form className="line" onSubmit={(e) => void addVideo(e)}>
+                <input
+                  type="url"
+                  inputMode="url"
+                  value={link}
+                  onChange={(e) => setLink(e.target.value)}
+                  placeholder={t("live.linkPh")}
+                  aria-label={t("live.linkLabel")}
+                />
+                <button className="btn small" type="submit">{t("live.linkAdd")}</button>
+              </form>
+            </div>
           )}
           {canReplay && (
             <button className="btn ghost small" type="button" onClick={() => setReplay((r) => !r)}>

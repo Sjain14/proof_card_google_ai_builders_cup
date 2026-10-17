@@ -91,6 +91,7 @@ from app.schemas import (
     ShareRequest,
     TaskPrebunk,
     TgUpdate,
+    VideoRequest,
 )
 from app.security import TokenBucket, sha256_hex, telegram_secret_ok
 from app.store import FirestoreStore, InMemoryStore, Store
@@ -455,6 +456,23 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found")
         app.state.store.update_session(session_id, public_view=body.public_view)
         return {"public_view": body.public_view}
+
+    @app.post("/api/sessions/{session_id}/video")
+    def set_video(
+        session_id: str,
+        body: VideoRequest,
+        user: Annotated[Principal, Depends(admin_principal)],
+    ) -> dict[str, str]:
+        """Owner adds the live link after the brief was built. Claims, cards and the fact
+        bank are untouched, so the live page matches speech against the same prebunks."""
+        s = app.state.store.get_session(session_id) if _valid_id(session_id) else None
+        if s is None or s.owner_uid != user.uid:
+            raise HTTPException(status_code=404, detail="not found")
+        if not app.state.prebunk_limiter.allow(user.uid):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
+        url = str(body.youtube_url)
+        app.state.store.update_session(session_id, youtube_url=url)
+        return {"youtube_url": url}
 
     @app.get("/api/sessions/{session_id}/feed")
     def session_feed(session_id: str, request: Request, since: datetime | None = None) -> FeedView:

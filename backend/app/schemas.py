@@ -43,6 +43,16 @@ class ClaimSource(StrEnum):
 # ---------- API requests ----------
 
 
+def youtube_only(v: AnyHttpUrl | None) -> AnyHttpUrl | None:
+    """Only https YouTube links: the page embeds them and alerts deep link into them."""
+    if v is None:
+        return v
+    allowed = {"www.youtube.com", "youtube.com", "youtu.be", "m.youtube.com"}
+    if v.scheme != "https" or v.host not in allowed:
+        raise ValueError("youtube_url must be an https YouTube link")
+    return v
+
+
 class PrebunkRequest(Strict):
     # Optional when a YouTube link is given: the server takes the video's title (one paste
     # starts a brief, Team lead VN 16 Oct: cut every input that needn't be typed).
@@ -54,12 +64,7 @@ class PrebunkRequest(Strict):
     @field_validator("youtube_url")
     @classmethod
     def _youtube_only(cls, v: AnyHttpUrl | None) -> AnyHttpUrl | None:
-        if v is None:
-            return v
-        allowed = {"www.youtube.com", "youtube.com", "youtu.be", "m.youtube.com"}
-        if v.scheme != "https" or v.host not in allowed:
-            raise ValueError("youtube_url must be an https YouTube link")
-        return v
+        return youtube_only(v)
 
     @model_validator(mode="after")
     def _topic_or_video(self) -> "PrebunkRequest":
@@ -326,6 +331,20 @@ class SessionView(BaseModel):
 
 class ShareRequest(Strict):
     public_view: bool
+
+
+class VideoRequest(Strict):
+    """Add (or swap) the stream link on a brief made before the link existed: prebunk for
+    an announced event first, paste the live link when the channel publishes it
+    (team lead VN, 17 Oct 2026). The checked claims stay; only the video changes."""
+
+    youtube_url: AnyHttpUrl
+
+    @field_validator("youtube_url")
+    @classmethod
+    def _youtube_only(cls, v: AnyHttpUrl) -> AnyHttpUrl:
+        youtube_only(v)
+        return v
 
 
 class FeedClaim(BaseModel):

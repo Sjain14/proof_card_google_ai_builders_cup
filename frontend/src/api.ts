@@ -106,6 +106,13 @@ export const api = {
       { method: "POST", body: JSON.stringify({ public_view: on }) },
       true,
     ),
+  // Add the live link to a brief made before the stream existed; the checked claims stay.
+  setVideo: (id: string, youtubeUrl: string) =>
+    call<{ youtube_url: string }>(
+      `/api/sessions/${encodeURIComponent(id)}/video`,
+      { method: "POST", body: JSON.stringify({ youtube_url: youtubeUrl }) },
+      true,
+    ),
   feed: (id: string, since: string | null) =>
     call<FeedView>(`/api/sessions/${encodeURIComponent(id)}/feed${since ? `?since=${encodeURIComponent(since)}` : ""}`),
 };

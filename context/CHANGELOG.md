@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.60 · p60-add-live-link-later
+Real flow (17 Oct): an announced White House briefing has no stream link yet. The desk prebunks from topic + speaker first and needs to attach the live link once the channel publishes it, without losing the checked claims.
+- `POST /api/sessions/{id}/video` {youtube_url}: owner only (404 otherwise, same as every session route), https YouTube links only (`schemas.youtube_only`, shared with `PrebunkRequest`), rate limited like prebunk. Claims, cards and the fact bank are untouched, so the live page matches speech against the same prebunks, and Telegram alerts link to the moment in the video.
+- Live page: a brief without a video shows "Paste the YouTube live link" + Add link (EN + HI); after adding, the stream plays in the page and Start listening works as before.
+- Tests: `tests/test_video_later.py` (claims unchanged after adding, swap, owner only, YouTube only).
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.59 · p59-live-page-replay
 Sample brief review (17 Oct): a finished live session read "0 checked live" until Replay was pressed, and the replay player sat as a blank box at replay start.
 - Before Replay the feed shows every live claim already checked, newest first (`live.pastLive`), so the count and the cards are there on open.
