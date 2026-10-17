@@ -27,6 +27,7 @@ context/Gemini_docs.zip
 .firebaserc
 .set
 screenshots/
+!docs/screenshots/
 dev_log.md
 /brief*.md
 /gemini_reply*.md
