@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Annotated, Any
@@ -120,6 +120,13 @@ def several_claims(text: str) -> bool:
     Every village got power.", 199 chars, checked whole -> UNVERIFIABLE, 16 Oct)."""
     parts = [p for p in _SENTENCE_END.split(text.strip()) if looks_like_claim(p)]
     return len(parts) >= 2
+
+
+def _statement(sentence: str) -> bool:
+    """A plain statement ("The Earth has two moons."), not a question or a call to action
+    ("Share before they delete!!")."""
+    s = sentence.strip()
+    return looks_like_claim(s) and not s.endswith(("?", "!"))
 
 
 LIVE_AUTH_TIMEOUT_S = 5.0
@@ -897,22 +904,40 @@ def create_app(
         if not claims:
             return
 
-        def one(item: tuple[str, ClaimDoc]) -> tuple[str, str | None]:
+        def one(item: tuple[str, ClaimDoc]) -> str | None:
             cid, claim = item
-            card_id = claim.card_id or verify_claim(
-                session_id, cid, app.state.deps, Trace(), race_hint=True
-            )
-            return claim.text, card_id
+            try:
+                return claim.card_id or verify_claim(
+                    session_id, cid, app.state.deps, Trace(), race_hint=True
+                )
+            except Exception:  # one failed claim answers UNVERIFIABLE, never sinks the rest
+                log.warning("bot claim check failed", exc_info=True)
+                return None
 
-        # A forward with several claims: all checked at once, verdicts sent in order.
-        with ThreadPoolExecutor(max_workers=len(claims), thread_name_prefix="botcheck") as pool:
-            results = list(pool.map(one, claims))
+        # A forward with several claims: all checked at once. Each verdict goes out the
+        # moment it is ready, as a reply to the message it answers ("2/3" when there are
+        # several), so a late verdict can't read as the answer to the next message the
+        # person sent (prod 17 Oct: "water boils" landed under the Modi quote).
+        n = len(claims)
+        with ThreadPoolExecutor(max_workers=n, thread_name_prefix="botcheck") as pool:
+            futures = {pool.submit(one, item): i for i, item in enumerate(claims)}
+            for fut in as_completed(futures):
+                i = futures[fut]
+                card_id = fut.result()
+                card = store.get_card(card_id) if card_id else None
+                send_claim_result(
+                    app.state.bot_api,
+                    s.alert_chat_id,
+                    claims[i][1].text,
+                    card,
+                    card_id,
+                    settings.public_base_url,
+                    reply_to=s.tg_reply_to,
+                    label=f"{i + 1}/{n}" if n > 1 else "",
+                )
+        # shortcut: a Cloud Tasks retry after a crash mid-loop re-sends verdicts already
+        # out; per-claim sent flags if that ever shows up in prod.
         store.update_session(session_id, status="closed")
-        for text, card_id in results:
-            card = store.get_card(card_id) if card_id else None
-            send_claim_result(
-                app.state.bot_api, s.alert_chat_id, text, card, card_id, settings.public_base_url
-            )
 
     def split_claims(text: str) -> list[str]:
         """A short line is one claim; a long forward is split into its checkable claims."""
@@ -926,19 +951,32 @@ def create_app(
             return spotter.spot_claims(text[:3_000])
         out: list[str] = []
         for sentence in sentences[:FORWARD_SENTENCES]:
-            out += [c for c in spotter.spot_claims(sentence) if c not in out]
+            # The spotter's cheap pre filter wants a number ("Water boils at 100 C" passed,
+            # "The capital of Australia is Sydney" and "The Earth has two moons" were
+            # dropped, so a 3-claim message got 1 verdict, prod 17 Oct 00:1x). A sentence a
+            # person sent the bot is theirs to check: a plain statement is kept as written.
+            spotted = spotter.spot_claims(sentence) or ([sentence] if _statement(sentence) else [])
+            out += [c for c in spotted if c not in out]
             if len(out) >= MAX_FORWARD_CLAIMS:
                 break
         return out
 
-    def check_claim(claims: list[str], chat_id: int, ack: Callable[[], None]) -> str:
+    def check_claim(
+        claims: list[str], chat_id: int, ack: Callable[[], None], message_id: int | None = None
+    ) -> str:
         text = claims[0]
         today = datetime.now(UTC).date().isoformat()
         owner = f"tg:{pseudonymize(chat_id)}"
         if app.state.store.count_sessions_since(owner, today) >= BOT_DAILY_CHECKS:
             return "limit"
         sid = app.state.store.create_session(
-            SessionDoc(owner_uid=owner, topic=text[:500], status="live", alert_chat_id=chat_id)
+            SessionDoc(
+                owner_uid=owner,
+                topic=text[:500],
+                status="live",
+                alert_chat_id=chat_id,
+                tg_reply_to=message_id,
+            )
         )
         for c in claims:
             app.state.store.add_claim(

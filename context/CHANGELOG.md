@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.50 · p50-bot-threaded-verdicts
+Demo recording (17 Oct 00:1x IST+): a 3-claim message ("Sydney is the capital. The Earth has two moons. Water boils at 100 C.") got ONE verdict, and that verdict landed under the next message, a Modi quote, so the quote read as answered "water boils at 100 °C". Reproduced on prod from a real Telegram account before the fix.
+- Root cause 1: `split_claims` ran each sentence through the live spotter, whose cheap pre filter needs a number, so the two number-free claims vanished. A plain statement the person sent (not a question, not "Share before they delete!!") is now kept as written.
+- Root cause 2: verdicts were sent with no `reply_parameters` and only after every claim finished. Now `SessionDoc.tg_reply_to` keeps the source message; each verdict goes out the moment it is ready as a reply to that message (`allow_sending_without_reply`), numbered "Claim 2/3" when there are several.
+- One claim that throws answers UNVERIFIABLE instead of sinking the others.
+- Tests: 3 verdicts all replying to message 31 and numbered 1/3..3/3; statement filter; one failing claim.
+- Docs touched: CHANGELOG.
+
 ## 2026-10-16 · v0.7.33 · p33-prebunk-pulse
 Prod rerun after p26 (date-anchored bank, 12 angles): fact research ran past 12 min, the stall window p31 uses, so a session read could re-queue a healthy prebunk (double research).
 - `pipeline._pulse()`: a daemon thread stamps `prebunk_beat` every 60 s while `_with_fact_bank` runs; it stops with the step.

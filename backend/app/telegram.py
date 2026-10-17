@@ -81,8 +81,9 @@ class BotDeps:
     # any other text that reads like a claim -> queued for a full check, the result is sent
     # back by send_claim_result(). Calls ack() before the job is queued (so "checking" is
     # always the first reply), returns "queued", "limit" or "off" (no checker wired).
-    check_claim: Callable[[list[str], int, Callable[[], None]], str] = field(
-        default=lambda t, c, ack: "off"
+    # The last argument is the message id the verdicts reply to.
+    check_claim: Callable[[list[str], int, Callable[[], None], int], str] = field(
+        default=lambda t, c, ack, mid: "off"
     )
     # a long forward -> its checkable claims (max MAX_FORWARD_CLAIMS), [] = check it whole
     split_claims: Callable[[str], list[str]] = field(default=lambda t: [])
@@ -154,15 +155,31 @@ def claim_lang(text: str) -> str:
 
 
 def send_claim_result(
-    api: BotApi, chat_id: int, claim: str, card: CardDoc | None, card_id: str | None, base: str
+    api: BotApi,
+    chat_id: int,
+    claim: str,
+    card: CardDoc | None,
+    card_id: str | None,
+    base: str,
+    reply_to: int | None = None,
+    label: str = "",
 ) -> None:
     """Verdict for a claim sent to the bot: the card PNG + proof button, or a plain
-    UNVERIFIABLE when no source could prove it either way."""
+    UNVERIFIABLE when no source could prove it either way. `reply_to` threads it under
+    the message it answers; `label` ("2/3") numbers the claims of one forward."""
+    head = f"<b>Claim {html.escape(label)}</b> · " if label else ""
+    # https://core.telegram.org/bots/api#replyparameters - still sent if the user
+    # deleted their message.
+    thread: dict[str, Any] = (
+        {"reply_parameters": {"message_id": reply_to, "allow_sending_without_reply": True}}
+        if reply_to
+        else {}
+    )
     if card is None or card_id is None:
-        text = NO_PROOF.format(claim=html.escape(claim[:300]))
-        api.call("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+        text = head + NO_PROOF.format(claim=html.escape(claim[:300]))
+        api.call("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML", **thread})
         return
-    caption = card_text(card, card_id)
+    caption = head + card_text(card, card_id)
     if len(caption) > 1000:  # sendPhoto caption cap is 1024
         caption = caption[:997] + "…"
     api.call(
@@ -173,6 +190,7 @@ def send_claim_result(
             "caption": caption,
             "parse_mode": "HTML",
             "reply_markup": _open_button(base, card_id),
+            **thread,
         },
     )
 
@@ -293,7 +311,7 @@ def _check(d: BotDeps, message_id: int, chat: int, claims: list[str], what: str)
         )
 
     ack = CHECKING if len(claims) == 1 else CHECKING_MANY.format(n=len(claims), what=what)
-    state = d.check_claim(claims, chat, lambda: say(ack))
+    state = d.check_claim(claims, chat, lambda: say(ack), message_id)
     if state == "limit":
         say(LIMIT)
     return state != "off"

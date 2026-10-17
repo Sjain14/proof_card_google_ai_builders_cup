@@ -368,7 +368,8 @@ def test_tg_no_message_is_noop(cards: InMemoryStore) -> None:
 def _bot(**kw: Any) -> tuple[FakeBot, BotDeps, list[list[str]]]:
     seen: list[list[str]] = []
 
-    def check(claims: list[str], chat: int, ack: Any) -> str:
+    def check(claims: list[str], chat: int, ack: Any, mid: int) -> str:
+        assert mid == 7  # verdicts reply to the message they answer
         seen.append(claims)
         ack()
         return "queued"
@@ -459,6 +460,81 @@ def test_tg_forward_through_the_app_sends_one_verdict_per_claim(
     out = bot.calls[n:]
     assert "Found 2 checkable claims" in out[0][1]["text"]
     assert len(out) == 3  # ack + one verdict per claim
+
+
+def test_tg_every_verdict_replies_to_the_message_it_answers(
+    http: tuple[TestClient, FakeBot],
+) -> None:
+    """Prod 17 Oct 00:1x: a 3-claim message got 1 verdict (the number-free claims were
+    dropped by the spotter pre filter), and that verdict landed unthreaded right under the
+    next message, a Modi quote, so it read as the quote's answer."""
+    c, bot = http
+    multi = (
+        "The capital of Australia is Sydney. The Earth has two moons. "
+        "Water boils at 100 degrees Celsius at sea level."
+    )
+    c.app.state.live.spotter.spot_claims = (  # type: ignore[attr-defined]
+        lambda t: [t] if "100" in t else []  # the cheap pre filter: numbers only
+    )
+    n = len(bot.calls)
+    tg(
+        c,
+        {
+            "message": {
+                **MSG,
+                "message_id": 31,
+                "chat": {"id": 4343, "type": "private"},
+                "text": multi,
+            }
+        },
+    )
+    out = bot.calls[n:]
+    assert "Found 3 checkable claims" in out[0][1]["text"]
+    verdicts = out[1:]
+    assert len(verdicts) == 3
+    for _, payload in verdicts:
+        assert payload["reply_parameters"]["message_id"] == 31
+        body = payload.get("caption") or payload["text"]
+        assert body.startswith("<b>Claim ")
+    labels = sorted((p.get("caption") or p["text"]).split("</b>")[0] for _, p in verdicts)
+    assert labels == ["<b>Claim 1/3", "<b>Claim 2/3", "<b>Claim 3/3"]
+
+
+def test_tg_split_keeps_plain_statements_drops_calls_to_action(
+    http: tuple[TestClient, FakeBot],
+) -> None:
+    from app.main import _statement
+
+    assert _statement("The Earth has two moons.")
+    assert not _statement("Share before they delete!!")
+    assert not _statement("Is the Earth flat or round?")
+
+
+def test_tg_one_failed_claim_does_not_sink_the_others(
+    http: tuple[TestClient, FakeBot], monkeypatch: Any
+) -> None:
+    from app import main as main_mod
+
+    c, bot = http
+    from app.pipeline import verify_claim as real
+
+    calls = {"n": 0}
+
+    def flaky(sid: str, cid: str, *a: Any, **kw: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("model timeout")
+        return real(sid, cid, *a, **kw)
+
+    monkeypatch.setattr(main_mod, "verify_claim", flaky)
+    a = "India has 22 languages in the Eighth Schedule of the Constitution"
+    b = "India's GDP grew 8.2 percent in 2023-24 says the statistics ministry"
+    c.app.state.live.spotter.spot_claims = lambda t: [t]  # type: ignore[attr-defined]
+    n = len(bot.calls)
+    tg(c, {"message": {**MSG, "chat": {"id": 4444, "type": "private"}, "text": f"{a}. {b}."}})
+    out = bot.calls[n:]
+    assert len(out) == 3  # ack + 2 verdicts, the failed one answers UNVERIFIABLE
+    assert any("UNVERIFIABLE" in (p.get("text") or "") for _, p in out[1:])
 
 
 # ---------- how-to pass (p42): card page actions, bot opened from the site ----------

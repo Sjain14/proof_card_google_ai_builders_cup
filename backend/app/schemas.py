@@ -124,6 +124,7 @@ class SessionDoc(Strict):
     tg_link_exp: datetime | None = None
     alert_chat_id: int | None = None
     alerts_sent: int = 0
+    tg_reply_to: int | None = None  # bot check: the message its verdicts reply to
     fact_bank_key: str | None = (
         None  # fact_banks/{key}: researched facts this session checks against
     )
