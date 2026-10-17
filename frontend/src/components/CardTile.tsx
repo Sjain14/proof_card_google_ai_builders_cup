@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { shareUrl, type Card, type ClaimView } from "../api";
 import { domain } from "../verdict";
 import { VerdictPill } from "./VerdictPill";
@@ -14,20 +14,32 @@ export function tgText(verdict: string | null | undefined, claim: string): strin
   return `${v ? `${v}: ` : ""}“${short}” · Proof Card`;
 }
 
+/** After this many seconds a pending check says it is still working (judges never see a stuck tile). */
+export const SLOW_AFTER_S = 12;
+
+/** Pending check: spinner, live seconds counter, and a "still checking" hint once it runs long. */
+function PendingTile({ text }: { text: string }) {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <article className="tile pending" aria-busy="true">
+      <span className="pill v-checking">
+        <span className="spin" aria-hidden="true" /> {t("tile.checking")} {secs > 0 && <span className="muted">{secs}s</span>}
+      </span>
+      <p className="tile-claim">“{text}”</p>
+      {secs >= SLOW_AFTER_S && <p className="note" role="status">{t("tile.slow")}</p>}
+    </article>
+  );
+}
+
 export function CardTile({ claim, card, showSource = true }: { claim: ClaimView; card: Card | undefined; showSource?: boolean }) {
   const [copied, setCopied] = useState(false);
   const pending = claim.status === "queued" || claim.status === "checking";
 
-  if (pending) {
-    return (
-      <article className="tile pending" aria-busy="true">
-        <span className="pill v-checking">
-          <span className="spin" aria-hidden="true" /> {t("tile.checking")}
-        </span>
-        <p className="tile-claim">“{claim.text}”</p>
-      </article>
-    );
-  }
+  if (pending) return <PendingTile text={claim.text} />;
 
   if (claim.status === "failed" || !claim.card_id) {
     return (
