@@ -329,7 +329,7 @@ function useVsScroll(n: number) {
       // The answer turns into proof only while the stage is on screen: by its own height on the page
       // (phones, one column) or by how many points are lit (desktop, where the copy column stays put).
       const st = stage.current?.getBoundingClientRect();
-      const seen = !!st && st.bottom < vh * 0.97 && st.bottom > 0;
+      const seen = !!st && st.top < vh * 0.8 && st.bottom > 0;
       const phase = !seen ? (lit >= n ? 2 : 0) : lit >= 4 || st.top < vh * 0.3 ? 2 : lit >= 2 || st.top < vh * 0.55 ? 1 : 0;
       paint(p, lit, phase);
     };
