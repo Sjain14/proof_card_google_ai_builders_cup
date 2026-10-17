@@ -20,7 +20,7 @@ export function NewBrief({ user }: { user: SignedIn | null | undefined }) {
     setSampled(true);
     if (more.current) more.current.open = true; // every filled field on screen
   };
-  // /new?sample=trump (from the how-to page): open already filled.
+  // /new?sample=1 (from the how-to page): open already filled.
   useEffect(() => {
     if (user && wantsSample(location.search)) {
       fillSample();

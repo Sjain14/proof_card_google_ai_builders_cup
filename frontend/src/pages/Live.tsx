@@ -208,13 +208,13 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     if (file) await checkClip(file);
   };
 
-  // The Trump sample's own audio, served with the site: no file hunting for a judge.
+  // The sample's own audio, served with the site: no file hunting for a judge.
   const sampleClip = async () => {
     setNote(t("live.clipWorking"));
     try {
       const r = await fetch(SAMPLE_CLIP);
       if (!r.ok) throw new Error(t("live.clipFail"));
-      await checkClip(new File([await r.blob()], "trump-nobel.mp3", { type: "audio/mpeg" }));
+      await checkClip(new File([await r.blob()], "sample-clip.mp3", { type: "audio/mpeg" }));
     } catch (e) {
       setNote(e instanceof Error ? e.message : t("live.clipFail"));
     }
@@ -266,7 +266,10 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   const ready = session.claims.filter((c) => c.source === "predicted" && c.card_id).length;
   const hits = shown.filter((f) => f.prebunked);
   const canReplay = Boolean(vid) && session.claims.some((c) => c.source === "live" && c.t_offset_s != null);
-  const fastest = hits.length ? Math.min(...hits.map((h) => h.latency ?? Infinity)) : null;
+  // Only real timings: a replayed or cached hit has no latency, and Math.min over nothing
+  // printed "fastest Infinity ms" on prod (recording 17 Oct).
+  const timed = hits.map((h) => h.latency).filter((ms): ms is number => typeof ms === "number" && Number.isFinite(ms));
+  const fastest = timed.length ? Math.round(Math.min(...timed)) : null;
 
   return (
     <section className="live">

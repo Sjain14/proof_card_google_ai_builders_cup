@@ -7,7 +7,7 @@ from app.model import Assessment, Evidence, StubModel
 from app.pipeline import Deps, Trace, check_quote, verify_claim
 from app.proof import Fetched, FetchError, InMemorySnapshots
 from app.quotes import attribution, surname
-from app.schemas import ClaimDoc, ClaimSource, ClaimStatus, SessionDoc, Verdict
+from app.schemas import CardDoc, ClaimDoc, ClaimSource, ClaimStatus, SessionDoc, Verdict
 from app.store import InMemoryStore
 
 SPEECH = "https://pib.gov.in/speech"
@@ -196,3 +196,56 @@ def test_quote_with_another_figure_is_no_record() -> None:
     )
     t = Trace()
     assert check_quote(Q10, deps(Model([SPEECH]), {SPEECH: page}), t) is None
+
+
+def _content_card(verdict: Verdict, claim: str) -> "CardDoc":
+    from app.pipeline import unproven_quote
+    from app.security import card_fingerprint
+
+    fields = {
+        "claim": claim,
+        "verdict": verdict,
+        "explanation": "IMF projects India third largest by 2028.",
+        "sources": [
+            {
+                "url": SPEECH,
+                "snippet": "x",
+                "snapshot_sha256": "a" * 64,
+                "fetched_at": datetime.now(UTC).isoformat(),
+            }
+        ],
+        "support_score": 0.9,
+    }
+    return unproven_quote(claim, CardDoc(card_sha256=card_fingerprint(fields), **fields))
+
+
+QT = 'Modi said: "India will become the third largest economy by 2030"'
+
+
+def test_true_content_without_record_is_unproven_quote() -> None:
+    # prod 17 Oct: went TRUE on an IMF projection, read as "Modi said it"
+    card = _content_card(Verdict.TRUE, QT)
+    assert card.verdict == Verdict.UNVERIFIABLE
+    assert card.explanation.startswith("Unproven quote: no record of Modi")
+
+
+def test_false_content_without_record_stays_false() -> None:
+    card = _content_card(Verdict.FALSE, QT)
+    assert card.verdict == Verdict.FALSE
+    assert "no record of modi" in card.explanation.lower()
+
+
+def test_plain_claim_card_untouched() -> None:
+    card = _content_card(Verdict.TRUE, "India will be the third largest economy by 2030.")
+    assert card.verdict == Verdict.TRUE
+    assert card.explanation.startswith("IMF")
+
+
+def test_verify_claim_relabels_unrecorded_quote() -> None:
+    d = deps(Model([SPEECH]), {SPEECH: NO_NAME})
+    sid = d.store.create_session(SessionDoc(owner_uid="u", topic="t"))
+    cid = d.store.add_claim(sid, ClaimDoc(text=QT, source=ClaimSource.LIVE))
+    verify_claim(sid, cid, d, Trace())
+    claim = d.store.get_claim(sid, cid)
+    assert claim is not None
+    assert claim.verdict != Verdict.TRUE

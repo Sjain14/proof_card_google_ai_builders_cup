@@ -581,6 +581,44 @@ def check_quote(text: str, deps: Deps, trace: Trace) -> CardDoc | None:
     return CardDoc(card_sha256=card_fingerprint(fields), **fields)
 
 
+QUOTE_ON_RECORD = ("On record:", "Twisted quote:")
+
+
+def unproven_quote(text: str, card: CardDoc) -> CardDoc:
+    """'X said ...' with no record of X saying it: the card must never read as "X said it".
+    The content check still runs, but its verdict is relabelled: content TRUE / MISLEADING
+    becomes UNVERIFIABLE (the words may be accurate, the attribution is unproven), content
+    FALSE stays FALSE (false whoever said it). Prod 17 Oct: 'Modi said: India will be the
+    third largest economy by 2030' went TRUE on an IMF projection, read as "Modi said it"."""
+    att = attribution(text)
+    if att is None or card.explanation.startswith(QUOTE_ON_RECORD):
+        return card
+    if card.verdict == Verdict.FALSE:
+        verdict = Verdict.FALSE
+        lead = f"No record of {att.speaker} saying this, and the statement itself is false. "
+    elif card.verdict == Verdict.UNVERIFIABLE:
+        verdict = Verdict.UNVERIFIABLE
+        lead = f"No record of {att.speaker} saying this. "
+    else:
+        verdict = Verdict.UNVERIFIABLE
+        lead = (
+            f"Unproven quote: no record of {att.speaker} saying these words. The statement "
+            f"itself checks out as {card.verdict.value}; that does not prove they said it. "
+        )
+    fields = {
+        "claim": card.claim,
+        "verdict": verdict,
+        "explanation": (lead + card.explanation)[:4000],
+        "sources": [s.model_dump(mode="json") for s in card.sources],
+        "support_score": card.support_score,
+    }
+    return CardDoc(
+        card_sha256=card_fingerprint(fields),
+        search_suggestion_html=card.search_suggestion_html,
+        **fields,
+    )
+
+
 def _attempt(text: str, hint: str, deps: Deps, trace: Trace, name: str) -> CardDoc | None:
     """One assess + proof pass. Stage times land in trace as <name>_assess / <name>_fetch."""
     t0 = time.monotonic()
@@ -648,6 +686,8 @@ def verify_claim(
     session = deps.store.get_session(session_id)
     context = (session.youtube_url or "") if session else ""
     hit = cached_card(claim.text, context, deps)
+    if hit is not None and unproven_quote(claim.text, hit[1]) is not hit[1]:
+        hit = None  # an old content-only card for an "X said" line: re-check the attribution
     if hit is not None:
         trace.reason = "cache"
         deps.store.update_claim(
@@ -689,6 +729,7 @@ def verify_claim(
     if card is None:
         deps.store.update_claim(session_id, claim_id, status=ClaimStatus.FAILED)
         return None
+    card = unproven_quote(claim.text, card)
     card_id = new_card_id()
     deps.store.put_card(card_id, card)
     if card.verdict != Verdict.UNVERIFIABLE:  # a later run may still find the proof

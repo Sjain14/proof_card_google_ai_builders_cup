@@ -3,10 +3,9 @@ import type { SignedIn } from "../auth";
 import { VerdictPill } from "../components/VerdictPill";
 import { getLang } from "../i18n";
 import { navigate } from "../router";
-import { SAMPLE, SAMPLE_VIDEO_ID } from "../sample";
 import { BOT, Qr, Reveal, demoHash } from "./Landing";
 
-// How to use: one real sample (the Trump clip) walked step by step. Each step is a short
+// How to use: one real sample clip walked step by step. Each step is a short
 // line plus a small mock of the actual screen; the mock stays pinned while the steps
 // scroll past (Stripe / Linear docs pattern). Under 900 px the mock sits inline instead.
 // Copy is en + hi here (page scoped) so the shared dictionary stays small.
@@ -16,20 +15,20 @@ type Step = { h: string; b: string; tip?: string };
 const EN = {
   eyebrow: "How to use",
   h1: "From a speech to proof anyone can check",
-  lede: "Three ways in. Pick yours, or follow the Trump sample end to end: every step below is the real screen.",
+  lede: "Three ways in. Pick yours, or follow the sample end to end: every step below is the real screen.",
   pathSpeech: "Check a speech or video",
   pathSpeechB: "YouTube link, recorded or live",
   pathTg: "Check a forward on Telegram",
   pathTgB: "text, screenshot or long message",
   pathCard: "Got a Proof Card?",
   pathCardB: "see the proof, spot an edited copy",
-  trySample: "Try the Trump sample",
+  trySample: "Try the sample",
   openBot: "Open the Telegram bot",
   example: "example",
   speechH: "Check a speech",
   speech: [
     { h: "Open “Check a speech”", b: "Sign in with Google or continue as a guest. Your briefs stay private; cards you share are public." },
-    { h: "Paste the YouTube link", b: "That is all it needs: the title becomes the topic. Or press “Fill the Trump sample” and every field is filled for you.", tip: "Speaker and context links are optional. They sharpen the research." },
+    { h: "Paste the YouTube link", b: "That is all it needs: the title becomes the topic. Or press “Fill the sample” and every field is filled for you.", tip: "Speaker and context links are optional. They sharpen the research." },
     { h: "The brief prepares", b: "We predict the claims likely to come up, pull official figures (World Bank, ministries, statistics offices) into a fact bank, and check each claim. Cards land one by one." },
     { h: "Recorded video or scheduled live?", b: "Recorded: open the live page and press “Check the sample clip” (or upload any audio clip) and every line is checked. Scheduled live: make the brief before it starts, then open the live page when it goes live, play it there and press Start listening." },
     { h: "Cards pop as it's said", b: "A claim the brief already proved shows instantly (PREBUNKED). A new one is checked live (LIVE). Replay mode pops each card at the second it's said in the video." },
@@ -54,7 +53,7 @@ const EN = {
     ["What does “Not enough proof” mean?", "No source we could fetch decided it. We say so instead of guessing."],
     ["Is a claim checked twice?", "No. Every verified card is saved; the same claim again gets the saved card at once."],
   ] as [string, string][],
-  ctaH: "Try it on the Trump sample",
+  ctaH: "Try it on the sample clip",
   ctaB: "One click fills the form. One click checks the clip.",
   you: "you",
   bot: "Proof Card bot",
@@ -64,10 +63,10 @@ const EN = {
   screenshot: "screenshot",
   forwarded: "Forwarded",
   quiet: "chat in the group, the bot stays quiet",
-  quoteWhy: "On record: he did say this. This card proves the quote, not the statement.",
+  quoteWhy: "On record: they did say this. This card proves the quote, not the statement.",
   signGoogle: "Sign in with Google",
   guest: "Continue as guest",
-  fill: "Fill the Trump sample",
+  fill: "Fill the sample",
   generate: "Generate brief",
   bank: "fact bank: official figures",
   recorded: "Recorded video",
@@ -81,10 +80,14 @@ const EN = {
   copy: "Copy link",
   verified: "VERIFIED: this is the original card",
   altered: "ALTERED: verdict was edited",
-  c1: "We ended eight wars in eight months.",
-  c2: "No president has ever done what I've done.",
-  c3: "Trump has been nominated for the Nobel Peace Prize.",
-  why1: "Records list fewer conflicts ended; several were ceasefires, not ended wars.",
+  // Neutral, multi-country examples: never one leader in focus (Team lead, 17 Oct).
+  c1: "Germany gets half of its electricity from coal.",
+  c2: "No government has ever built more homes than ours.",
+  c3: "Brazil hosted the COP30 climate summit in 2025.",
+  why1: "Official 2024 data puts coal under a quarter of Germany's power, not half.",
+  saidBy: "A minister said:",
+  demoTopic: "Budget speech: jobs, prices and growth",
+  demoSpeaker: "Finance minister",
 };
 
 type Copy = typeof EN;
@@ -92,20 +95,20 @@ type Copy = typeof EN;
 const HI: Copy = {
   eyebrow: "इस्तेमाल कैसे करें",
   h1: "भाषण से ऐसे सबूत तक जिसे कोई भी जाँच सके",
-  lede: "तीन रास्ते। अपना चुनिए, या ट्रंप वाला नमूना शुरू से अंत तक देखिए: नीचे हर कदम असली स्क्रीन है।",
+  lede: "तीन रास्ते। अपना चुनिए, या नमूना शुरू से अंत तक देखिए: नीचे हर कदम असली स्क्रीन है।",
   pathSpeech: "भाषण या वीडियो जाँचिए",
   pathSpeechB: "YouTube लिंक, रिकॉर्डेड या लाइव",
   pathTg: "Telegram पर फ़ॉरवर्ड जाँचिए",
   pathTgB: "टेक्स्ट, स्क्रीनशॉट या लंबा मैसेज",
   pathCard: "Proof Card मिला है?",
   pathCardB: "सबूत देखिए, बदली हुई कॉपी पकड़िए",
-  trySample: "ट्रंप वाला नमूना आज़माइए",
+  trySample: "नमूना आज़माइए",
   openBot: "Telegram बॉट खोलिए",
   example: "उदाहरण",
   speechH: "भाषण जाँचिए",
   speech: [
     { h: "“भाषण जाँचिए” खोलिए", b: "Google से साइन इन कीजिए या अतिथि के रूप में जारी रखिए। ब्रीफ़ सिर्फ़ आपके हैं; शेयर किए कार्ड सार्वजनिक हैं।" },
-    { h: "YouTube लिंक डालिए", b: "बस इतना ही: शीर्षक ही विषय बन जाता है। या “ट्रंप नमूना भरिए” दबाइए, हर खाना भर जाएगा।", tip: "वक्ता और संदर्भ लिंक वैकल्पिक हैं, इनसे रिसर्च बेहतर होती है।" },
+    { h: "YouTube लिंक डालिए", b: "बस इतना ही: शीर्षक ही विषय बन जाता है। या “नमूना भरिए” दबाइए, हर खाना भर जाएगा।", tip: "वक्ता और संदर्भ लिंक वैकल्पिक हैं, इनसे रिसर्च बेहतर होती है।" },
     { h: "ब्रीफ़ तैयार होता है", b: "हम संभावित दावे पहले से निकालते हैं, आधिकारिक आँकड़े (World Bank, मंत्रालय, सांख्यिकी दफ़्तर) फ़ैक्ट बैंक में जोड़ते हैं और हर दावा जाँचते हैं। कार्ड एक-एक कर आते हैं।" },
     { h: "रिकॉर्डेड वीडियो या आने वाला लाइव?", b: "रिकॉर्डेड: लाइव पेज खोलिए और “नमूना क्लिप जाँचिए” दबाइए (या कोई भी ऑडियो क्लिप डालिए), हर लाइन जाँची जाएगी। लाइव: शुरू होने से पहले ब्रीफ़ बनाइए, लाइव होने पर लाइव पेज खोलिए, वहीं चलाइए और “सुनना शुरू करें” दबाइए।" },
     { h: "बोलते ही कार्ड", b: "जो दावा ब्रीफ़ पहले ही साबित कर चुका है वह तुरंत दिखता है (PREBUNKED)। नया दावा उसी समय जाँचा जाता है (LIVE)। रिप्ले मोड में हर कार्ड वीडियो के उसी सेकंड पर आता है।" },
@@ -130,7 +133,7 @@ const HI: Copy = {
     ["“पुख्ता सबूत नहीं” का मतलब?", "जो स्रोत हम खोल पाए उनमें से किसी ने फ़ैसला नहीं किया। हम अंदाज़ा नहीं लगाते, यही बताते हैं।"],
     ["क्या एक दावा दो बार जाँचा जाता है?", "नहीं। हर जाँचा कार्ड सहेजा जाता है; वही दावा फिर आए तो सहेजा कार्ड तुरंत मिलता है।"],
   ] as [string, string][],
-  ctaH: "ट्रंप वाले नमूने पर आज़माइए",
+  ctaH: "नमूना क्लिप पर आज़माइए",
   ctaB: "एक क्लिक में फ़ॉर्म भरता है। एक क्लिक में क्लिप जाँचती है।",
   you: "आप",
   bot: "Proof Card बॉट",
@@ -143,7 +146,7 @@ const HI: Copy = {
   quoteWhy: "रिकॉर्ड में है: उन्होंने यह कहा था। यह कार्ड कथन साबित करता है, उसकी बात नहीं।",
   signGoogle: "Google से साइन इन",
   guest: "अतिथि के रूप में जारी रखें",
-  fill: "ट्रंप नमूना भरिए",
+  fill: "नमूना भरिए",
   generate: "ब्रीफ़ बनाइए",
   bank: "फ़ैक्ट बैंक: आधिकारिक आँकड़े",
   recorded: "रिकॉर्डेड वीडियो",
@@ -157,10 +160,13 @@ const HI: Copy = {
   copy: "लिंक कॉपी",
   verified: "VERIFIED: यह असली कार्ड है",
   altered: "ALTERED: फ़ैसला बदला गया",
-  c1: "We ended eight wars in eight months.",
-  c2: "No president has ever done what I've done.",
-  c3: "Trump has been nominated for the Nobel Peace Prize.",
-  why1: "रिकॉर्ड में कम संघर्ष खत्म हुए; कई सिर्फ़ युद्धविराम थे।",
+  c1: "Germany gets half of its electricity from coal.",
+  c2: "No government has ever built more homes than ours.",
+  c3: "Brazil hosted the COP30 climate summit in 2025.",
+  why1: "2024 के सरकारी आँकड़ों में जर्मनी की बिजली में कोयला एक चौथाई से कम है, आधा नहीं।",
+  saidBy: "एक मंत्री ने कहा:",
+  demoTopic: "बजट भाषण: रोज़गार, महँगाई और विकास",
+  demoSpeaker: "वित्त मंत्री",
 };
 
 function useCopy() {
@@ -212,9 +218,9 @@ function SpeechVis({ n }: { n: number }) {
   if (n === 1)
     return (
       <Frame url="aibuilderscup.web.app/new">
-        <span className="hw-field mono">{SAMPLE.youtube.replace("https://www.", "")}</span>
-        <span className="hw-field">{SAMPLE.topic}</span>
-        <span className="hw-field">{SAMPLE.speaker}</span>
+        <span className="hw-field mono">youtube.com/watch?v=…</span>
+        <span className="hw-field">{c.demoTopic}</span>
+        <span className="hw-field">{c.demoSpeaker}</span>
         <div className="row">
           <span className="btn small">{c.generate}</span>
           <span className="btn small ghost hw-hot">
@@ -246,7 +252,6 @@ function SpeechVis({ n }: { n: number }) {
         <div className="vis">
           <p className="vis-cap">{c.recorded}</p>
           <div className="hw-thumb">
-            <img src={`https://i.ytimg.com/vi/${SAMPLE_VIDEO_ID}/mqdefault.jpg`} alt="" loading="lazy" />
             <span>▶</span>
           </div>
           <span className="btn small hw-hot">
@@ -341,7 +346,7 @@ function TgVis({ n }: { n: number }) {
     );
   return (
     <Chat>
-      <div className="bubble me">Trump said: “{c.c1}”</div>
+      <div className="bubble me">{c.saidBy} “{c.c1}”</div>
       <div className="bubble bot">
         <VerdictPill verdict="TRUE" />
         <span>{c.quoteWhy}</span>

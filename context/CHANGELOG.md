@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.52 · p52-neutral-sample-unproven-quotes
+Team lead (17 Oct, final pass): the UI read as targeting one politician ("Trump sample" on the how-to page, the form and the live page) in a Google competition; a "Modi said" quote with no record went TRUE on an IMF projection; the live page showed "fastest Infinity ms".
+- Sample copy is neutral: "Fill the sample", "Check the sample clip", no leader named in any UI string (en + hi). How-to mocks use multi-country illustrative claims (Germany coal, a housing boast, Brazil COP30) and a generic "Budget speech / Finance minister" form; no video thumbnail. The audio file is `samples/sample-clip.mp3`; `/new?sample=1` opens prefilled, old `?sample=trump` links keep working. The recorded clip itself is unchanged (no new Vertex runs).
+- Root cause (quote): `check_quote` returning None (no record) fell through to the content check, whose TRUE was shown on the card "Modi said: ...", read as "he said it". `pipeline.unproven_quote` now relabels: content TRUE / MISLEADING -> UNVERIFIABLE "Unproven quote: no record of X saying these words; the statement itself checks out as TRUE", content FALSE stays FALSE with "No record of X saying this". Old cached content-only cards for "X said" lines are bypassed. Quote-on-record cards are untouched.
+- Live page: fastest latency uses only finite timings, hidden when none.
+- Tests: unproven quote TRUE->UNVERIFIABLE, FALSE stays, plain claims untouched, verify_claim end to end; sample link accepts 1 and trump.
+- Docs touched: CHANGELOG, new docs/DEMO.md (how to use + 3 min demo script).
+
 ## 2026-10-17 · v0.7.51 · p51-live-telegram-auto
 Team lead (17 Oct): during a live recording, updates should reach Telegram automatically. Before: alerts needed the "Telegram alerts" tap on EVERY session (single-use link per session), only FALSE / MISLEADING went out, and nothing said a run had started or ended.
 - Linked once is linked: `alerts.redeem` stores `tg_links/{uid}` (server only, deny-all rules). Every later brief of that user is created with `alert_chat_id`; older sessions attach when a run starts (`Alerter.attach`). The first link stays a tap: a bot may only message a chat after Start.
