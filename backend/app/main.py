@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import re
+import threading
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
@@ -96,6 +97,8 @@ from app.store import FirestoreStore, InMemoryStore, Store
 from app.tasks import CloudTasksQueue, InlineQueue, OidcVerifier, TaskQueue, google_oidc_verifier
 from app.telegram import (
     MAX_FORWARD_CLAIMS,
+    STILL_CHECKING,
+    STILL_CHECKING_AFTER_S,
     BotApi,
     BotDeps,
     HttpBotApi,
@@ -938,9 +941,40 @@ def create_app(
         # several), so a late verdict can't read as the answer to the next message the
         # person sent (prod 17 Oct: "water boils" landed under the Modi quote).
         n = len(claims)
+        # A slow check never sits silent: if no verdict is out after STILL_CHECKING_AFTER_S,
+        # one "still checking" line goes to the chat (judges must never think it's stuck).
+        first_sent = threading.Event()
+
+        def still_checking() -> None:
+            if first_sent.is_set():
+                return
+            with contextlib.suppress(Exception):
+                app.state.bot_api.call(
+                    "sendMessage",
+                    {
+                        "chat_id": s.alert_chat_id,
+                        "text": STILL_CHECKING,
+                        **(
+                            {
+                                "reply_parameters": {
+                                    "message_id": s.tg_reply_to,
+                                    "allow_sending_without_reply": True,
+                                }
+                            }
+                            if s.tg_reply_to
+                            else {}
+                        ),
+                    },
+                )
+
+        timer = threading.Timer(STILL_CHECKING_AFTER_S, still_checking)
+        timer.daemon = True
+        timer.start()
         with ThreadPoolExecutor(max_workers=n, thread_name_prefix="botcheck") as pool:
             futures = {pool.submit(one, item): i for i, item in enumerate(claims)}
             for fut in as_completed(futures):
+                first_sent.set()
+                timer.cancel()
                 i = futures[fut]
                 card_id = fut.result()
                 card = store.get_card(card_id) if card_id else None

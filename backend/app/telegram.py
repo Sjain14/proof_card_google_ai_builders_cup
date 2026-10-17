@@ -129,6 +129,11 @@ CHECKING = (
     "🔎 Checking this claim against official data and trusted sources. "
     "The verdict comes here with its proof, usually within a minute."
 )
+STILL_CHECKING = (
+    "⏳ Still checking: this one needs more sources than usual. "
+    "The verdict comes here as soon as it's proven, nothing to resend."
+)
+STILL_CHECKING_AFTER_S = 40.0
 LIMIT = "You've hit today's limit of claim checks. Try again tomorrow."
 NO_PROOF = (
     "⚪ <b>UNVERIFIABLE</b>\n“{claim}”\n\nNo trusted source we could open backs or "
