@@ -3,7 +3,7 @@
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
 ## 2026-10-18 · v0.7.70 · p70-proofcard-alt-site
-proofcard.web.app = alternate URL for the same app (Sahaj, 17 Oct).
+proofcard.web.app = alternate URL for the same app (Team lead, 17 Oct).
 - firebase.json hosting is now two sites with the same config: `aibuilderscup` (main) and `proofcard`.
 - deploy.yml creates the `proofcard` Hosting site if missing (deploy SA has firebasehosting.admin); if it can't, it deploys the main site only and warns.
 - Cloud Run `PC_LIVE_ORIGINS` = the E09 origins plus every site's web.app + firebaseapp.com, so the live socket works from either URL.
