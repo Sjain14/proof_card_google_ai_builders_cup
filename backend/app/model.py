@@ -100,7 +100,7 @@ class ModelClient(Protocol):
 
 # ---------- prompts (kept here so they are versioned and reviewable) ----------
 
-PROMPT_VERSION = "2026-10-16.3"
+PROMPT_VERSION = "2026-10-17.1"
 
 PREDICT_PROMPT = """You are the research desk of an Indian fact-checking newsroom preparing
 for a live broadcast. Topic: {topic}
@@ -145,6 +145,10 @@ Judge whether the claim itself is true, never whether the speaker said it: a rep
 the speaker made this claim ("he said...", a quote of the speech) is NOT evidence for it.
 TRUE needs a source that states the fact independently (records, official data, reporting
 of what actually happened). Only a quote = UNVERIFIABLE.
+A claim with several parts is TRUE only when EVERY part is proven. A part that is a
+judgment ("the worst deal ever", "a disastrous policy") can't be proven by any record: if
+the facts check out but such a part remains, answer UNVERIFIABLE and say which part is
+proven. One false part makes the claim FALSE or MISLEADING.
 Use UNVERIFIABLE when reliable sources disagree or are missing. Prefer official and
 primary sources (government statistics, regulators, court records) over news.
 """

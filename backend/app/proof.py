@@ -370,6 +370,19 @@ def reports_claim(claim: str, passage: str) -> bool:
     return bool(_FIRST_PERSON.search(_norm(claim)) and _SPEECH.search(passage))
 
 
+# Words that make a line a judgment, not a fact: no record proves "the worst deal ever".
+_OPINION = {
+    "worst", "greatest", "disastrous", "terrible", "horrible", "incredible", "tremendous",
+    "amazing", "fantastic", "pathetic", "shameful", "disgraceful", "brilliant", "glorious",
+    "bekar", "bekaar", "behtareen", "shandar", "shaandaar", "बेकार", "बेहतरीन", "शानदार",
+}  # fmt: skip
+
+
+def opinion_words(claim: str) -> list[str]:
+    """The judgment words in a claim, in order ("disastrous", "worst")."""
+    return [t for t in dict.fromkeys(_TOKEN.findall(_norm(claim))) if t in _OPINION]
+
+
 def best_match(query: str, text: str, window: int = 2) -> Match:
     """Best window by score, and separately the best contradicting window by topic."""
     best = Match("", 0.0, 0.0, False)

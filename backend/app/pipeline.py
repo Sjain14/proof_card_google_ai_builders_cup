@@ -37,6 +37,7 @@ from app.proof import (
     comparison_match,
     extract_text,
     is_comparison,
+    opinion_words,
     reports_claim,
     snapshot,
 )
@@ -466,14 +467,40 @@ def build_card(
         proofs, scores = [p for p, _ in kept], [sc for _, sc in kept]
     support = round(max(scores), 3)
     explanation = assessment.explanation
+    judged = opinion_words(claim) or opinion_words(assessment.claim_en)
+    if verdict == Verdict.TRUE and judged:
+        # A fact plus a judgment is proven only in part: sample brief, Iran card went TRUE
+        # on "I withdrew from the Iran deal, the worst deal ever negotiated" with proof of
+        # the withdrawal only. The fact part stays in the text, the verdict is unproven.
+        words = ", ".join(f'"{w}"' for w in judged)
+        return _card(
+            claim,
+            Verdict.UNVERIFIABLE,
+            f"Partly proven: the facts check out, but {words} is a judgment no record can "
+            f"prove. {explanation}",
+            proofs,
+            support,
+            assessment,
+        )
     if verdict == Verdict.UNVERIFIABLE and assessment.verdict in LEANS:
         # The gate took the hard verdict away; the text still argued it (prod e2e 16 Oct:
         # "Not enough proof" over "this is not the worst in 48 years"). Say both.
         explanation = f"{LEANS[assessment.verdict]} {explanation}"
+    return _card(claim, verdict, explanation, proofs, support, assessment)
+
+
+def _card(
+    claim: str,
+    verdict: Verdict,
+    explanation: str,
+    proofs: list[SourceProof],
+    support: float,
+    assessment: Assessment,
+) -> CardDoc:
     fields = {
         "claim": claim,
         "verdict": verdict,
-        "explanation": explanation,
+        "explanation": explanation[:4000],
         "sources": [p.model_dump(mode="json") for p in proofs],
         "support_score": support,
     }

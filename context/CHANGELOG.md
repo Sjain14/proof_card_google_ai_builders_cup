@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.57 · p57-partial-proof
+Sample brief review (17 Oct): the Iran card read TRUE on "I withdrew the US from the disastrous Iran Nuclear Deal, the worst deal ever negotiated" while its proof covered the withdrawal only.
+- `proof.opinion_words` finds judgment words (worst, greatest, disastrous, ..., Hinglish / Hindi too). A TRUE card for a line that carries one becomes UNVERIFIABLE "Partly proven: the facts check out, but "worst" is a judgment no record can prove." The fact proof stays on the card. FALSE / MISLEADING are untouched (one false part is enough).
+- Vertex `ASSESS_PROMPT`: TRUE only when EVERY part is proven; a judgment part means UNVERIFIABLE with the proven part named. `PROMPT_VERSION` 2026-10-17.1.
+- Tests: `tests/test_partial_proof.py`.
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.56 · p56-sources-that-prove
 Sample brief review (17 Oct): the eight wars card (FALSE) showed "inflation approached 20% during World War I" as its deciding passage, and an earlier run listed an unrelated Greenland / Davos page as source 3.
 - Root cause 1: a passage counted as a contradiction whenever the claim's number was missing and the passage had ANY number. `proof._counts_same_thing` now needs the words next to the claim's number ("wars", "states", "percent") next to one of the passage's numbers. A claim number with no such word keeps the old rule.
