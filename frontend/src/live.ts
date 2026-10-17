@@ -29,9 +29,12 @@ export function liveUrl(sessionId: string): string {
 }
 
 export async function openLive(sessionId: string, onEvent: (e: LiveEvent) => void): Promise<WebSocket> {
+  // Token first: a token refresh (page open over an hour) can take longer than the socket
+  // takes to open, and an open event that fires before onopen is set is lost, so Start
+  // listening hung on "Connecting" (code review, 17 Oct).
+  const token = (await idToken()) ?? "";
   const ws = new WebSocket(liveUrl(sessionId));
   ws.binaryType = "arraybuffer";
-  const token = (await idToken()) ?? "";
   await new Promise<void>((ok, fail) => {
     ws.onopen = () => ok();
     ws.onerror = () => fail(new Error("socket"));
@@ -180,11 +183,21 @@ export async function captureTabAudio(link: Pick<LiveLink, "send">, onEnd: () =>
 }
 
 /** YouTube watch / share / shorts / embed link -> video id, else null. */
+/** The one link form the server accepts (https youtube.com), from any YouTube link form
+ * the page understands (http, youtu.be, m., shorts, live, nocookie); null if none. */
+export function youtubeWatchLink(url: string): string | null {
+  const id = youtubeId(url.trim());
+  return id ? `https://www.youtube.com/watch?v=${id}` : null;
+}
+
 export function youtubeId(url: string): string | null {
   try {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\.|^m\./, "");
-    if (host === "youtu.be") return u.pathname.slice(1, 12) || null;
+    if (host === "youtu.be") {
+      const id = u.pathname.slice(1).split("/")[0] ?? "";
+      return /^[\w-]{11}$/.test(id) ? id : null;
+    }
     if (host !== "youtube.com" && host !== "youtube-nocookie.com") return null;
     const v = u.searchParams.get("v") ?? u.pathname.match(/^\/(?:embed|shorts|live)\/([\w-]{11})/)?.[1];
     return v && /^[\w-]{11}$/.test(v) ? v : null;

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { onePerCard } from "../verdict";
-import { api, CLIP_MAX_BYTES, uploadClip, watchUrl, type Card, type ClaimView, type SessionView } from "../api";
+import { api, ApiError, CLIP_MAX_BYTES, uploadClip, watchUrl, type Card, type ClaimView, type SessionView } from "../api";
 import type { SignedIn } from "../auth";
 import { CardTile } from "../components/CardTile";
 import {
@@ -13,6 +13,7 @@ import {
   replayDue,
   ytPoster,
   youtubeId,
+  youtubeWatchLink,
   type Capture,
   type LiveEvent,
   type LiveLink,
@@ -179,7 +180,13 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
     const sock = await connect();
     if (!sock) return;
     try {
-      cap.current = await captureTabAudio(sock, () => setMode("ended"));
+      // "Stop sharing" in the browser bar ends the run like our Stop button: the server
+      // closes the run, marks the brief ready and sends the Telegram summary. Before, the
+      // socket stayed open and the run never ended until the tab closed.
+      cap.current = await captureTabAudio(sock, () => {
+        cap.current = null; // the track already stopped itself
+        stop();
+      });
       setMode("listening");
     } catch {
       setMode("idle");
@@ -198,16 +205,18 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   const [link, setLink] = useState("");
   const addVideo = async (ev: React.FormEvent) => {
     ev.preventDefault();
-    const url = link.trim();
+    // Sent as the one form the server takes, so an http, nocookie or m. link works too.
+    const url = youtubeWatchLink(link);
     if (!session) return;
-    if (!youtubeId(url)) return setNote(t("live.linkBad"));
+    if (!url) return setNote(t("live.linkBad"));
     try {
       const r = await api.setVideo(id, url);
       setSession({ ...session, youtube_url: r.youtube_url });
       setLink("");
       setNote(t("live.linkAdded"));
     } catch (e) {
-      setNote(e instanceof Error ? e.message : t("live.wrong"));
+      const bad = e instanceof ApiError && e.status === 422; // not a raw server message
+      setNote(bad ? t("live.linkBad") : e instanceof Error ? e.message : t("live.wrong"));
     }
   };
 

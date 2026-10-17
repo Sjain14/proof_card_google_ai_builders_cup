@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.65 · p65-live-page-robust
+Code review (17 Oct, no live runs) of the Live page.
+- Start listening could hang on "Connecting": the socket was opened before the sign-in token was fetched, so when a token refresh (page open over an hour) took longer than the socket took to open, the open event fired before anyone listened for it. `openLive` now fetches the token first.
+- "Stop sharing" in the browser bar now ends the run like the Stop button: the server ends the run, the brief goes back to ready and the Telegram summary goes out. Before, the socket stayed open until the tab closed.
+- Add link box (p60): any YouTube form (http, m., nocookie, live, shorts, youtu.be) is sent as the https watch link the server accepts, and a refused link shows the translated "not a YouTube link" instead of the raw server message. youtu.be ids are now validated like the other forms.
+- Tests: `src/live-open.test.ts` (fails on the old code: open event missed, link forms).
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.64 · p64-check-command-claims
 Code review (17 Oct, no live runs): "/check Government spending doubled ..." was never checked. Any 8+ letter first word matched the card id pattern, no card was found, and the bot went quiet in a group or said "That card id doesn't exist" in a private chat.
 - `handle_update`: a /check whose "id" is not a card is checked as a claim; "/check <claim>" also works in a private chat (it used to get the help text). A real card id after /check is still a card lookup.
