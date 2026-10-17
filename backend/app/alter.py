@@ -117,6 +117,14 @@ def check_image(
     upload = img.resize((W, H), Image.Resampling.LANCZOS)
     scores = band_scores(upload, original)
     changed = [k for k, v in scores.items() if v > BAND_THRESHOLD]
+    if changed:
+        # Cards downloaded before the missing-glyph fix show tofu boxes (e.g. around a
+        # quoted Hindi claim). They are genuine, so also compare against that old render.
+        legacy = render(card, card_id, base_url, bot_username, glyph_fallback=False)
+        if legacy.tobytes() != original.tobytes():
+            legacy_scores = band_scores(upload, legacy)
+            if not any(v > BAND_THRESHOLD for v in legacy_scores.values()):
+                original, scores, changed = legacy, legacy_scores, []
     dist = int(imagehash.phash(upload) - imagehash.phash(original))
     if changed:
         return CheckResult(

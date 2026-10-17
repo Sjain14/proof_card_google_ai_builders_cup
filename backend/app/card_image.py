@@ -62,6 +62,43 @@ def _font_for(text: str, size: int, weight: Weight = "Regular") -> ImageFont.Fre
     return font(size, weight, bool(_DEVANAGARI.search(text)))
 
 
+# Glyphs the chosen font may lack (Noto Sans Devanagari has no curly quotes, dashes,
+# ellipsis, rupee or bullet). Drawing them gives a .notdef "tofu" box, so each missing
+# character is swapped for a plain one the font does have.
+_PLAIN = {
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u201e": '"',
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201a": "'",
+    "\u2013": "-",
+    "\u2014": "-",
+    "\u2212": "-",
+    "\u2026": "...",
+    "\u20b9": "Rs ",
+    "\u2022": "*",
+    "\u00b7": "*",
+}
+_PROBE = "\ue000"  # private use code point: no font here maps it, so it draws .notdef
+
+
+def _mask(f: ImageFont.FreeTypeFont, ch: str) -> tuple[tuple[int, int], bytes]:
+    m = f.getmask(ch)
+    return m.size, bytes(m)
+
+
+@lru_cache(maxsize=4096)
+def has_glyph(f: ImageFont.FreeTypeFont, ch: str) -> bool:
+    """True unless the font would draw its .notdef box for this character."""
+    return ch.isspace() or _mask(f, ch) != _mask(f, _PROBE)
+
+
+def fit_text(text: str, f: ImageFont.FreeTypeFont) -> str:
+    """Replace characters the font cannot draw with plain equivalents it can."""
+    return "".join(_PLAIN[c] if c in _PLAIN and not has_glyph(f, c) else c for c in text)
+
+
 def wrap(text: str, f: ImageFont.FreeTypeFont, width: int, max_lines: int) -> list[str]:
     words, lines, cur = text.split(), [], ""
     for w in words:
@@ -78,9 +115,10 @@ def wrap(text: str, f: ImageFont.FreeTypeFont, width: int, max_lines: int) -> li
         lines.append(cur)
     if len(lines) == max_lines and " ".join(lines) != " ".join(words):
         last = lines[-1]
-        while last and f.getlength(last + "…") > width:
+        ell = "…" if has_glyph(f, "…") else "..."
+        while last and f.getlength(last + ell) > width:
             last = last[:-1]
-        lines[-1] = last.rstrip() + "…"
+        lines[-1] = last.rstrip() + ell
     return lines
 
 
@@ -99,7 +137,13 @@ def _domain(url: str) -> str:
     return m.group(1) if m else url
 
 
-def render(card: CardDoc, card_id: str, base_url: str, bot_username: str = "") -> Image.Image:
+def render(
+    card: CardDoc,
+    card_id: str,
+    base_url: str,
+    bot_username: str = "",
+    glyph_fallback: bool = True,
+) -> Image.Image:
     img = Image.new("RGB", (W, H), PAPER)
     d = ImageDraw.Draw(img)
     colour, word_en, word_hi = VERDICT_STYLE[card.verdict]
@@ -125,7 +169,8 @@ def render(card: CardDoc, card_id: str, base_url: str, bot_username: str = "") -
     for size in (76, 66, 58, 50):  # biggest size that fits the band without truncation
         cf = _font_for(cl, size, "SemiBold")
         step = int(size * 1.32)
-        lines = wrap(cl, cf, W - 2 * PAD, max(1, (bottom - top) // step))
+        text = fit_text(cl, cf) if glyph_fallback else cl
+        lines = wrap(text, cf, W - 2 * PAD, max(1, (bottom - top) // step))
         if not lines[-1].endswith("…"):
             break
     y = top
@@ -136,7 +181,8 @@ def render(card: CardDoc, card_id: str, base_url: str, bot_username: str = "") -
     # explanation
     ef = _font_for(card.explanation, 34)
     y = BANDS["explanation"][1] + 10
-    for line in wrap(card.explanation, ef, W - 2 * PAD, 5):
+    expl = fit_text(card.explanation, ef) if glyph_fallback else card.explanation
+    for line in wrap(expl, ef, W - 2 * PAD, 5):
         d.text((PAD, y), line, font=ef, fill=INK)
         y += 46
 
