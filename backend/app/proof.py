@@ -302,8 +302,34 @@ def match_passage(query: str, passage: str) -> Match:
             word_hits += found
     s = hit / weight
     topic = word_hits / words if words else 0.0
-    conflict = missing_number and any(t.isdigit() for t in p)
+    conflict = missing_number and _counts_same_thing(tokens(query), tokens(passage))
     return Match(passage, min(s, 0.5) if missing_number else s, topic, conflict)
+
+
+COUNT_WINDOW = 2  # tokens either side of a number that name what it counts
+
+
+def _counted(toks: list[str], at: int) -> set[str]:
+    lo, hi = max(0, at - COUNT_WINDOW), at + COUNT_WINDOW + 1
+    return {t for t in toks[lo:hi] if not t.isdigit() and len(t) >= 3}
+
+
+def _counts_same_thing(q: list[str], p: list[str]) -> bool:
+    """A different number contradicts the claim only when it counts the same thing.
+    Prod 17 Oct (card nYE4kLPNnRIC): "I settled eight different wars" went FALSE on
+    "inflation approached 20% during World War I": a number, on a page about the war,
+    but not a count of wars. The words next to the claim's number ("wars") must sit next
+    to one of the passage's numbers. A claim number with no such word keeps the old rule."""
+    want: set[str] = set()
+    for i, t in enumerate(q):
+        if t.isdigit():
+            want |= _counted(q, i)
+    nums = [i for i, t in enumerate(p) if t.isdigit()]
+    if not nums:
+        return False
+    if not want:
+        return True
+    return any(_hit(w, _counted(p, i)) for i in nums for w in want)
 
 
 def score_passage(query: str, passage: str) -> float:

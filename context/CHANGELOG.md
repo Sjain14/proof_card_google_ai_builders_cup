@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.56 · p56-sources-that-prove
+Sample brief review (17 Oct): the eight wars card (FALSE) showed "inflation approached 20% during World War I" as its deciding passage, and an earlier run listed an unrelated Greenland / Davos page as source 3.
+- Root cause 1: a passage counted as a contradiction whenever the claim's number was missing and the passage had ANY number. `proof._counts_same_thing` now needs the words next to the claim's number ("wars", "states", "percent") next to one of the passage's numbers. A claim number with no such word keeps the old rule.
+- Root cause 2: the gate checks the best source only, so a weaker extra source rode along. On a hard verdict every shown source must pass the gate itself (`SOURCE_GATE` = 0.6); weaker ones are logged "weaker than the gate" and dropped.
+- Cards already stored are unchanged; the next check of a claim uses the new rules.
+- Tests: `tests/test_source_relevance.py` (eight wars vs the inflation line, same-thing counts still contradict, a weak extra source is dropped).
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.52 · p52-neutral-sample-unproven-quotes
 Team lead (17 Oct, final pass): the UI read as targeting one politician ("Trump sample" on the how-to page, the form and the live page) in a Google competition; a "Modi said" quote with no record went TRUE on an IMF projection; the live page showed "fastest Infinity ms".
 - Sample copy is neutral: "Fill the sample", "Check the sample clip", no leader named in any UI string (en + hi). How-to mocks use multi-country illustrative claims (Germany coal, a housing boast, Brazil COP30) and a generic "Budget speech / Finance minister" form; no video thumbnail. The audio file is `samples/sample-clip.mp3`; `/new?sample=1` opens prefilled, old `?sample=trump` links keep working. The recorded clip itself is unchanged (no new Vertex runs).

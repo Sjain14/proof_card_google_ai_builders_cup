@@ -57,6 +57,7 @@ from app.store import Store, new_card_id
 log = logging.getLogger("proofcard.pipeline")
 
 MIN_PASSAGE_SCORE = 0.35
+SOURCE_GATE = 0.6  # schemas.gate_verdict threshold: every source on a hard verdict passes it
 # ONE fetch budget for the whole card. Without it, 8 s per source over ~10 grounding
 # chunks made one live card take 120 s (rev00012 prod verify, "power plants" line).
 # A source still loading at the deadline is skipped like any other failed fetch.
@@ -447,6 +448,15 @@ def build_card(
     # a second, weaker source used to drag a well proven TRUE claim under the gate
     # (prod verify rev00012: 10 of 11 brief claims ended UNVERIFIABLE, true ones too).
     verdict = gate_verdict(assessment.verdict, max(scores))
+    if verdict != Verdict.UNVERIFIABLE:
+        # A hard verdict shows only sources that back it on their own. A weaker extra
+        # source next to a proven one used to ride along (sample brief, eight wars card:
+        # a Greenland / Davos page as source 3).
+        kept = [(p, sc) for p, sc in zip(proofs, scores, strict=True) if sc >= SOURCE_GATE]
+        for p, sc in zip(proofs, scores, strict=True):
+            if sc < SOURCE_GATE:
+                _skip(str(p.url), "weaker than the gate", score=round(sc, 3))
+        proofs, scores = [p for p, _ in kept], [sc for _, sc in kept]
     if verdict == Verdict.UNVERIFIABLE:
         kept = [(p, sc) for p, sc in zip(proofs, scores, strict=True) if reputable(str(p.url))]
         if not kept:
