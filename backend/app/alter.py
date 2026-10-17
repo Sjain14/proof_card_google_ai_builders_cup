@@ -118,13 +118,19 @@ def check_image(
     scores = band_scores(upload, original)
     changed = [k for k, v in scores.items() if v > BAND_THRESHOLD]
     if changed:
-        # Cards downloaded before the missing-glyph fix show tofu boxes (e.g. around a
-        # quoted Hindi claim). They are genuine, so also compare against that old render.
-        legacy = render(card, card_id, base_url, bot_username, glyph_fallback=False)
-        if legacy.tobytes() != original.tobytes():
+        # Genuine cards downloaded before a renderer fix look different: unshaped Hindi
+        # (before conjunct shaping) and, older still, tofu boxes around quotes. Compare
+        # against each previous render too; any clean match means the card is untouched.
+        for fallback in (True, False):
+            legacy = render(
+                card, card_id, base_url, bot_username, glyph_fallback=fallback, shaped=False
+            )
+            if legacy.tobytes() == original.tobytes():
+                continue
             legacy_scores = band_scores(upload, legacy)
             if not any(v > BAND_THRESHOLD for v in legacy_scores.values()):
                 original, scores, changed = legacy, legacy_scores, []
+                break
     dist = int(imagehash.phash(upload) - imagehash.phash(original))
     if changed:
         return CheckResult(

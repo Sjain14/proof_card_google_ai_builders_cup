@@ -5,6 +5,8 @@ the ALTERED check possible: alter.py re-renders the original and compares it reg
 region against a forwarded copy. Never change BANDS without bumping LAYOUT_VERSION.
 
 Fonts: Noto Sans + Noto Sans Devanagari, SIL Open Font License 1.1 (assets/fonts/OFL.txt).
+Hindi text is shaped with libraqm (HarfBuzz), so conjuncts and matras join correctly
+("दिल्ली", not "दलि्ली"). The deploy image installs libraqm0 and fails the build without it.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from typing import Literal
 
 import numpy as np
 import zxingcpp
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, features
 
 from app.schemas import CardDoc, Verdict
 
@@ -50,16 +52,28 @@ _DEVANAGARI = re.compile(r"[ऀ-ॿ]")
 Weight = Literal["Regular", "Medium", "SemiBold", "Bold"]
 
 
-@lru_cache(maxsize=32)
-def font(size: int, weight: Weight = "Regular", devanagari: bool = False) -> ImageFont.FreeTypeFont:
+# Complex script shaping needs libraqm on the system (Pillow wheels do not bundle it).
+SHAPING = features.check("raqm")
+
+
+@lru_cache(maxsize=64)
+def font(
+    size: int, weight: Weight = "Regular", devanagari: bool = False, shaped: bool = True
+) -> ImageFont.FreeTypeFont:
+    """Latin text keeps the basic layout (English cards stay pixel identical); Devanagari
+    is shaped unless shaped=False (the old renderer, used by the ALTERED check)."""
     name = "NotoSansDevanagari.ttf" if devanagari else "NotoSans.ttf"
-    f = ImageFont.truetype(str(FONT_DIR / name), size)
+    raqm = devanagari and shaped and SHAPING
+    layout = ImageFont.Layout.RAQM if raqm else ImageFont.Layout.BASIC
+    f = ImageFont.truetype(str(FONT_DIR / name), size, layout_engine=layout)
     f.set_variation_by_name(weight)
     return f
 
 
-def _font_for(text: str, size: int, weight: Weight = "Regular") -> ImageFont.FreeTypeFont:
-    return font(size, weight, bool(_DEVANAGARI.search(text)))
+def _font_for(
+    text: str, size: int, weight: Weight = "Regular", shaped: bool = True
+) -> ImageFont.FreeTypeFont:
+    return font(size, weight, bool(_DEVANAGARI.search(text)), shaped)
 
 
 # Glyphs the chosen font may lack (Noto Sans Devanagari has no curly quotes, dashes,
@@ -143,6 +157,7 @@ def render(
     base_url: str,
     bot_username: str = "",
     glyph_fallback: bool = True,
+    shaped: bool = True,
 ) -> Image.Image:
     img = Image.new("RGB", (W, H), PAPER)
     d = ImageDraw.Draw(img)
@@ -160,14 +175,18 @@ def render(
     d.rounded_rectangle((x0, y0, x0 + tw + 64, y0 + 108), radius=54, fill=colour)
     d.text((x0 + 32, y0 + 54), word_en, font=vf, fill=PAPER, anchor="lm")
     d.text(
-        (x0 + tw + 96, y0 + 54), word_hi, font=font(40, "SemiBold", True), fill=colour, anchor="lm"
+        (x0 + tw + 96, y0 + 54),
+        word_hi,
+        font=font(40, "SemiBold", True, shaped),
+        fill=colour,
+        anchor="lm",
     )
 
     # claim
     cl = f"“{card.claim}”"
     top, bottom = BANDS["claim"][1] + 10, BANDS["claim"][3]
     for size in (76, 66, 58, 50):  # biggest size that fits the band without truncation
-        cf = _font_for(cl, size, "SemiBold")
+        cf = _font_for(cl, size, "SemiBold", shaped)
         step = int(size * 1.32)
         text = fit_text(cl, cf) if glyph_fallback else cl
         lines = wrap(text, cf, W - 2 * PAD, max(1, (bottom - top) // step))
@@ -179,7 +198,7 @@ def render(
         y += step
 
     # explanation
-    ef = _font_for(card.explanation, 34)
+    ef = _font_for(card.explanation, 34, shaped=shaped)
     y = BANDS["explanation"][1] + 10
     expl = fit_text(card.explanation, ef) if glyph_fallback else card.explanation
     for line in wrap(expl, ef, W - 2 * PAD, 5):

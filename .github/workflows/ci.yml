@@ -29,6 +29,8 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
+      - name: libraqm (Hindi shaping, same as the deploy image)
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends libraqm0
       - run: pip install -r requirements-dev.txt
       - name: lint
         run: ruff check .

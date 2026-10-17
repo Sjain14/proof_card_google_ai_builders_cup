@@ -6,6 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# libraqm: Hindi text shaping on the cards (Pillow loads it at runtime).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libraqm0 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /srv
 COPY requirements.txt .
 RUN pip install -r requirements.txt

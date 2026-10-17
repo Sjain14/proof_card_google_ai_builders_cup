@@ -67,6 +67,8 @@ jobs:
           IMAGE="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/$REPO/api:${GITHUB_SHA::12}"
           gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
           docker build --pull -t "$IMAGE" .
+          # Never ship unshaped Hindi cards: the image must have libraqm.
+          docker run --rm --entrypoint python "$IMAGE" -c "from PIL import features; assert features.check('raqm')"
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 

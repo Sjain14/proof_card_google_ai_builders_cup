@@ -92,7 +92,7 @@ def _jpeg(img) -> bytes:  # type: ignore[no-untyped-def]
 
 def test_card_downloaded_before_fix_still_verifies() -> None:
     card = _card(HINDI_CLAIM, HINDI_EXPL)
-    old = render(card, CARD_ID, BASE, glyph_fallback=False)
+    old = render(card, CARD_ID, BASE, glyph_fallback=False, shaped=False)
     res = alter.check_image(_jpeg(old), lambda cid: card if cid == CARD_ID else None, BASE)
     assert res.result == "VERIFIED", res
     fresh = alter.check_image(_jpeg(render(card, CARD_ID, BASE)), lambda cid: card, BASE)
@@ -106,5 +106,5 @@ def test_edited_hindi_card_still_altered() -> None:
     res = alter.check_image(_jpeg(img), lambda cid: card, BASE)
     assert res.result == "ALTERED"
     assert "claim" in res.changed
-    legacy_fake = render(fake, CARD_ID, BASE, glyph_fallback=False)
+    legacy_fake = render(fake, CARD_ID, BASE, glyph_fallback=False, shaped=False)
     assert alter.check_image(_jpeg(legacy_fake), lambda cid: card, BASE).result == "ALTERED"
