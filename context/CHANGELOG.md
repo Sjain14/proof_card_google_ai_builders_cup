@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.59 · p59-live-page-replay
+Sample brief review (17 Oct): a finished live session read "0 checked live" until Replay was pressed, and the replay player sat as a blank box at replay start.
+- Before Replay the feed shows every live claim already checked, newest first (`live.pastLive`), so the count and the cards are there on open.
+- Replay stage shows the video poster (`live.ytPoster`) while the player loads, and the player starts on the Replay click (autoplay + `playVideo` on ready).
+- Tests: `live.test.ts` (past live claims, poster url).
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.58 · p58-attribution-guardrails
 Prod bot (17 Oct): "Narendra Modi said India became the world's fourth largest economy in 2025" got a verdict on the number only; the "did Modi say it" check never ran because the line had no quote marks and no "that".
 - `quotes.attribution` also reads "<Name> said <clause>" (capitalised name, case sensitive, so "the report said" is never a speaker), "According to X, ...", "X ji ke mutabik / के अनुसार ...". Government, ministry, officials, experts, analysts, police, court are never speakers. `surname` skips "ji" / "Mr".

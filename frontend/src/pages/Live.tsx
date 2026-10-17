@@ -9,7 +9,9 @@ import {
   connectLive,
   loadYouTube,
   openLive,
+  pastLive,
   replayDue,
+  ytPoster,
   youtubeId,
   type Capture,
   type LiveEvent,
@@ -67,7 +69,10 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
         videoId: replayVid,
         width: "100%",
         height: "100%",
-        playerVars: { rel: 0, playsinline: 1 },
+        // The Replay click is the user gesture: start at once instead of a still frame
+        // (review 17 Oct: the player sat blank at replay start).
+        playerVars: { rel: 0, playsinline: 1, autoplay: 1 },
+        events: { onReady: (e: { target: YtPlayer }) => e.target.playVideo() },
       });
     }, () => setNote(t("live.wrong")));
     const tick = window.setInterval(() => {
@@ -85,7 +90,9 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
   const shown: FeedItem[] =
     replay && session
       ? replayDue(session.claims, now).map((c) => ({ claim: c, prebunked: Boolean(c.matched_claim_id) }))
-      : feed;
+      : feed.length || !session
+        ? feed
+        : pastLive(session.claims).map((c) => ({ claim: c, prebunked: Boolean(c.matched_claim_id) }));
 
   // Cards are immutable: fetch each once, as soon as an event names it.
   useEffect(() => {
@@ -288,7 +295,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
       <div className="live-grid">
         <div className="stage">
           {replay && vid ? (
-            <div className="player" ref={playerEl} />
+            <div className="player" ref={playerEl} style={{ background: `var(--ink) center / cover url(${ytPoster(vid)})` }} />
           ) : vid ? (
             <iframe
               className="player"

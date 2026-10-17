@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mergeFeed, uploadClip, type FeedClaim } from "./api";
-import { backoffMs, clock, pollRetry, connectLive, MAX_RETRIES, replayDue, youtubeId, type LiveEvent } from "./live";
+import { backoffMs, clock, pollRetry, connectLive, MAX_RETRIES, replayDue, pastLive, ytPoster, youtubeId, type LiveEvent } from "./live";
 
 class FakeSocket {
   readyState = 1;
@@ -134,6 +134,18 @@ describe("replay", () => {
     ];
     expect(replayDue(claims, 20).map((c) => c.id)).toEqual(["e", "a"]);
     expect(replayDue(claims, 0)).toEqual([]);
+  });
+  it("before Replay shows every live claim already checked, never 0", () => {
+    const claims = [
+      { id: "a", source: "live", t_offset_s: 5 },
+      { id: "c", source: "predicted", t_offset_s: 1 },
+      { id: "d", source: "live", t_offset_s: null },
+      { id: "b", source: "live", t_offset_s: 86 },
+    ];
+    expect(pastLive(claims).map((c) => c.id)).toEqual(["b", "a", "d"]);
+  });
+  it("has a poster for the replay stage", () => {
+    expect(ytPoster("swR1RGScmvU")).toBe("https://i.ytimg.com/vi/swR1RGScmvU/hqdefault.jpg");
   });
   it("formats m:ss", () => {
     expect(clock(86.7)).toBe("1:26");

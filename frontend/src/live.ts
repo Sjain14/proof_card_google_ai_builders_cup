@@ -200,6 +200,7 @@ export function youtubeId(url: string): string | null {
 
 export interface YtPlayer {
   getCurrentTime(): number;
+  playVideo(): void;
   destroy(): void;
 }
 
@@ -227,6 +228,19 @@ export function replayDue<T extends { source: string; t_offset_s?: number | null
   return claims
     .filter((c) => c.source === "live" && c.t_offset_s != null && c.t_offset_s <= now)
     .sort((a, b) => (b.t_offset_s ?? 0) - (a.t_offset_s ?? 0));
+}
+
+/** Every live claim already checked, newest first: what the page shows before Replay
+ * (it showed "0 checked live" on a finished session until Replay, review 17 Oct). */
+export function pastLive<T extends { source: string; t_offset_s?: number | null }>(claims: T[]): T[] {
+  return claims
+    .filter((c) => c.source === "live")
+    .sort((a, b) => (b.t_offset_s ?? 0) - (a.t_offset_s ?? 0));
+}
+
+/** Poster shown while the replay player loads, so the stage is never a blank box. */
+export function ytPoster(id: string): string {
+  return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
 
 export function clock(s: number): string {
