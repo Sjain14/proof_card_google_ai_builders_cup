@@ -297,7 +297,8 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
 
     text = raw = m.text or m.caption or ""
     addressed = not group or forwarded or MENTION_RE.search(text) is not None
-    if group:
+    if group or text.lower().startswith("/check"):
+        # "/check <claim>" works in a private chat too (it used to get the help text).
         text = MENTION_RE.sub(" ", text).strip()
     if (alert := ALERT_START_RE.match(text)) is not None:
         topic = d.link_alerts(alert.group(1), chat)
@@ -323,7 +324,10 @@ def handle_update(u: TgUpdate, d: BotDeps) -> None:
             },
         )
         return
-    if not ref and addressed and looks_like_claim(text):
+    # "/check Government spent ..." also matches CARD_REF_RE (any 8+ letter first word
+    # reads as a card id). No such card: it's a claim, so check it instead of going quiet
+    # in a group or answering "That card id doesn't exist".
+    if (not ref or card is None) and addressed and looks_like_claim(text):
         try:
             claims = d.split_claims(text.strip())[:MAX_FORWARD_CLAIMS]
         except Exception:

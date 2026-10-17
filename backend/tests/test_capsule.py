@@ -569,3 +569,27 @@ def test_bot_opened_from_the_site_offers_one_tap_samples(cards: InMemoryStore) -
     assert all(looks_like_claim(c) for c in SAMPLE_CLAIMS)  # a tap is checked like typing
     handle_update(_msg(text="hi"), deps)
     assert "reply_markup" not in bot.calls[-1][1]
+
+
+def test_tg_check_command_with_a_long_first_word_is_a_claim(cards: InMemoryStore) -> None:
+    """Code review 17 Oct: "/check Government ..." read "Government" as a card id (any 8+
+    char word matches), found no card, and the claim was never checked: silent in a
+    group, "That card id doesn't exist" in a private chat."""
+    claim = "Government spending on health doubled in five years says the budget"
+    bot, deps, seen = _bot()
+    handle_update(_msg("group", text=f"/check {claim}"), deps)
+    assert seen == [[claim]]
+    bot, deps, seen = _bot()
+    handle_update(_msg(text=f"/check {claim}"), deps)
+    handle_update(_msg(text=f"/check@ProofCardAgentBot {claim}"), deps)
+    assert seen == [[claim], [claim]]
+    assert "doesn't exist" not in str(bot.calls)
+    # a real card id after /check is still a card lookup, a bad short one still says so
+    cid, _ = first(cards)
+    bot, deps, seen = _bot()
+    deps.get_card = cards.get_card
+    handle_update(_msg(text=f"/check {cid}"), deps)
+    assert cid in bot.calls[-1][1]["text"]
+    assert seen == []
+    handle_update(_msg(text="/check nope-nope-nope"), deps)
+    assert "doesn't exist" in bot.calls[-1][1]["text"]

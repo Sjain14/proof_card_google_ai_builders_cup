@@ -2,6 +2,12 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.64 · p64-check-command-claims
+Code review (17 Oct, no live runs): "/check Government spending doubled ..." was never checked. Any 8+ letter first word matched the card id pattern, no card was found, and the bot went quiet in a group or said "That card id doesn't exist" in a private chat.
+- `handle_update`: a /check whose "id" is not a card is checked as a claim; "/check <claim>" also works in a private chat (it used to get the help text). A real card id after /check is still a card lookup.
+- Tests: `test_tg_check_command_with_a_long_first_word_is_a_claim` (fails on the old code).
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.63 · p63-bot-check-resilience
 Code review (17 Oct, no live runs): one failed Telegram call could leave a person without a verdict.
 - `check_claim`: if the "Checking this claim" line fails (network blip), the check is still queued; before, the session was created but never checked.
