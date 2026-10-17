@@ -1,10 +1,16 @@
 # Proof Card
 
-**Every claim a leader makes, proved or flagged in seconds, with a receipt anyone can verify.**
+**Hear a claim, see its proof: live, sourced, and one forward away on Telegram.**
+
+> **30-second story:** paste a speech's YouTube link and press listen. As the speaker talks, each checkable claim pops up as a card with its verdict and the exact source passage. Someone forwards you a message or a screenshot? Send it to [@ProofCardAgentBot](https://t.me/ProofCardAgentBot) and the verdict comes back as a reply.
+
+1. **A card appears live, on the audio, as the claim is spoken.** Tab audio streams to the Gemini Live API; each sentence is matched to a prebunked card instantly or checked on the spot (`backend/app/live.py`, `frontend/src/live.ts`).
+2. **Every claim gets a verdict with its source.** TRUE, MISLEADING, FALSE or UNVERIFIABLE, always with the exact passage from a page we fetched and hashed ourselves. No passage, no hard verdict (`backend/app/pipeline.py`, `backend/app/proof.py`).
+3. **Forward a message (or a screenshot) in Telegram, get a verdict back.** Up to 3 claims per forward, numbered "Claim 1/3", each a reply to your message (`backend/app/telegram.py`).
+
+**Try it:** [aibuilderscup.web.app](https://aibuilderscup.web.app) · Telegram bot [@ProofCardAgentBot](https://t.me/ProofCardAgentBot) · **how to use + demo script: [`docs/DEMO.md`](docs/DEMO.md)**
 
 AI can fake a speech, an anchor or a headline in seconds. Proof Card checks what a politician, a news clip or a forward actually claims against official data, shows the exact passage that decides it, and turns every verdict into a tamper evident card anyone can verify on Telegram. Transcription is only the input: the product is the proof.
-
-**Try it:** [aibuilderscup.web.app](https://aibuilderscup.web.app) · Telegram bot [@ProofCardAgentBot](https://t.me/ProofCardAgentBot) · step-by-step guide + demo script: [`docs/DEMO.md`](docs/DEMO.md)
 
 Google Cloud AI Builder Cup 2026 · Media, Content & Digital Experiences track.
 
@@ -42,12 +48,14 @@ Verdicts are always one of **TRUE · MISLEADING · FALSE · UNVERIFIABLE**. No s
 | ![Clip replay](docs/screenshots/05b-clip-replay.png) | ![Proof card](docs/screenshots/06-proof-card.png) | ![All cards](docs/screenshots/08-all-cards.png) |
 
 ### Telegram bot, for anyone ([@ProofCardAgentBot](https://t.me/ProofCardAgentBot))
-All in `backend/app/telegram.py`:
-- **Plain claims:** send any claim, get the verdict, the source passage and a shareable card.
-- **Multi-claim forwards:** a forwarded message is split into up to 3 claims, one numbered verdict each, every reply threaded to the message it answers.
-- **Screenshots:** a screenshot of a forward or news graphic is read by Gemini and its claims are checked like typed ones; a Proof Card image is checked for tampering instead.
+All in `backend/app/telegram.py` (verdict replies in `send_claim_result`, numbering in `backend/app/main.py`):
+- **Plain claim:** send any claim and get the verdict as a reply: the card image, its one-line why, the source domains and an "Open proof" button, or a plain UNVERIFIABLE when no trusted source decides it.
+- **3-claim forward, numbered verdicts:** a forwarded message is split into up to 3 checkable claims. The bot acks "Found 3 checkable claims", then sends one verdict per claim, labelled **Claim 1/3**, **Claim 2/3**, **Claim 3/3**, each threaded as a reply to the message it answers.
+- **Screenshot verdicts:** send a screenshot of a forward or a news graphic. Gemini reads the claims written on it and each is checked like a typed claim. A Proof Card image is checked for tampering instead: VERIFIED or ALTERED (`backend/app/alter.py`).
 - **"X said" quotes:** "Modi said '...'" (also `ne kaha ki` / Hindi) is checked as a quote first: is it on record? An unproven quote is never shown as TRUE (`backend/app/quotes.py`).
 - Works in groups when mentioned or forwarded to, inline mode, and 40 checks per chat per day.
+
+![A forward sent to the Telegram bot](docs/screenshots/telegram-forward.png)
 
 ## Architecture
 
