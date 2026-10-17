@@ -118,6 +118,7 @@ def result_text(r: CheckResult) -> str:
 
 
 HELP = (
+    "<b>Proof Card: hear a claim, see its proof.</b> Every verdict comes with its source.\n\n"
     "Send me a <b>claim</b> (a line from a speech, a forward, a headline) and I'll check it "
     "against official data and trusted sources, with the exact passage as proof.\n"
     "Forward a whole message or a <b>screenshot</b> and I'll check each claim in it.\n"
