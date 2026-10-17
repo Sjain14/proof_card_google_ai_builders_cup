@@ -57,6 +57,29 @@ All in `backend/app/telegram.py` (verdict replies in `send_claim_result`, number
 
 ![A forward sent to the Telegram bot](docs/screenshots/telegram-forward.png)
 
+## Why not just ask Gemini?
+
+Gemini powers Proof Card: it spots checkable claims, searches with Google Search grounding, transcribes and embeds. What Proof Card adds is everything around the answer, so a verdict comes with **proof**: the exact passage that decides it, from a page we fetched ourselves, frozen under a hash, on a card anyone can re-check.
+
+**How a verdict is earned** (`backend/app/pipeline.py`, `backend/app/proof.py`, `backend/app/schemas.py`):
+1. Every cited page is fetched and read by our code (HTML and PDF). A link that does not load gives no proof.
+2. Deterministic code finds the passage that decides the claim, in English, Hindi or Hinglish. Numbers count double, and a number in the claim that is missing from the page caps the score.
+3. TRUE, FALSE or MISLEADING is shown only when a fetched source passes the gate; every source shown next to a hard verdict must pass on its own. Otherwise the card says **UNVERIFIABLE**.
+
+| What you need | Proof Card |
+|---|---|
+| The sentence that decides it | Quoted on the card, with its source |
+| Proof that survives the page changing | Snapshot under its sha256 at `/api/snapshots/<sha256>`, anyone can recompute it |
+| Fake quotes on a photo | Checked on record first; an unproven quote is never TRUE (`quotes.py`) |
+| A fact mixed with an opinion | "Partly proven": the facts check out, the judgment is named |
+| Old speeches | Checked with the figures of that day, via the Wayback Machine copy nearest the speech (`facts.py`) |
+| A live speech | Cards pop as each claim is spoken (`live.py`) |
+| Same claim, new words | Reuses the card already proved this week (`reuse.py`) |
+| Where forwards actually live | Forward to the Telegram bot, verdict comes back as a reply (`telegram.py`) |
+| Someone edits the card | Send the image back: VERIFIED, or ALTERED with what changed (`alter.py`) |
+
+**What is guaranteed:** no hard verdict without a fetched, hashed source passage that passes the gate; an unproven quote is never TRUE; an edited card does not read VERIFIED. **What is not:** that every verdict is right. A passage can be misread and a source can be wrong, which is why the card always shows the passage, so you can judge it yourself. Open questions and explanations are a job for a general assistant; Proof Card checks claims.
+
 ## Architecture
 
 ```mermaid

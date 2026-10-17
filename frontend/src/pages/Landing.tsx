@@ -289,6 +289,44 @@ function Tamper() {
   );
 }
 
+const VS: readonly [Key, Key][] = [
+  ["land.vs1h", "land.vs1"],
+  ["land.vs2h", "land.vs2"],
+  ["land.vs3h", "land.vs3"],
+  ["land.vs4h", "land.vs4"],
+  ["land.vs5h", "land.vs5"],
+];
+
+/** "Why not just ask an AI?": the points slide in one by one and get stamped as they arrive. */
+function WhyNotAi() {
+  return (
+    <section id="why-ai" className="vs" aria-labelledby="vs-h">
+      <Reveal className="vs-copy">
+        <p className="eyebrow">{t("land.vsEyebrow")}</p>
+        <h2 id="vs-h" className="big serif">
+          {t("land.vsH")}
+        </h2>
+        <p className="lede">{t("land.vsBody")}</p>
+      </Reveal>
+      <ol className="vs-list">
+        {VS.map(([h, b], i) => (
+          <li key={h}>
+            <Reveal delay={i * 110} className="vs-row">
+              <span className="vs-tick" aria-hidden="true">
+                ✓
+              </span>
+              <div>
+                <h3>{t(h)}</h3>
+                <p>{t(b)}</p>
+              </div>
+            </Reveal>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 export function Landing(_props: { user: SignedIn | null | undefined }) {
   // /new offers Google or guest; never a direct Google popup from here.
   const start = () => navigate("/new");
@@ -355,6 +393,8 @@ export function Landing(_props: { user: SignedIn | null | undefined }) {
       <StickySteps />
 
       <Tamper />
+
+      <WhyNotAi />
 
       <Reveal className="trust">
         <h2 className="serif">{t("land.trustH")}</h2>

@@ -347,6 +347,25 @@ div.player > * { width: 100%; height: 100%; border: 0; border-radius: var(--radi
 .tg-btn { justify-self: stretch; text-align: center; color: #2a7ab0; font-weight: 600; border-top: 1px solid #e5e7eb; padding-top: 8px; margin-top: 2px; }
 .how-vis.on .bubble.bot { animation: rise 500ms 500ms both; }
 
+/* why not just ask an AI */
+.vs { display: grid; grid-template-columns: 0.9fr 1fr; gap: 64px; align-items: start; padding: 96px 0; }
+.vs-copy { position: sticky; top: 96px; }
+.vs-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.vs-row { display: flex; gap: 16px; align-items: flex-start; padding: 20px 22px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.vs-row h3 { margin: 0 0 6px; font-size: 18px; }
+.vs-row p { margin: 0; color: var(--ink-2); line-height: 1.5; }
+.vs-tick { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 700; transform: scale(0); }
+.vs-row.in .vs-tick { animation: tick 380ms 450ms cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+@keyframes tick { to { transform: scale(1); } }
+@media (max-width: 900px) {
+  .vs { grid-template-columns: 1fr; gap: 32px; }
+  .vs-copy { position: static; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vs-tick { transform: none; }
+  .vs-row.in .vs-tick { animation: none; }
+}
+
 /* tamper demo */
 .tamper { display: grid; grid-template-columns: 1fr 0.9fr; gap: 64px; align-items: center; padding: 96px 0; }
 .tamper-card { padding: 30px; overflow-wrap: anywhere; border: 1px solid var(--line); box-shadow: 0 30px 80px -40px rgb(17 24 39 / 0.4); display: grid; gap: 14px; overflow: hidden; }
