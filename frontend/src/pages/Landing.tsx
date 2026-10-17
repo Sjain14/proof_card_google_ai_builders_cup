@@ -305,27 +305,33 @@ function useVsScroll(n: number) {
   useEffect(() => {
     const el = sec.current;
     if (!el) return;
-    const paint = (p: number, lit: number) => {
+    const paint = (p: number, lit: number, phase: number) => {
       el.style.setProperty("--vs-p", p.toFixed(3));
-      if (stage.current) stage.current.dataset.phase = String(p < 0.18 ? 0 : p < 0.42 ? 1 : 2);
+      if (stage.current) stage.current.dataset.phase = String(phase);
       rows.current.forEach((r, k) => r?.classList.toggle("on", k < lit));
     };
     if (reducedMotion() || typeof IntersectionObserver === "undefined") {
-      paint(1, n);
+      paint(1, n, 2);
       return;
     }
     let raf = 0;
     const tick = () => {
       raf = 0;
       const vh = window.innerHeight || 800;
-      const r = el.getBoundingClientRect();
       const line = vh * 0.62;
-      const p = Math.min(1, Math.max(0, (line - r.top) / Math.max(1, r.height - vh * 0.25)));
+      // The rail fills exactly as far as the reading line has reached down the list, so it meets each dot.
+      const list = rows.current[0]?.parentElement?.getBoundingClientRect();
+      const p = list ? Math.min(1, Math.max(0, (line - list.top) / Math.max(1, list.height))) : 0;
       let lit = 0;
       rows.current.forEach((row) => {
-        if (row && row.getBoundingClientRect().top + 24 < line) lit++;
+        if (row && row.getBoundingClientRect().top + 36 < line) lit++;
       });
-      paint(p, lit);
+      // The answer turns into proof only while the stage is on screen: by its own height on the page
+      // (phones, one column) or by how many points are lit (desktop, where the copy column stays put).
+      const st = stage.current?.getBoundingClientRect();
+      const seen = !!st && st.bottom < vh * 0.97 && st.bottom > 0;
+      const phase = !seen ? (lit >= n ? 2 : 0) : lit >= 4 || st.top < vh * 0.3 ? 2 : lit >= 2 || st.top < vh * 0.55 ? 1 : 0;
+      paint(p, lit, phase);
     };
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(tick);
