@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw
 from pydantic import SecretStr
 
 from app import alter
-from app.card_image import font, render, wrap
+from app.card_image import RENDER_REV, font, render, wrap
 from app.config import Settings
 from app.main import create_app
 from app.model import StubModel
@@ -289,7 +289,7 @@ def test_tg_claim_text_is_checked_and_answered(
     method, payload = bot.calls[-1]
     assert payload["chat_id"] == 42
     if method == "sendPhoto":
-        assert payload["photo"].endswith(".png")
+        assert payload["photo"].endswith(f".png?r={RENDER_REV}")
         assert payload["reply_markup"]["inline_keyboard"][0][0]["text"] == "Open proof"
     else:
         assert "UNVERIFIABLE" in payload["text"]
@@ -329,7 +329,7 @@ def test_tg_inline_and_callback(http: tuple[TestClient, FakeBot], cards: InMemor
     tg(c, {"inline_query": {"id": "q1", "query": cid}})
     method, payload = bot.calls[-1]
     assert method == "answerInlineQuery"
-    assert payload["results"][0]["photo_url"] == f"{BASE}/v/{cid}.jpg"
+    assert payload["results"][0]["photo_url"] == f"{BASE}/v/{cid}.jpg?r={RENDER_REV}"
     tg(c, {"inline_query": {"id": "q2", "query": "bad"}})
     assert bot.calls[-1][1]["results"] == []
     tg(c, {"callback_query": {"id": "cb"}})

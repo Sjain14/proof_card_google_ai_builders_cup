@@ -23,7 +23,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
-from app.card_image import share_url
+from app.card_image import card_image_url, share_url
 from app.schemas import ClaimSource, SessionDoc
 from app.store import Store
 from app.telegram import BotApi
@@ -213,7 +213,7 @@ class Alerter:
             "sendPhoto",
             {
                 "chat_id": s.alert_chat_id,
-                "photo": f"{self.base_url.rstrip('/')}/v/{card_id}.png",
+                "photo": card_image_url(self.base_url, card_id),
                 "caption": caption,
                 "parse_mode": "HTML",
                 "reply_markup": {"inline_keyboard": [buttons]},

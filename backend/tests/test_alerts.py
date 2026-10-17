@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app import alerts, alter
+from app.card_image import RENDER_REV
 from app.config import Settings
 from app.live import HashEmbedder, HeuristicSpotter, LiveDeps, LiveEngine
 from app.main import create_app
@@ -81,7 +82,7 @@ def test_alerter_sends_only_false_or_misleading_and_caps() -> None:
     method, body = bot.calls[0]
     assert method == "sendPhoto"
     assert body["chat_id"] == 99
-    assert body["photo"] == f"{BASE}/v/card-1.png"
+    assert body["photo"] == f"{BASE}/v/card-1.png?r={RENDER_REV}"
     assert "&lt;b&gt;said" in body["caption"]
     assert "&lt;speech&gt;" in body["caption"]
     for _ in range(alerts.MAX_ALERTS + 3):

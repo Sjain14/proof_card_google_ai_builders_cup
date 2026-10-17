@@ -11,7 +11,7 @@ from html import escape
 from urllib.parse import quote, urlsplit
 
 from app.alter import CheckResult
-from app.card_image import share_url
+from app.card_image import RENDER_REV, share_url
 from app.schemas import CardDoc, Verdict
 
 LABEL = {
@@ -61,7 +61,8 @@ def _page(title: str, desc: str, url: str, body: str) -> str:
     t, d, u = escape(title), escape(desc), escape(url)
     og = (
         f'<meta property="og:title" content="{t}"><meta property="og:description" content="{d}">'
-        f'<meta property="og:url" content="{u}"><meta property="og:image" content="{u}.jpg">'
+        f'<meta property="og:url" content="{u}">'
+        f'<meta property="og:image" content="{u}.jpg?r={RENDER_REV}">'
         '<meta name="twitter:card" content="summary_large_image">'
         if url
         else ""

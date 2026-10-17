@@ -146,6 +146,16 @@ def share_url(base_url: str, card_id: str) -> str:
     return f"{base_url.rstrip('/')}/v/{card_id}"
 
 
+# Bump whenever the rendered pixels change (p61 glyphs, p66 shaping). Telegram caches a
+# photo by its URL, so an unchanged /v/<id>.png keeps serving the old render forever.
+RENDER_REV = "2026-10-17.p66"
+
+
+def card_image_url(base_url: str, card_id: str, ext: str = "png") -> str:
+    """Card image URL that changes with the renderer, so Telegram fetches fresh bytes."""
+    return f"{share_url(base_url, card_id)}.{ext}?r={RENDER_REV}"
+
+
 def _domain(url: str) -> str:
     m = re.match(r"https?://(?:www\.)?([^/]+)", url)
     return m.group(1) if m else url

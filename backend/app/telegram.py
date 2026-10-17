@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.alter import CheckResult
-from app.card_image import share_url
+from app.card_image import card_image_url, share_url
 from app.logging_setup import pseudonymize
 from app.schemas import CardDoc, TgUpdate
 
@@ -192,7 +192,7 @@ def send_claim_result(
         "sendPhoto",
         {
             "chat_id": chat_id,
-            "photo": f"{base.rstrip('/')}/v/{card_id}.png",
+            "photo": card_image_url(base, card_id),
             "caption": caption,
             "parse_mode": "HTML",
             "reply_markup": _open_button(base, card_id),
@@ -336,8 +336,8 @@ def _inline(u: TgUpdate, d: BotDeps) -> None:
             {
                 "type": "photo",
                 "id": cid[:64],
-                "photo_url": f"{base}.jpg",
-                "thumbnail_url": f"{base}.jpg",
+                "photo_url": card_image_url(d.base_url, cid, "jpg"),
+                "thumbnail_url": card_image_url(d.base_url, cid, "jpg"),
                 "photo_width": 1080,
                 "photo_height": 1350,
                 "caption": f"{card.verdict.value}: {card.claim[:180]}\nProof: {base}",
