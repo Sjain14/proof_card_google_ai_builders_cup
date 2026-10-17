@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.62 · p62-tg-verdict-always-delivered
+Code review (17 Oct, no live runs): two ways a Telegram verdict or live alert could silently never arrive.
+- A long card caption was cut at 997 chars of finished HTML. The cut could land inside an escaped entity (an apostrophe is `&#x27;`) and Telegram then refuses the whole photo, so the person got nothing; every cut also dropped the Sources line and card id. `telegram.fit_caption` now shortens the explanation, then the claim, as plain text before escaping; verdict, sources and card id always stay.
+- `telegram.send_photo`: if Telegram refuses a sendPhoto (it couldn't fetch the card PNG in time, or the caption), the same text and buttons go out as a message. Used for bot verdicts and live alerts.
+- Tests: `tests/test_tg_delivery.py` (12 cut points keep valid HTML + sources + id; refused photo falls back for verdicts and alerts; an accepted photo sends once).
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.60 · p60-add-live-link-later
 Real flow (17 Oct): an announced White House briefing has no stream link yet. The desk prebunks from topic + speaker first and needs to attach the live link once the channel publishes it, without losing the checked claims.
 - `POST /api/sessions/{id}/video` {youtube_url}: owner only (404 otherwise, same as every session route), https YouTube links only (`schemas.youtube_only`, shared with `PrebunkRequest`), rate limited like prebunk. Claims, cards and the fact bank are untouched, so the live page matches speech against the same prebunks, and Telegram alerts link to the moment in the video.

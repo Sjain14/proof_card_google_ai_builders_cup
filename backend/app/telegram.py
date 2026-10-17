@@ -108,6 +108,58 @@ def card_text(card: CardDoc, card_id: str) -> str:
     )
 
 
+CAPTION_MAX = 1000  # sendPhoto caption cap is 1024 (counted after HTML parsing)
+_MIN_FIELD = 60
+
+
+def _short(text: str, over: int) -> str:
+    """Drop `over` chars (+1 for the ellipsis) from plain text, never below _MIN_FIELD."""
+    keep = max(_MIN_FIELD, len(text) - over - 1)
+    return text if keep >= len(text) else text[:keep].rstrip() + "…"
+
+
+def fit_caption(head: str, card: CardDoc, card_id: str, limit: int = CAPTION_MAX) -> str:
+    """Card text that fits a photo caption. Shortens the explanation, then the claim, as
+    PLAIN text before escaping: cutting the finished HTML could split a tag or an entity
+    (&#x27;) and Telegram then refuses the whole photo, so the person got no verdict, and
+    the cut also dropped the Sources line. Verdict, sources and card id always stay."""
+    claim, explanation = card.claim, card.explanation
+    for _ in range(8):
+        text = head + card_text(
+            card.model_copy(update={"claim": claim, "explanation": explanation}), card_id
+        )
+        over = len(text) - limit
+        if over <= 0:
+            return text
+        shorter = _short(explanation, over)
+        if shorter != explanation:
+            explanation = shorter
+            continue
+        shorter = _short(claim, over)
+        if shorter == claim:
+            break
+        claim = shorter
+    v = card.verdict.value
+    return (
+        f"{head}{VERDICT_EMOJI.get(v, '')} <b>{html.escape(v)}</b>"
+        f" · card <code>{html.escape(card_id)}</code>"
+    )
+
+
+def send_photo(api: BotApi, payload: dict[str, Any]) -> dict[str, Any]:
+    """sendPhoto, and if Telegram refuses it (it couldn't fetch the card PNG in time, or
+    rejected the caption) the same text + buttons as a plain message, so a verdict or an
+    alert is never lost silently."""
+    r = api.call("sendPhoto", payload)
+    if r.get("ok", True):
+        return r
+    log.warning("sendPhoto refused, sending the verdict as text")
+    text = {k: v for k, v in payload.items() if k not in ("photo", "caption")}
+    text["text"] = payload.get("caption") or ""
+    text["link_preview_options"] = {"is_disabled": True}
+    return api.call("sendMessage", text)
+
+
 def result_text(r: CheckResult) -> str:
     if r.result == "VERIFIED":
         return "✅ <b>VERIFIED</b>: this is the original Proof Card, nothing was changed."
@@ -185,11 +237,9 @@ def send_claim_result(
         text = head + NO_PROOF.format(claim=html.escape(claim[:300]))
         api.call("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML", **thread})
         return
-    caption = head + card_text(card, card_id)
-    if len(caption) > 1000:  # sendPhoto caption cap is 1024
-        caption = caption[:997] + "…"
-    api.call(
-        "sendPhoto",
+    caption = fit_caption(head, card, card_id)
+    send_photo(
+        api,
         {
             "chat_id": chat_id,
             "photo": card_image_url(base, card_id),

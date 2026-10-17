@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 from app.card_image import card_image_url, share_url
 from app.schemas import ClaimSource, SessionDoc
 from app.store import Store
-from app.telegram import BotApi
+from app.telegram import BotApi, send_photo
 
 log = logging.getLogger("proofcard.alerts")
 
@@ -209,8 +209,8 @@ class Alerter:
         if moment:
             label_t = f"Watch at {_clock(t)}" if t is not None and t >= 0 else "Watch speech"
             buttons.append({"text": label_t, "url": moment})
-        self.api.call(
-            "sendPhoto",
+        send_photo(
+            self.api,
             {
                 "chat_id": s.alert_chat_id,
                 "photo": card_image_url(self.base_url, card_id),
