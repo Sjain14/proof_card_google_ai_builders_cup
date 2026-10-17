@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.58 · p58-attribution-guardrails
+Prod bot (17 Oct): "Narendra Modi said India became the world's fourth largest economy in 2025" got a verdict on the number only; the "did Modi say it" check never ran because the line had no quote marks and no "that".
+- `quotes.attribution` also reads "<Name> said <clause>" (capitalised name, case sensitive, so "the report said" is never a speaker), "According to X, ...", "X ji ke mutabik / के अनुसार ...". Government, ministry, officials, experts, analysts, police, court are never speakers. `surname` skips "ji" / "Mr".
+- Vertex spotter prompts (live + image): a claim in a named person's mouth is copied WITH the name and "said", never as the bare statement.
+- `CACHE_VERSION` v4: cards proved before p56 to p58 are re-checked once, so no old card skips the new guardrails.
+- Tests: `tests/test_attribution_guardrails.py`.
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.57 · p57-partial-proof
 Sample brief review (17 Oct): the Iran card read TRUE on "I withdrew the US from the disastrous Iran Nuclear Deal, the worst deal ever negotiated" while its proof covered the withdrawal only.
 - `proof.opinion_words` finds judgment words (worst, greatest, disastrous, ..., Hinglish / Hindi too). A TRUE card for a line that carries one becomes UNVERIFIABLE "Partly proven: the facts check out, but "worst" is a judgment no record can prove." The fact proof stays on the card. FALSE / MISLEADING are untouched (one false part is enough).

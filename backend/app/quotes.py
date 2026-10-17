@@ -16,11 +16,23 @@ _VERB = (
     r"(?:said|says|has said|had said|stated|told [^\n:\"“”]{1,30}?|claimed|claims|declared|"
     r"announced|tweeted|posted)"
 )
+_NAME = r"(?P<who>(?:(?:PM|Dr\.?|Mr\.?|Shri)\s+)?[A-Z][\w.'-]+(?:\s+[A-Z][\w.'-]+){0,3}(?:\s+ji)?)"
+_PLAIN_VERB = r"said|says|has said|claimed|claims|declared|announced|tweeted|posted"
 PATTERNS = (
     # Modi said: "..."   /   Rahul Gandhi claimed that "..."
     re.compile(rf"^{_WHO}\s+{_VERB}\s*(?:that\s*)?[:,\-]?\s*{_Q}(?P<quote>.+?){_Q}\s*\.?$", re.I),
     # Modi said that India ... (no quote marks, needs 'that')
     re.compile(rf"^{_WHO}\s+{_VERB}\s+that\s+(?P<quote>.+?)\.?$", re.I),
+    # Narendra Modi said India became ... (no quote marks, no 'that': a capitalised name,
+    # case sensitive so "the report said ..." never reads as a speaker). Prod bot 17 Oct:
+    # this form skipped the attribution check, so only the number was checked.
+    re.compile(rf"^{_NAME}\s+(?:{_PLAIN_VERB})\s+(?P<quote>[^\"“”].+?)\.?$"),
+    # According to Modi, India ...  /  Modi ji ke mutabik ...
+    re.compile(rf"^according\s+to\s+{_WHO}\s*,\s*(?P<quote>.+?)\.?$", re.I),
+    re.compile(
+        rf"^{_WHO}\s+(?:ke\s+mutabik|ke\s+anusaar|के\s+मुताबिक|के\s+अनुसार)\s*,?\s*(?P<quote>.+?)[.।]?$",
+        re.I,
+    ),
     # Modi ne kaha ki "..."  /  मोदी ने कहा कि ...
     re.compile(
         rf"^{_WHO}\s+(?:ne\s+kaha|ne\s+bola|ने\s+कहा|ने\s+बोला)\s*(?:ki|kee|कि|:)?\s*{_Q}?"
@@ -34,7 +46,8 @@ PATTERNS = (
 )
 MIN_QUOTE_WORDS = 4
 _NOT_A_SPEAKER = re.compile(
-    r"\b(report|reports|study|survey|data|government data|it|this|they|he|she|people|sources)\b",
+    r"\b(report|reports|study|survey|data|government data|government|ministry|officials|"
+    r"experts|analysts|police|court|it|this|they|he|she|people|sources)\b",
     re.I,
 )
 
@@ -66,5 +79,9 @@ def attribution(text: str) -> Attribution | None:
 def surname(speaker: str) -> str:
     """The word a page about this speaker always contains ("Narendra Modi" -> "modi")."""
     words = re.findall(r"[\w\u0900-\u097F]+", speaker.lower())
-    words = [w for w in words if w not in {"pm", "prime", "minister", "president", "shri", "dr"}]
+    words = [
+        w
+        for w in words
+        if w not in {"pm", "prime", "minister", "president", "shri", "dr", "mr", "ji"}
+    ]
     return words[-1] if words else ""

@@ -163,6 +163,9 @@ wars", "Iran's nuclear sites were destroyed") and absolutes about the present or
 ("no country has ever...", "every hostage is home").
 Return [] for opinions, questions, greetings and pure promises about the future ("Iran
 will never have a nuclear weapon" is a pledge: nothing on record can prove it yet).
+Keep who said it: a claim put in a named person's mouth ("Modi said India is the third
+largest economy") is copied WITH the name and "said", never as the bare statement. Did
+they say it is the first thing to check.
 Sentence: "{sentence}"
 """
 
@@ -173,6 +176,8 @@ fact checker can verify against public records (numbers, dates, rankings, offici
 statistics, things said to have already happened). Copy each claim as written as one full
 sentence, keep its language (English, Hindi or Hinglish), most important first, at most 3.
 Return [] for a photo with no such claim, opinions, jokes and promises about the future.
+A quote card (a person's photo or name with words in their mouth) is copied WITH the name:
+"Modi said: <the words>", never the bare words.
 """
 
 

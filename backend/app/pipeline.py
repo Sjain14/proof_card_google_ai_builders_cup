@@ -256,7 +256,8 @@ CLAIM_CACHE_AGE = timedelta(days=7)  # same window as a fact bank: statistics ge
 # Bump when a checker fix makes saved verdicts wrong: older keys stop matching, exact and
 # similar reuse both skip them. v2 (16 Oct): quote cards before the speaker check (p45);
 # v3: quote cards before the figure check (p49).
-CACHE_VERSION = "v3"
+# v4 (17 Oct): p56 to p58 change what proves a card; older cards are re-checked once.
+CACHE_VERSION = "v4"
 
 
 def claim_key(text: str, context: str = "") -> str:
