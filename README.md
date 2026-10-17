@@ -8,7 +8,7 @@
 2. **Every claim gets a verdict with its source.** TRUE, MISLEADING, FALSE or UNVERIFIABLE, always with the exact passage from a page we fetched and hashed ourselves. No passage, no hard verdict (`backend/app/pipeline.py`, `backend/app/proof.py`).
 3. **Forward a message (or a screenshot) in Telegram, get a verdict back.** Up to 3 claims per forward, numbered "Claim 1/3", each a reply to your message (`backend/app/telegram.py`).
 
-**Try it:** [aibuilderscup.web.app](https://aibuilderscup.web.app) · Telegram bot [@ProofCardAgentBot](https://t.me/ProofCardAgentBot) · **how to use + demo script: [`docs/DEMO.md`](docs/DEMO.md)**
+**Try it:** [aibuilderscup.web.app](https://aibuilderscup.web.app) (also [proofcard.web.app](https://proofcard.web.app)) · Telegram bot [@ProofCardAgentBot](https://t.me/ProofCardAgentBot) · **how to use + demo script: [`docs/DEMO.md`](docs/DEMO.md)**
 
 AI can fake a speech, an anchor or a headline in seconds. Proof Card checks what a politician, a news clip or a forward actually claims against official data, shows the exact passage that decides it, and turns every verdict into a tamper evident card anyone can verify on Telegram. Transcription is only the input: the product is the proof.
 

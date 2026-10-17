@@ -2,6 +2,15 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-18 · v0.7.70 · p70-proofcard-alt-site
+proofcard.web.app = alternate URL for the same app (Sahaj, 17 Oct).
+- firebase.json hosting is now two sites with the same config: `aibuilderscup` (main) and `proofcard`.
+- deploy.yml creates the `proofcard` Hosting site if missing (deploy SA has firebasehosting.admin); if it can't, it deploys the main site only and warns.
+- Cloud Run `PC_LIVE_ORIGINS` = the E09 origins plus every site's web.app + firebaseapp.com, so the live socket works from either URL.
+- Outside the repo (Owner, console): add proofcard.web.app + proofcard.firebaseapp.com to Auth authorized domains and to the browser API key's website restrictions, or sign-in fails on the new URL.
+- Card share links (`PC_PUBLIC_BASE_URL`) stay on aibuilderscup.web.app.
+- Docs touched: CHANGELOG, README.
+
 ## 2026-10-17 · v0.7.65 · p65-live-page-robust
 Code review (17 Oct, no live runs) of the Live page.
 - Start listening could hang on "Connecting": the socket was opened before the sign-in token was fetched, so when a token refresh (page open over an hour) took longer than the socket took to open, the open event fired before anyone listened for it. `openLive` now fetches the token first.

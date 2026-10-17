@@ -1,36 +1,148 @@
 {
-  "hosting": {
-    "public": "frontend/dist",
-    "ignore": ["firebase.json", "**/.*"],
-    "rewrites": [
-      { "source": "/api/**", "run": { "serviceId": "proofcard-api", "region": "asia-south1" } },
-      { "source": "/v/**", "run": { "serviceId": "proofcard-api", "region": "asia-south1" } },
-      { "source": "/tg/**", "run": { "serviceId": "proofcard-api", "region": "asia-south1" } },
-      { "source": "**", "destination": "/index.html" }
-    ],
-    "headers": [
-      {
-        "source": "/assets/**",
-        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
-      },
-      {
-        "source": "**",
-        "headers": [
-          { "key": "X-Content-Type-Options", "value": "nosniff" },
-          { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-          { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains" }
-        ]
-      }
-    ]
-  },
+  "hosting": [
+    {
+      "site": "aibuilderscup",
+      "public": "frontend/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "proofcard-api",
+            "region": "asia-south1"
+          }
+        },
+        {
+          "source": "/v/**",
+          "run": {
+            "serviceId": "proofcard-api",
+            "region": "asia-south1"
+          }
+        },
+        {
+          "source": "/tg/**",
+          "run": {
+            "serviceId": "proofcard-api",
+            "region": "asia-south1"
+          }
+        },
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "source": "/assets/**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "public, max-age=31536000, immutable"
+            }
+          ]
+        },
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "key": "Referrer-Policy",
+              "value": "strict-origin-when-cross-origin"
+            },
+            {
+              "key": "Strict-Transport-Security",
+              "value": "max-age=31536000; includeSubDomains"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "site": "proofcard",
+      "public": "frontend/dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "proofcard-api",
+            "region": "asia-south1"
+          }
+        },
+        {
+          "source": "/v/**",
+          "run": {
+            "serviceId": "proofcard-api",
+            "region": "asia-south1"
+          }
+        },
+        {
+          "source": "/tg/**",
+          "run": {
+            "serviceId": "proofcard-api",
+            "region": "asia-south1"
+          }
+        },
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ],
+      "headers": [
+        {
+          "source": "/assets/**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "public, max-age=31536000, immutable"
+            }
+          ]
+        },
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "X-Content-Type-Options",
+              "value": "nosniff"
+            },
+            {
+              "key": "Referrer-Policy",
+              "value": "strict-origin-when-cross-origin"
+            },
+            {
+              "key": "Strict-Transport-Security",
+              "value": "max-age=31536000; includeSubDomains"
+            }
+          ]
+        }
+      ]
+    }
+  ],
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
   "emulators": {
-    "firestore": { "host": "127.0.0.1", "port": 8085 },
-    "auth": { "host": "127.0.0.1", "port": 9099 },
-    "ui": { "enabled": false },
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 8085
+    },
+    "auth": {
+      "host": "127.0.0.1",
+      "port": 9099
+    },
+    "ui": {
+      "enabled": false
+    },
     "singleProjectMode": true
   }
 }

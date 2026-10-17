@@ -81,6 +81,15 @@ jobs:
           # Fact Check Tools API key from Secret Manager (E16). The runtime SA needs
           # roles/secretmanager.secretAccessor on this one secret. Unset var = no change.
           if [ -n "${{ vars.FACTCHECK_SECRET }}" ]; then ARGS+=(--update-secrets "PC_FACTCHECK_API_KEY=${{ vars.FACTCHECK_SECRET }}:latest"); fi
+          # Every Hosting site in firebase.json may open the live socket: keep the E09
+          # origins, add each site's web.app + firebaseapp.com. `^@^` because of the commas.
+          CUR=$(gcloud run services describe "$SERVICE" --region "${{ vars.GCP_REGION }}" \
+            --project "${{ vars.GCP_PROJECT }}" --format=json \
+            | jq -r '[.spec.template.spec.containers[0].env[]? | select(.name=="PC_LIVE_ORIGINS") | .value][0] // ""')
+          NEW=$(jq -r --arg cur "$CUR" '[($cur | split(",")[] | select(. != "")),
+                 (.hosting[].site | ("https://" + . + ".web.app"), ("https://" + . + ".firebaseapp.com"))]
+                 | unique | join(",")' firebase.json)
+          ARGS+=(--update-env-vars "^@^PC_LIVE_ORIGINS=$NEW")
           gcloud run deploy "$SERVICE" --image "$IMAGE" --region "${{ vars.GCP_REGION }}" \
             --project "${{ vars.GCP_PROJECT }}" --quiet "${ARGS[@]}"
           curl -fsS --retry 5 --retry-delay 3 "$URL/api/health"
@@ -103,6 +112,22 @@ jobs:
           npm ci --ignore-scripts
           npm run build
 
+      - name: Hosting sites exist (proofcard.web.app = alternate URL, same app)
+        env:
+          FIREBASE_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          FT="npx --yes firebase-tools@15"
+          for SITE in $(jq -r '.hosting[].site' firebase.json); do
+            [ "$SITE" = "${{ vars.GCP_PROJECT }}" ] && continue
+            $FT hosting:sites:get "$SITE" --project "${{ vars.GCP_PROJECT }}" --non-interactive >/dev/null 2>&1 && continue
+            if ! $FT hosting:sites:create "$SITE" --project "${{ vars.GCP_PROJECT }}" --non-interactive; then
+              # Never block the main site: drop a site id we can't get and say so.
+              echo "::warning::Hosting site $SITE could not be created, deploying without it"
+              jq --arg s "$SITE" '.hosting |= map(select(.site != $s))' firebase.json > /tmp/fb.json
+              mv /tmp/fb.json firebase.json
+            fi
+          done
+
       - name: deploy Hosting + Firestore rules + indexes
         env:
           FIREBASE_TOKEN: ${{ steps.auth.outputs.access_token }}
@@ -116,5 +141,5 @@ jobs:
           {
             echo "### Deployed"
             echo "- API: $URL (image \`$IMAGE\`)"
-            echo "- Web: https://${{ vars.GCP_PROJECT }}.web.app"
+            echo "- Web: https://${{ vars.GCP_PROJECT }}.web.app + https://proofcard.web.app"
           } >> "$GITHUB_STEP_SUMMARY"
