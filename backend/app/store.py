@@ -52,6 +52,9 @@ class Store(Protocol):
     def get_claim_card(self, key: str) -> tuple[str, datetime] | None: ...
     def put_claim_card(self, key: str, card_id: str, text: str = "", context: str = "") -> None: ...
     def recent_claim_cards(self, since: datetime, limit: int) -> list[ClaimCardRow]: ...
+    # the Telegram chat a user linked once (alerts.redeem); their later sessions alert it
+    def get_tg_chat(self, owner_uid: str) -> int | None: ...
+    def put_tg_chat(self, owner_uid: str, chat_id: int) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -74,7 +77,15 @@ class InMemoryStore:
         self.fact_banks: dict[str, FactBankDoc] = {}
         self.claim_cards: dict[str, tuple[str, datetime]] = {}
         self.claim_texts: dict[str, tuple[str, str]] = {}
+        self.tg_chats: dict[str, int] = {}
         self._lock = Lock()
+
+    def get_tg_chat(self, owner_uid: str) -> int | None:
+        return self.tg_chats.get(owner_uid)
+
+    def put_tg_chat(self, owner_uid: str, chat_id: int) -> None:
+        with self._lock:
+            self.tg_chats[owner_uid] = chat_id
 
     def create_session(self, doc: SessionDoc) -> str:
         sid = new_id()
@@ -175,6 +186,17 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
 
     def _claim(self, sid: str, cid: str) -> Any:
         return self._session(sid).collection("claims").document(cid)
+
+    def get_tg_chat(self, owner_uid: str) -> int | None:
+        # tg_links/{uid}: server only (firestore.rules deny-all fallback)
+        snap = self.db.collection("tg_links").document(owner_uid).get()
+        chat = (snap.to_dict() or {}).get("chat_id") if snap.exists else None
+        return int(chat) if chat is not None else None
+
+    def put_tg_chat(self, owner_uid: str, chat_id: int) -> None:
+        self.db.collection("tg_links").document(owner_uid).set(
+            {"chat_id": chat_id, "at": datetime.now(UTC).isoformat()}
+        )
 
     def create_session(self, doc: SessionDoc) -> str:
         sid = new_id()

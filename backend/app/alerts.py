@@ -24,7 +24,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 from app.card_image import share_url
-from app.schemas import SessionDoc
+from app.schemas import ClaimSource, SessionDoc
 from app.store import Store
 from app.telegram import BotApi
 
@@ -99,8 +99,17 @@ def redeem(
     if s.tg_link_exp < (now or _now()) or not hmac.compare_digest(s.tg_link_hash, _hash(secret)):
         return None
     store.update_session(
-        sid, alert_chat_id=chat_id, tg_link_hash=None, tg_link_exp=None, alerts_sent=0
+        sid,
+        alert_chat_id=chat_id,
+        tg_link_hash=None,
+        tg_link_exp=None,
+        alerts_sent=0,
+        tg_run_open=s.status == "live",  # linked mid run: its summary still comes
     )
+    # Linked once: every later live run or clip of this user alerts this chat with no tap
+    # (a bot may message a chat only after the person pressed Start, so the first link
+    # stays a tap: https://core.telegram.org/bots/features#deep-linking).
+    store.put_tg_chat(s.owner_uid, chat_id)
     return s
 
 
@@ -108,9 +117,77 @@ def _verdict(v: object) -> str:
     return str(getattr(v, "value", v) or "")
 
 
+SUMMARY_ICONS = (("FALSE", "🔴"), ("MISLEADING", "🟠"), ("TRUE", "🟢"), ("UNVERIFIABLE", "⚪"))
+
+
 class Alerter:
     def __init__(self, api: BotApi, store: Store, base_url: str) -> None:
         self.api, self.store, self.base_url = api, store, base_url
+
+    def _live_button(self, session_id: str) -> dict[str, object]:
+        url = f"{self.base_url.rstrip('/')}/s/{session_id}/live"
+        return {"inline_keyboard": [[{"text": "Open live page", "url": url}]]}
+
+    def attach(self, session_id: str) -> SessionDoc | None:
+        """A run is starting: link the owner's Telegram if they linked it once before."""
+        s = self.store.get_session(session_id)
+        if s is None or s.alert_chat_id is not None:
+            return s
+        chat = self.store.get_tg_chat(s.owner_uid)
+        if chat is None:
+            return s
+        self.store.update_session(session_id, alert_chat_id=chat)
+        return s.model_copy(update={"alert_chat_id": chat})
+
+    def started(self, session_id: str, what: str) -> bool:
+        """One "checking now" line per run, so the chat knows the feed is on."""
+        s = self.attach(session_id)
+        if s is None or s.alert_chat_id is None or s.tg_run_open:
+            return False
+        self.store.update_session(session_id, tg_run_open=True, alerts_sent=0)
+        self.api.call(
+            "sendMessage",
+            {
+                "chat_id": s.alert_chat_id,
+                "text": (
+                    f"🔴 <b>Checking {html.escape(what)}</b> · <i>{html.escape(s.topic[:80])}</i>\n"
+                    "FALSE and MISLEADING claims land here the moment they're heard, with "
+                    "the proof. A summary of every verdict follows when it ends."
+                ),
+                "parse_mode": "HTML",
+                "reply_markup": self._live_button(session_id),
+            },
+        )
+        return True
+
+    def summary(self, session_id: str) -> bool:
+        """The run ended: every verdict it produced, counted, once."""
+        s = self.store.get_session(session_id)
+        if s is None or s.alert_chat_id is None or not s.tg_run_open:
+            return False
+        self.store.update_session(session_id, tg_run_open=False)
+        seen = [
+            _verdict(c.verdict)
+            for _, c in self.store.list_claims(session_id)
+            if c.verdict is not None and c.source == ClaimSource.LIVE
+        ]
+        if seen:
+            counts = " · ".join(
+                f"{icon} {seen.count(v)} {v}" for v, icon in SUMMARY_ICONS if seen.count(v)
+            )
+            body = f"{len(seen)} claims checked: {counts}"
+        else:
+            body = "No checkable claim was heard."
+        self.api.call(
+            "sendMessage",
+            {
+                "chat_id": s.alert_chat_id,
+                "text": f"✅ <b>Done</b> · <i>{html.escape(s.topic[:80])}</i>\n{body}",
+                "parse_mode": "HTML",
+                "reply_markup": self._live_button(session_id),
+            },
+        )
+        return True
 
     def alert(
         self, session_id: str, card_id: str, verdict: object, text: str, t: float | None = None

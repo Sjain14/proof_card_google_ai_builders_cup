@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-17 · v0.7.51 · p51-live-telegram-auto
+Team lead (17 Oct): during a live recording, updates should reach Telegram automatically. Before: alerts needed the "Telegram alerts" tap on EVERY session (single-use link per session), only FALSE / MISLEADING went out, and nothing said a run had started or ended.
+- Linked once is linked: `alerts.redeem` stores `tg_links/{uid}` (server only, deny-all rules). Every later brief of that user is created with `alert_chat_id`; older sessions attach when a run starts (`Alerter.attach`). The first link stays a tap: a bot may only message a chat after Start.
+- Each run (live socket or recorded clip job) posts one "Checking live / Checking the recorded clip" line with an "Open live page" button (`tg_run_open` keeps it to one per run, a resumed clip job doesn't repeat it), FALSE / MISLEADING cards as heard (unchanged, cap 10 per run), and at the end one summary of every live verdict ("5 claims checked: 🔴 2 FALSE · 🟢 3 TRUE"). Linked mid run: the summary still comes.
+- Live page button reads "Telegram alerts on: automatic" once linked (`SessionView.telegram`, en + hi).
+- Tests: linked-once start + summary + no repeats, no chat no messages, mid-run link, app-level brief inherits chat and a live socket posts start + Done.
+- Docs touched: CHANGELOG.
+
 ## 2026-10-17 · v0.7.50 · p50-bot-threaded-verdicts
 Demo recording (17 Oct 00:1x IST+): a 3-claim message ("Sydney is the capital. The Earth has two moons. Water boils at 100 C.") got ONE verdict, and that verdict landed under the next message, a Modi quote, so the quote read as answered "water boils at 100 °C". Reproduced on prod from a real Telegram account before the fix.
 - Root cause 1: `split_claims` ran each sentence through the live spotter, whose cheap pre filter needs a number, so the two number-free claims vanished. A plain statement the person sent (not a question, not "Share before they delete!!") is now kept as written.

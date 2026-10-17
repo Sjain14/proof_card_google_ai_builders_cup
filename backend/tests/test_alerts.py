@@ -187,3 +187,81 @@ def test_link_endpoint_owner_only() -> None:
         f"/api/sessions/{sid2}/telegram-link", headers={"Authorization": "Bearer admin-token"}
     )
     assert r2.status_code == 503
+
+
+# ---------- p51: linked once, every later run reports to Telegram by itself ----------
+
+
+def test_linked_once_later_runs_start_alert_and_summarise_by_themselves() -> None:
+    store = InMemoryStore()
+    first = _session(store, owner="owner1")
+    assert alerts.redeem(store, _payload(alerts.new_link(store, first, "B")), 99) is not None
+    assert store.get_tg_chat("owner1") == 99
+
+    bot = FakeBot()
+    al = alerts.Alerter(bot, store, BASE)
+    later = _session(store, owner="owner1")  # never tapped the link for this one
+    assert al.started(later, "the recorded clip")
+    assert not al.started(later, "the recorded clip")  # a resumed job: no second line
+    method, p = bot.calls[-1]
+    assert method == "sendMessage"
+    assert p["chat_id"] == 99
+    assert "Checking the recorded clip" in p["text"]
+    assert "&lt;speech&gt;" in p["text"]
+    assert p["reply_markup"]["inline_keyboard"][0][0]["url"] == f"{BASE}/s/{later}/live"
+
+    for v in (Verdict.FALSE, Verdict.FALSE, Verdict.TRUE):
+        store.add_claim(
+            later,
+            ClaimDoc(text="x claim", source=ClaimSource.LIVE, status=ClaimStatus.PROVED, verdict=v),
+        )
+    store.add_claim(
+        later, ClaimDoc(text="predicted", source=ClaimSource.PREDICTED, verdict=Verdict.TRUE)
+    )
+    assert al.summary(later)
+    assert not al.summary(later)  # once per run
+    text = bot.calls[-1][1]["text"]
+    assert "3 claims checked" in text
+    assert "2 FALSE" in text
+    assert "1 TRUE" in text
+    assert "MISLEADING" not in text
+
+
+def test_no_linked_chat_means_no_run_messages() -> None:
+    store = InMemoryStore()
+    bot = FakeBot()
+    al = alerts.Alerter(bot, store, BASE)
+    sid = _session(store, owner="stranger")
+    assert not al.started(sid, "live")
+    assert not al.summary(sid)
+    assert bot.calls == []
+
+
+def test_linking_mid_run_still_gets_the_summary() -> None:
+    store = InMemoryStore()
+    sid = _session(store)
+    store.update_session(sid, status="live")
+    alerts.redeem(store, _payload(alerts.new_link(store, sid, "B")), 5)
+    bot = FakeBot()
+    assert alerts.Alerter(bot, store, BASE).summary(sid)
+    assert "No checkable claim" in bot.calls[-1][1]["text"]
+
+
+def test_linked_owner_new_brief_and_live_run_report_to_telegram() -> None:
+    c, store = _client("ProofCardAgentBot")
+    store.put_tg_chat("admin-1", 777)
+    hdr = {"Authorization": "Bearer admin-token"}
+    sid = c.post("/api/prebunk", json={"topic": "India"}, headers=hdr).json()["session_id"]
+    s = store.get_session(sid)
+    assert s is not None
+    assert s.alert_chat_id == 777  # inherited at creation, no link tapped
+    assert c.get(f"/api/sessions/{sid}", headers=hdr).json()["telegram"] is True
+    bot = c.app.state.bot_api  # type: ignore[attr-defined]
+    n = len(bot.calls)
+    with c.websocket_connect(f"/api/live/{sid}") as ws:
+        ws.send_json({"type": "auth", "token": "admin-token"})
+        ws.receive_json()
+        ws.send_json({"type": "stop"})
+    texts = [p.get("text", "") for m, p in bot.calls[n:] if p.get("chat_id") == 777]
+    assert "Checking live" in texts[0]
+    assert texts[-1].startswith("✅ <b>Done</b>")

@@ -124,6 +124,7 @@ class SessionDoc(Strict):
     tg_link_exp: datetime | None = None
     alert_chat_id: int | None = None
     alerts_sent: int = 0
+    tg_run_open: bool = False  # a "checking now" line went out, its summary not yet
     tg_reply_to: int | None = None  # bot check: the message its verdicts reply to
     fact_bank_key: str | None = (
         None  # fact_banks/{key}: researched facts this session checks against
@@ -287,6 +288,7 @@ class SessionView(BaseModel):
     status: str
     youtube_url: str | None = None
     public_view: bool = False
+    telegram: bool = False  # alerts go to a linked Telegram chat
     claims: list[ClaimView]
     counts: dict[str, int]
 
@@ -316,6 +318,7 @@ class SessionView(BaseModel):
             status=s.status,
             youtube_url=s.youtube_url,
             public_view=s.public_view,
+            telegram=s.alert_chat_id is not None,
             claims=views,
             counts=counts,
         )

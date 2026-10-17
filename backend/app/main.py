@@ -399,6 +399,7 @@ def create_app(
             youtube_url=str(body.youtube_url) if body.youtube_url else None,
             status="prebunking",
             is_anonymous=user.is_anonymous,
+            alert_chat_id=app.state.store.get_tg_chat(user.uid),  # linked once, alerts on
         )
         sid = app.state.store.create_session(doc)
         log.info("session created", extra={"fields": {"session": sid}})
@@ -597,6 +598,7 @@ def create_app(
 
         app.state.store.update_session(session_id, status="live")
         lines = job.lines or []
+        await run_in_threadpool(_tg_run, session_id, "the recorded clip")
         try:
             engine = LiveEngine(session_id, app.state.live, collect, _alert_fn())
             await engine.warm()
@@ -608,12 +610,27 @@ def create_app(
                     session_id, done=min(len(lines), start + CLIP_BATCH), events=events[-2_000:]
                 )
             _save_job(session_id, state="done", done=len(lines), events=events[-2_000:])
+            await run_in_threadpool(_tg_run, session_id, None)
         finally:
             app.state.store.update_session(session_id, status="ready")
         await run_in_threadpool(app.state.clips.delete, job.digest)
 
     def _alert_fn() -> Alert | None:
         return app.state.alerter.alert if app.state.alerter is not None else None
+
+    def _tg_run(session_id: str, starting: str | None) -> None:
+        """Telegram, automatic: a run start ("checking now") or end (verdict summary) for a
+        chat the owner linked once. Off the result path: a Bot API failure is logged only."""
+        alerter = app.state.alerter
+        if alerter is None:
+            return
+        try:
+            if starting is not None:
+                alerter.started(session_id, starting)
+            else:
+                alerter.summary(session_id)
+        except Exception:
+            log.warning("telegram run message failed", exc_info=True)
 
     @app.post("/api/sessions/{session_id}/telegram-link")
     def telegram_link(
@@ -670,6 +687,7 @@ def create_app(
 
         engine = LiveEngine(session_id, app.state.live, emit, _alert_fn())
         warm = asyncio.create_task(engine.warm())  # index ready before the first sentence
+        await run_in_threadpool(_tg_run, session_id, "live")
         audio: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=LIVE_AUDIO_QUEUE)
         stt: asyncio.Task[None] | None = None
         await emit({"type": "ready", "audio": app.state.transcriber is not None})
@@ -721,6 +739,7 @@ def create_app(
             warm.cancel()
             await engine.drain()
             app.state.store.update_session(session_id, status="ready")
+            await run_in_threadpool(_tg_run, session_id, None)
             with contextlib.suppress(Exception):  # already closed by the client
                 await ws.close()
 

@@ -26,6 +26,7 @@ export interface SessionView {
   status: string;
   youtube_url: string | null;
   public_view: boolean;
+  telegram?: boolean;
   claims: ClaimView[];
   counts: Record<ClaimStatus, number>;
 }

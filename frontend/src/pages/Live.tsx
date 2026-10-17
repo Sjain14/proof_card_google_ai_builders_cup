@@ -336,7 +336,7 @@ export function Live({ id, user }: { id: string; user: SignedIn | null | undefin
             <input type="file" accept="audio/*" onChange={(e) => void sendClip(e)} aria-label={t("live.clipLabel")} />
           </label>
           <button className="btn ghost small" type="button" onClick={() => void telegram()}>
-            {t("live.tg")}
+            {session.telegram ? t("live.tgOn") : t("live.tg")}
           </button>
           <div className="share-view">
             <button className="btn small ghost" aria-pressed={session.public_view} onClick={() => void toggleShare()}>
