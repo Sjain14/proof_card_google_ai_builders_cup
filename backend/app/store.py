@@ -19,7 +19,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel
 
 from app.library import CardRow, row_from_dict
-from app.schemas import CardDoc, CheckDoc, ClaimDoc, FactBankDoc, SessionDoc
+from app.schemas import CardDoc, CheckDoc, ClaimDoc, FactBankDoc, ReportDoc, SessionDoc
 
 
 def new_id() -> str:
@@ -49,6 +49,7 @@ class Store(Protocol):
     def put_card(self, card_id: str, doc: CardDoc) -> None: ...
     def cards_page(self, after: Any, limit: int) -> tuple[list[CardRow], Any]: ...
     def add_check(self, doc: CheckDoc) -> None: ...
+    def add_report(self, doc: ReportDoc) -> None: ...
     def get_fact_bank(self, key: str) -> FactBankDoc | None: ...
     def put_fact_bank(self, doc: FactBankDoc) -> None: ...
     def get_claim_card(self, key: str) -> tuple[str, datetime] | None: ...
@@ -76,6 +77,7 @@ class InMemoryStore:
         self.claims: dict[str, dict[str, ClaimDoc]] = {}
         self.cards: dict[str, CardDoc] = {}
         self.checks: list[CheckDoc] = []
+        self.reports: list[ReportDoc] = []
         self.fact_banks: dict[str, FactBankDoc] = {}
         self.claim_cards: dict[str, tuple[str, datetime]] = {}
         self.claim_texts: dict[str, tuple[str, str]] = {}
@@ -165,6 +167,10 @@ class InMemoryStore:
     def add_check(self, doc: CheckDoc) -> None:
         with self._lock:
             self.checks.append(doc)
+
+    def add_report(self, doc: ReportDoc) -> None:
+        with self._lock:
+            self.reports.append(doc)
 
     def get_fact_bank(self, key: str) -> FactBankDoc | None:
         return self.fact_banks.get(key)
@@ -308,6 +314,9 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
 
     def add_check(self, doc: CheckDoc) -> None:
         self.db.collection("checks").document(new_id()).create(doc.model_dump(mode="json"))
+
+    def add_report(self, doc: ReportDoc) -> None:
+        self.db.collection("reports").document(new_id()).create(doc.model_dump(mode="json"))
 
     def get_fact_bank(self, key: str) -> FactBankDoc | None:
         snap = self.db.collection("fact_banks").document(key).get()

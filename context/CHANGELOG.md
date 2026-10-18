@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-18 · v0.7.81 · p81-report-card
+Team lead (VN, 18 Oct): AI can be wrong, so every card page needs a way to report it, prefilled with the card, issue required, email and source link optional, saved in the database.
+- `/v/:id` ends with a folded "Something wrong with this card? Report it" section: the card it is about (verdict, claim, id) shown read only, "What is wrong?" required (max 2000), source link optional (http/https only), email optional (to hear back). Zero JS, plain form post, same style as the page.
+- `POST /v/:id/report` (`backend/app/main.py`): unknown card 404, bad input 400 with the form reopened and input kept, 5 reports a minute per IP (429), `Cache-Control: no-store`. Writes one doc to Firestore `reports` (`ReportDoc`: card_id, claim + verdict snapshot, issue, email, source_url, created_at). No IP stored, no model calls.
+- Firestore rules unchanged: `reports` falls under the default deny, so only the backend (Admin SDK) writes or reads it.
+- Tests: `tests/test_report.py`.
+- Docs touched: CHANGELOG, ARCHITECTURE (endpoints).
+
 ## 2026-10-18 · v0.7.75 · p75-proof-library
 Team lead (VN, 18 Oct): show every card we have verified on the site, so judges see real, working output beyond the sample video.
 - New page `/cards` (nav: Proof Library): live total of verified claims, search (debounced, typo tolerant, Hindi + English, matches marked), verdict chips with counts, time window (24 h / 7 d / 30 d / all), card grid with source domains, each card opens its `/v/:id` proof page, "Check a new claim" + Telegram bot buttons. Filters live in the URL, so a view can be shared. Infinite scroll with a Show more fallback, skeletons, light staggered entry, reduced motion respected, mobile first.

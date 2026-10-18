@@ -224,6 +224,22 @@ class CheckDoc(Strict):
     created_at: datetime = Field(default_factory=_now)
 
 
+class ReportDoc(Strict):
+    """A reader's report that a card looks wrong (Team lead VN, 18 Oct): kept for review.
+    Server write only (Admin SDK); clients have no Firestore access to reports."""
+
+    schema_version: int = SCHEMA_VERSION
+    card_id: str
+    claim: str  # snapshot of what the reader saw, so a report reads on its own
+    verdict: Verdict
+    issue: Annotated[str, Field(min_length=1, max_length=2000)]
+    email: Annotated[str, Field(max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")] | None = (
+        None
+    )
+    source_url: AnyHttpUrl | None = None
+    created_at: datetime = Field(default_factory=_now)
+
+
 class CheckImageResponse(BaseModel):
     result: str
     reason: str

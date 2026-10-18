@@ -16,6 +16,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     Header,
     HTTPException,
     Query,
@@ -88,6 +89,7 @@ from app.schemas import (
     FactBankDoc,
     FeedView,
     PrebunkRequest,
+    ReportDoc,
     SessionDoc,
     SessionView,
     ShareRequest,
@@ -110,6 +112,8 @@ from app.telegram import (
     looks_like_claim,
     send_claim_result,
 )
+
+REPORTS_PER_MIN = 5
 
 log = logging.getLogger("proofcard")
 BOT_DAILY_CHECKS = 40  # claim checks per Telegram chat per UTC day (Vertex cost guard;
@@ -326,6 +330,8 @@ def create_app(
     app.state.prebunk_limiter = TokenBucket(rate_per_min=settings.prebunk_per_min)
     app.state.feed_limiter = TokenBucket(rate_per_min=settings.feed_rate_per_min)
     app.state.library_limiter = TokenBucket(rate_per_min=settings.library_rate_per_min)
+    # Reports are typed by people: a handful a minute per IP is plenty, spam stops here.
+    app.state.report_limiter = TokenBucket(rate_per_min=REPORTS_PER_MIN)
 
     # Clip uploads go straight to the Cloud Run URL (VITE_LIVE_ORIGIN) from our own pages:
     # only our configured origins, POST + Authorization, no cookies.
@@ -979,6 +985,52 @@ def create_app(
             card, card_id, settings.public_base_url, settings.telegram_bot_username, r
         )
         return HTMLResponse(html, headers={"Content-Security-Policy": share_page.CSP})
+
+    @app.post("/v/{card_id}/report", include_in_schema=False)
+    def share_report(
+        card_id: str,
+        request: Request,
+        issue: Annotated[str, Form()] = "",
+        email: Annotated[str, Form()] = "",
+        source_url: Annotated[str, Form()] = "",
+    ) -> HTMLResponse:
+        """ "Report this card" on /v/<id> (Team lead VN, 18 Oct): the issue is required,
+        email and a source link are optional. Stored in Firestore `reports`, server only.
+        Zero JS, plain form post like /v/<id>/check. No model calls."""
+        csp = {"Content-Security-Policy": share_page.CSP, "Cache-Control": "no-store"}
+        card = app.state.store.get_card(card_id) if _valid_id(card_id) else None
+        if card is None:
+            return HTMLResponse(share_page.not_found_page(), status_code=404, headers=csp)
+        form = {"issue": issue.strip(), "email": email.strip(), "source_url": source_url.strip()}
+
+        def page(msg: str, code: int, ok: bool = False) -> HTMLResponse:
+            html = share_page.card_page(
+                card,
+                card_id,
+                settings.public_base_url,
+                settings.telegram_bot_username,
+                report=share_page.ReportState(msg, ok, {} if ok else form),
+            )
+            return HTMLResponse(html, status_code=code, headers=csp)
+
+        if not app.state.report_limiter.allow(client_ip(request)):
+            return page("Too many reports from here. Try again in a minute.", 429)
+        error = share_page.report_error(form)
+        if error:
+            return page(error, 400)
+        try:
+            doc = ReportDoc(
+                card_id=card_id,
+                claim=card.claim,
+                verdict=card.verdict,
+                issue=form["issue"],
+                email=form["email"] or None,
+                source_url=form["source_url"] or None,
+            )
+        except ValidationError:
+            return page("Please check the fields and try again.", 400)
+        app.state.store.add_report(doc)
+        return page("Thanks, your report is in. We review every report.", 200, ok=True)
 
     def run_bot_check(session_id: str) -> None:
         """Telegram claim check job: verify the one claim, send the verdict to the chat."""

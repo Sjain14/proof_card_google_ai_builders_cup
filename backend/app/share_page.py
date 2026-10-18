@@ -7,6 +7,8 @@ OG tags: https://ogp.me/
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass, field
 from html import escape
 from urllib.parse import quote, urlsplit
 
@@ -54,7 +56,44 @@ font-size:13px;margin-top:6px;color:#6B7280;max-width:100%}
 padding:9px 14px;border-radius:10px;border:1.5px solid #E5E7EB;color:#111827;font-weight:650;
 font-size:14px;text-decoration:none;word-break:normal}.acts a.main{background:#1F4FFF;
 color:#fff;border-color:#1F4FFF}details summary{cursor:pointer;font-weight:650;margin:14px 0}
+.rep summary{color:#6B7280;font-size:14px}.rep label{display:block;font-weight:650;font-size:14px;
+margin:14px 0 0}.rep label span{color:#6B7280;font-weight:400}.rep textarea,.rep input{
+display:block;width:100%;box-sizing:border-box;font:inherit;font-size:15px;
+border:1.5px solid #E5E7EB;border-radius:10px;padding:10px 12px;margin-top:6px;background:#fff}
+.rep textarea{resize:vertical}.rep button{margin-top:16px}.rep .src{margin:4px 0 0}
+.err{background:#FEF2F2;color:#B91C1C}
+.ok{background:#ECFDF3;color:#15803D}
 """
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+ISSUE_MAX = 2000
+
+
+@dataclass(frozen=True)
+class ReportState:
+    """What the report form shows after a post: a message, and the fields to refill."""
+
+    msg: str = ""
+    ok: bool = False
+    form: dict[str, str] = field(default_factory=dict)
+
+
+def report_error(form: dict[str, str]) -> str:
+    """The first problem with a report, in words a reader understands; "" when fine."""
+    issue, email, src = form.get("issue", ""), form.get("email", ""), form.get("source_url", "")
+    if not issue:
+        return "Tell us what is wrong with this card. That field is required."
+    if len(issue) > ISSUE_MAX:
+        return f"Please keep it under {ISSUE_MAX} characters."
+    if email and (len(email) > 254 or not EMAIL_RE.match(email)):
+        return "That email does not look right. Fix it or leave it empty."
+    if src and (
+        len(src) > 2000
+        or urlsplit(src).scheme not in ("http", "https")
+        or not urlsplit(src).hostname
+    ):
+        return "The source link should be a full web address (https://...), or leave it empty."
+    return ""
 
 
 def _page(title: str, desc: str, url: str, body: str) -> str:
@@ -116,7 +155,12 @@ def suggestion_doc(html: str) -> str:
 
 
 def card_page(
-    card: CardDoc, card_id: str, base_url: str, bot: str = "", check: CheckResult | None = None
+    card: CardDoc,
+    card_id: str,
+    base_url: str,
+    bot: str = "",
+    check: CheckResult | None = None,
+    report: ReportState | None = None,
 ) -> str:
     url = share_url(base_url, card_id)
     en, hi, colour = LABEL[card.verdict]
@@ -170,7 +214,41 @@ def card_page(
     # No card image on the page: it repeats everything above (Team lead, VN).
     # "Download image" and the link preview (og:image) carry it.
     parts.append("</section>")
+    parts.append(_report_form(card, card_id, report))
     return _page(f"{en}: {card.claim[:90]}", card.explanation[:200], url, "".join(parts))
+
+
+def _report_form(card: CardDoc, card_id: str, state: ReportState | None) -> str:
+    """Folded at the very bottom: "Report this card", prefilled with the card it is about.
+    Opens by itself after a post, so the reader sees the result or what to fix."""
+    st = state or ReportState()
+    en, _, _ = LABEL[card.verdict]
+    cid = escape(card_id)
+    msg = f'<div class="r {"ok" if st.ok else "err"}" role="status">{escape(st.msg)}</div>'
+    if st.ok:
+        return f'<section class="rep" id="report"><h2>Report this card</h2>{msg}</section>'
+    v = {k: escape(st.form.get(k, "")) for k in ("issue", "email", "source_url")}
+    return (
+        f'<section class="rep" id="report"><details{" open" if st.msg else ""}>'
+        "<summary>Something wrong with this card? Report it</summary>"
+        + (msg if st.msg else "")
+        + '<p class="meta">AI can get things wrong. Tell us what is off and we will look at '
+        "this card again.</p>"
+        f'<div class="src"><span class="meta">You are reporting</span><br><b>{escape(en)}</b>: '
+        f"“{escape(card.claim)}”<br><code>{cid}</code></div>"
+        f'<form method="post" action="/v/{cid}/report#report">'
+        '<label for="r-issue">What is wrong? <span>(required)</span></label>'
+        f'<textarea id="r-issue" name="issue" rows="4" required maxlength="{ISSUE_MAX}" '
+        f'placeholder="e.g. the source says 2023, not 2024">{v["issue"]}</textarea>'
+        '<label for="r-src">Source that shows it <span>(optional)</span></label>'
+        f'<input id="r-src" name="source_url" type="url" maxlength="2000" '
+        f'placeholder="https://..." value="{v["source_url"]}">'
+        '<label for="r-email">Your email, to hear back when it is fixed <span>(optional)</span>'
+        "</label>"
+        f'<input id="r-email" name="email" type="email" maxlength="254" autocomplete="email" '
+        f'placeholder="you@example.com" value="{v["email"]}">'
+        "<button>Send report</button></form></details></section>"
+    )
 
 
 def _short(url: object) -> str:
