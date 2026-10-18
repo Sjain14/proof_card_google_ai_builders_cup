@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { ApiError, library, type LibraryCard, type LibraryPage, type Verdict } from "../api";
+import { tgText } from "../components/CardTile";
 import { VerdictPill } from "../components/VerdictPill";
 import { getLang, t, type Key } from "../i18n";
 import { navigate } from "../router";
@@ -85,9 +86,93 @@ function useCountUp(target: number): number {
   return n;
 }
 
+/** WhatsApp / Telegram share links for one card; the message arrives already written. */
+export function shareLinks(id: string, verdict: Verdict, claim: string, origin = location.origin) {
+  const url = `${origin}/v/${id}`;
+  const text = tgText(verdict, claim);
+  return {
+    url,
+    text,
+    whatsapp: `https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`,
+    telegram: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
+  };
+}
+
+/** Share straight from the library: the phone's own share sheet, else a small menu. */
+function ShareButton({ card }: { card: LibraryCard }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  const links = shareLinks(card.id, card.verdict, card.claim);
+
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: Event) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    addEventListener("pointerdown", off);
+    addEventListener("keydown", esc);
+    return () => {
+      removeEventListener("pointerdown", off);
+      removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  const onShare = async (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof navigator.share === "function" && matchMedia("(pointer: coarse)").matches) {
+      try {
+        await navigator.share({ title: "Proof Card", text: links.text, url: links.url });
+      } catch {
+        /* user closed the sheet */
+      }
+      return;
+    }
+    setOpen((o) => !o);
+  };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(links.url);
+      setCopied(true);
+      setTimeout(() => {
+        setCopied(false);
+        setOpen(false);
+      }, 1200);
+    } catch {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <span className="lib-share" ref={box}>
+      <button type="button" className="share-btn" aria-haspopup="menu" aria-expanded={open} onClick={onShare}>
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+          <path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span>{t("lib.share")}</span>
+      </button>
+      {open && (
+        <span className="share-menu" role="menu">
+          <a role="menuitem" href={links.whatsapp} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+            WhatsApp
+          </a>
+          <a role="menuitem" href={links.telegram} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+            Telegram
+          </a>
+          <button type="button" role="menuitem" onClick={copy}>
+            {copied ? t("lib.copied") : t("tile.copy")}
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function LibTile({ card, q, i }: { card: LibraryCard; q: string; i: number }) {
   return (
-    <a className="lib-tile" href={`/v/${card.id}`} style={{ "--i": Math.min(i % 24, 12) } as CSSProperties}>
+    <article className="lib-tile" style={{ "--i": Math.min(i % 24, 12) } as CSSProperties}>
       <div className="tile-top">
         <VerdictPill verdict={card.verdict} />
         <time className="tile-meta" dateTime={card.created_at}>
@@ -95,27 +180,20 @@ function LibTile({ card, q, i }: { card: LibraryCard; q: string; i: number }) {
         </time>
       </div>
       <p className="lib-claim">
-        “
-        {highlight(card.claim, q).map((p, n) => (p.hit ? <mark key={n}>{p.s}</mark> : <span key={n}>{p.s}</span>))}
-        ”
+        <a className="lib-link" href={`/v/${card.id}`}>
+          “
+          {highlight(card.claim, q).map((p, n) => (p.hit ? <mark key={n}>{p.s}</mark> : <span key={n}>{p.s}</span>))}
+          ”
+        </a>
       </p>
       {card.excerpt && <p className="lib-why">{card.excerpt}</p>}
       <div className="lib-foot">
-        <span className="lib-src">
-          {card.domains.map((d) => (
-            <span className="lib-dom" key={d}>
-              {d}
-            </span>
-          ))}
-          {card.source_count > card.domains.length && (
-            <span className="muted">+{card.source_count - card.domains.length}</span>
-          )}
-        </span>
+        <ShareButton card={card} />
         <span className="lib-open" aria-hidden="true">
           {t("lib.open")} →
         </span>
       </div>
-    </a>
+    </article>
   );
 }
 

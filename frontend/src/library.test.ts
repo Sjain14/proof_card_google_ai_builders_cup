@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { libraryUrl } from "./api";
-import { highlight, readUrl, sinceFor, writeUrl } from "./pages/Library";
+import { highlight, readUrl, shareLinks, sinceFor, writeUrl } from "./pages/Library";
 
 describe("proof library", () => {
+  it("shares a card straight to WhatsApp and Telegram with the text already written", () => {
+    const l = shareLinks("abc12345", "FALSE", "India has 100 crore phones", "https://proofcard.web.app");
+    expect(l.url).toBe("https://proofcard.web.app/v/abc12345");
+    expect(l.text).toContain("India has 100 crore phones");
+    expect(new URL(l.whatsapp).searchParams.get("text")).toBe(`${l.text}\n${l.url}`);
+    expect(new URL(l.telegram).searchParams.get("url")).toBe(l.url);
+  });
   it("floors the time window to the hour so the CDN can share one answer", () => {
     const now = Date.UTC(2026, 9, 18, 14, 47, 12);
     expect(sinceFor("all", now)).toBeNull();

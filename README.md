@@ -10,6 +10,8 @@
 
 **Try it:** [aibuilderscup.web.app](https://aibuilderscup.web.app) (also [proofcard.web.app](https://proofcard.web.app)) · Telegram bot [@ProofCardAgentBot](https://t.me/ProofCardAgentBot) · **how to use + demo script: [`docs/DEMO.md`](docs/DEMO.md)**
 
+> **943 claims verified and counting** (as of 18 Oct 2026): 328 TRUE · 177 FALSE · 122 MISLEADING · 316 UNVERIFIABLE. Every one is public, searchable and shareable in the **[Proof Library](https://proofcard.web.app/cards)**.
+
 AI can fake a speech, an anchor or a headline in seconds. Proof Card checks what a politician, a news clip or a forward actually claims against official data, shows the exact passage that decides it, and turns every verdict into a tamper evident card anyone can verify on Telegram. Transcription is only the input: the product is the proof.
 
 Google Cloud AI Builder Cup 2026 · Media, Content & Digital Experiences track.
@@ -56,6 +58,24 @@ All in `backend/app/telegram.py` (verdict replies in `send_claim_result`, number
 - Works in groups when mentioned or forwarded to, inline mode, and 40 checks per chat per day.
 
 ![A forward sent to the Telegram bot](docs/screenshots/telegram-forward.png)
+
+## Proof Library: every card, one page ([proofcard.web.app/cards](https://proofcard.web.app/cards))
+
+Every card the product has issued, from the web, live streams and Telegram, lands in one public library. **943 claims verified as of 18 Oct 2026:**
+
+| Verdict | Cards |
+|---|---|
+| TRUE | 328 |
+| FALSE | 177 |
+| MISLEADING | 122 |
+| UNVERIFIABLE | 316 |
+| **Total** | **943** |
+
+- **Search in English, Hindi or Hinglish**, typo tolerant, with the matching words marked (`backend/app/library.py`, `frontend/src/pages/Library.tsx`).
+- **Filter by verdict and time** (24 hours, 7 days, 30 days). Filters live in the URL, so a filtered view is itself a shareable link.
+- **Share any card straight from the library:** the phone's own share sheet on mobile, or WhatsApp / Telegram / copy link on desktop. The message arrives already written (verdict + claim).
+- **Rich link previews:** each card link (`/v/<id>`) unfurls in WhatsApp and Telegram as that card's own image (verdict, claim, source passage, fingerprint, QR), and the site itself has a preview image (`frontend/public/og.png`). Card images carry immutable cache headers, so the Firebase Hosting CDN serves repeat previews without touching Cloud Run, and the site preview is a static file: previews cost close to nothing.
+- **Built to stay cheap and up under load:** cursor pagination, CDN cached answers, unknown query params rejected (no cache busting) and a per-visitor rate limit keyed on the real client IP behind Hosting (`backend/app/security.py`).
 
 ## Why not just ask Gemini?
 
