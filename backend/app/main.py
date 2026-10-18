@@ -356,8 +356,8 @@ def create_app(
     def client_ip(request: Request) -> str:
         # The Google front end APPENDS the peer IP to X-Forwarded-For, so the rightmost
         # entry is trustworthy; leftmost entries can be spoofed by the caller. Behind
-        # Firebase Hosting that peer is a Fastly edge (a different one per request), so
-        # skip trusted CDN hops from the right: the next entry is the real client.
+        # Firebase Hosting that peer is a Google proxy (a different one per request), so
+        # skip trusted proxy hops from the right: the next entry is the real client.
         hops = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",")]
         hops = [h for h in hops if h]
         while len(hops) > 1 and is_cdn_hop(hops[-1]):

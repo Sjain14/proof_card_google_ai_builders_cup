@@ -86,37 +86,35 @@ def card_fingerprint(card_fields: dict[str, Any]) -> str:
     return sha256_hex(canonical_json(body))
 
 
-# ---------- Trusted CDN hops (Firebase Hosting = Fastly) ----------
+# ---------- Trusted proxy hops (Firebase Hosting -> Cloud Run) ----------
 
-# Fastly edge ranges, https://api.fastly.com/public-ip-list (read 2026-10-18).
-# Firebase Hosting rewrites reach Cloud Run from these, so they are proxies, never clients.
-FASTLY_NETS = tuple(
+# Measured on prod 2026-10-18 (p77): behind a Hosting rewrite X-Forwarded-For is exactly
+# "<client>, <Google proxy>" (Hosting overwrites any caller supplied value) and the proxy
+# rotates per request (66.249.82.x, 192.178.14.x). These are Google front end ranges
+# from https://www.gstatic.com/ipranges/goog.json that are NOT in cloud.json, so no
+# Cloud customer can originate from them. Direct Cloud Run hits never end in one.
+GOOGLE_PROXY_NETS = tuple(
     ipaddress.ip_network(n)
     for n in (
-        "23.235.32.0/20",
-        "43.249.72.0/22",
-        "90.98.0.0/17",
-        "90.98.128.0/18",
-        "103.244.50.0/24",
-        "103.245.222.0/23",
-        "103.245.224.0/24",
-        "104.156.80.0/20",
-        "140.248.64.0/18",
-        "140.248.128.0/17",
-        "146.75.0.0/17",
-        "151.101.0.0/16",
-        "157.52.64.0/18",
-        "167.82.0.0/17",
-        "167.82.128.0/20",
-        "167.82.160.0/20",
-        "167.82.224.0/20",
-        "172.111.64.0/18",
-        "185.31.16.0/22",
-        "199.27.72.0/21",
-        "199.232.0.0/16",
-        "2a04:4e40::/32",
-        "2a04:4e42::/31",
-        "2a04:4e44::/32",
+        "64.233.160.0/19",
+        "66.102.0.0/20",
+        "66.249.64.0/19",
+        "72.14.192.0/18",
+        "74.125.0.0/16",
+        "108.177.0.0/17",
+        "142.250.0.0/15",
+        "172.217.0.0/16",
+        "172.253.0.0/16",
+        "173.194.0.0/16",
+        "192.178.0.0/15",
+        "209.85.128.0/17",
+        "216.58.192.0/19",
+        "216.239.32.0/19",
+        "2001:4860::/32",
+        "2404:6800::/32",
+        "2607:f8b0::/32",
+        "2800:3f0::/32",
+        "2a00:1450::/32",
     )
 )
 
@@ -126,7 +124,7 @@ def is_cdn_hop(ip: str) -> bool:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return False
-    return any(addr.version == n.version and addr in n for n in FASTLY_NETS)
+    return any(addr.version == n.version and addr in n for n in GOOGLE_PROXY_NETS)
 
 
 # ---------- Rate limiting (per instance token bucket) ----------

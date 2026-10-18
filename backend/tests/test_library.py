@@ -186,21 +186,21 @@ def test_library_rate_limit_is_per_real_client_behind_firebase_hosting(
     _seed(store)
     client.app.state.library_limiter.rate_per_min = 2  # type: ignore[attr-defined]
 
-    # Firebase Hosting: the Google front end appends a Fastly edge, a different one per hit.
+    # Firebase Hosting: XFF is "<client>, <Google proxy>", a different proxy per hit (p77).
     def hit(edge: str, who: str = "203.0.113.7") -> Any:
         return client.get("/api/cards", headers={"x-forwarded-for": f"{who}, {edge}"})
 
-    assert hit("151.101.1.10").status_code == 200
-    assert hit("199.232.4.20").status_code == 200
-    r = hit("146.75.9.30")
+    assert hit("66.249.82.98").status_code == 200
+    assert hit("192.178.14.5").status_code == 200
+    r = hit("66.249.82.224")
     assert r.status_code == 429
     assert r.headers["retry-after"] == "30"
     assert r.headers["cache-control"] == "no-store"
-    assert hit("151.101.1.10", who="198.51.100.9").status_code == 200  # someone else is fine
+    assert hit("66.249.82.69", who="198.51.100.9").status_code == 200  # someone else is fine
     # A spoofed left entry can't dodge it: the real client is the hop before the edge.
     assert (
         client.get(
-            "/api/cards", headers={"x-forwarded-for": "10.9.9.9, 203.0.113.7, 151.101.1.10"}
+            "/api/cards", headers={"x-forwarded-for": "10.9.9.9, 203.0.113.7, 66.249.82.98"}
         ).status_code
         == 429
     )
@@ -214,8 +214,11 @@ def test_library_rate_limit_is_per_real_client_behind_firebase_hosting(
 def test_cdn_hop_detection() -> None:
     from app.security import is_cdn_hop
 
-    assert is_cdn_hop("151.101.65.140")
-    assert is_cdn_hop("2a04:4e42::1")
+    assert is_cdn_hop("66.249.82.98")
+    assert is_cdn_hop("192.178.14.5")
+    assert is_cdn_hop("2a00:1450::1")
+    assert not is_cdn_hop("151.101.65.140")  # Fastly is not in the Hosting chain
+    assert not is_cdn_hop("34.100.1.1")  # Cloud customer range
     assert not is_cdn_hop("203.0.113.7")
     assert not is_cdn_hop("not-an-ip")
     assert not is_cdn_hop("::1")
