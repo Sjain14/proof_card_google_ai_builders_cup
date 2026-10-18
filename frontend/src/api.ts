@@ -208,3 +208,42 @@ export async function uploadClip(
 }
 
 export const shareUrl = (cardId: string) => `${location.origin}/v/${cardId}`;
+
+/** One card in the Proof Library (/cards): backend app/library.py view(). No owner data. */
+export interface LibraryCard {
+  id: string;
+  claim: string;
+  verdict: Verdict;
+  excerpt: string;
+  support_score: number;
+  created_at: string;
+  domains: string[];
+  source_count: number;
+}
+
+export interface LibraryPage {
+  items: LibraryCard[];
+  next_cursor: string | null;
+  matched: number;
+  total: number;
+  counts: Record<Verdict, number>;
+}
+
+export interface LibraryQuery {
+  q: string;
+  verdicts: Verdict[];
+  since: string | null;
+}
+
+export function libraryUrl(query: LibraryQuery, cursor: string | null): string {
+  const p = new URLSearchParams();
+  if (query.q.trim()) p.set("q", query.q.trim());
+  if (query.verdicts.length) p.set("verdict", [...query.verdicts].sort().join(","));
+  if (query.since) p.set("since", query.since);
+  if (cursor) p.set("cursor", cursor);
+  const qs = p.toString();
+  return `/api/cards${qs ? `?${qs}` : ""}`;
+}
+
+export const library = (query: LibraryQuery, cursor: string | null, signal?: AbortSignal) =>
+  call<LibraryPage>(libraryUrl(query, cursor), { signal });

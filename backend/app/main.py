@@ -18,6 +18,7 @@ from fastapi import (
     File,
     Header,
     HTTPException,
+    Query,
     Request,
     Response,
     UploadFile,
@@ -44,6 +45,7 @@ from app.clip import sentences as clip_sentences
 from app.config import Settings, get_settings
 from app.factcheck import FactCheckClient, FactCheckedModel
 from app.facts import VertexFactDesk
+from app.library import VERDICTS, Library
 from app.live import (
     Alert,
     GeminiLiveTranscriber,
@@ -280,6 +282,7 @@ def create_app(
         log.warning("no PC_GCP_PROJECT in stub mode: in memory store, data is not kept")
         store = InMemoryStore()
     app.state.store = store or FirestoreStore(settings.gcp_project)
+    app.state.library = Library(app.state.store)
     app.state.deps = deps or default_deps(settings, app.state.store)
     app.state.queue = queue or default_queue(settings)
     if live is None:
@@ -795,6 +798,35 @@ def create_app(
             raise HTTPException(status_code=404, detail="not found") from exc
         await _run_clip(body.session_id)
         return {"ok": "done"}
+
+    @app.get("/api/cards")
+    def list_cards(
+        request: Request,
+        response: Response,
+        q: Annotated[str, Query(max_length=200)] = "",
+        verdict: Annotated[str, Query(max_length=60)] = "",
+        since: datetime | None = None,
+        until: datetime | None = None,
+        cursor: Annotated[str | None, Query(max_length=200)] = None,
+    ) -> dict[str, Any]:
+        """Proof Library (/cards): every issued card, public safe fields only, 24 a page.
+        Search ranks claim words first, typo tolerant, Hindi and English. Cached at the
+        Hosting CDN for 60 s (https://firebase.google.com/docs/hosting/manage-cache)."""
+        if not app.state.feed_limiter.allow(client_ip(request)):
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
+        wanted = frozenset(v for v in verdict.upper().split(",") if v)
+        if not wanted <= set(VERDICTS):
+            raise HTTPException(status_code=422, detail="unknown verdict")
+        since, until = (
+            (t.replace(tzinfo=UTC) if t is not None and t.tzinfo is None else t)
+            for t in (since, until)
+        )
+        try:
+            out: dict[str, Any] = app.state.library.search(q, wanted, since, until, cursor)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="bad cursor") from exc
+        response.headers["Cache-Control"] = "public, max-age=30, s-maxage=60"
+        return out
 
     @app.get("/api/cards/{card_id}")
     def get_card(card_id: str) -> CardDoc:

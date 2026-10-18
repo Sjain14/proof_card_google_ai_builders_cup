@@ -9,6 +9,7 @@ import { devMode, signIn, signOut, watchUser } from "./auth";
 import { Brief } from "./pages/Brief";
 import { How } from "./pages/How";
 import { Landing } from "./pages/Landing";
+import { Library } from "./pages/Library";
 import { Live } from "./pages/Live";
 import { NewBrief } from "./pages/NewBrief";
 import { Watch } from "./pages/Watch";
@@ -34,6 +35,7 @@ function App() {
   else if (brief?.[1]) page = <Brief id={brief[1]} user={user} />;
   else if (path === "/new") page = <NewBrief user={user} />;
   else if (path === "/how") page = <How user={user} />;
+  else if (path === "/cards") page = <Library />;
   else page = <Landing user={user} />;
 
   return (
@@ -52,6 +54,18 @@ function App() {
           <span className="logo-word">Proof Card</span>
         </a>
         <div className="nav-right">
+          <a
+            className={`btn small ghost nav-lib${path === "/cards" ? " on" : ""}`}
+            href="/cards"
+            aria-current={path === "/cards" ? "page" : undefined}
+            onClick={(e) => {
+              e.preventDefault();
+              navigate("/cards");
+            }}
+          >
+            <span className="nav-lib-full">{t("nav.library")}</span>
+            <span className="nav-lib-short">{t("nav.libraryShort")}</span>
+          </a>
           <a
             className={`btn small nav-how${path === "/how" ? " on" : ""}`}
             href="/how"

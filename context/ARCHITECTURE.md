@@ -37,6 +37,7 @@ context/            docs, dev memory, versions/
 | `POST /api/prebunk` | Firebase user (not anonymous) | create session, enqueue prebunk job |
 | `GET /api/sessions/:id` | owner only (404 otherwise) | session + claims + counts |
 | `GET /api/sessions/:id/facts` | owner only (404 otherwise) | the session's research fact bank as JSON |
+| `GET /api/cards?q&verdict&since&until&cursor` | public, rate limited, CDN 60 s | Proof Library (`/cards`): every card, public safe fields, 24 a page, ranked search + verdict/time filters, total + per verdict counts (`app/library.py`) |
 | `GET /api/cards/:id` | public | one immutable card |
 | `POST /api/check` | public, rate limited | text compare with word diff |
 | `POST /tasks/prebunk` | Google OIDC for api-sa only | run the prebunk job |

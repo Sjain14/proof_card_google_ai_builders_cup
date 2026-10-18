@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-18 · v0.7.75 · p75-proof-library
+Team lead (VN, 18 Oct): show every card we have verified on the site, so judges see real, working output beyond the sample video.
+- New page `/cards` (nav: Proof Library): live total of verified claims, search (debounced, typo tolerant, Hindi + English, matches marked), verdict chips with counts, time window (24 h / 7 d / 30 d / all), card grid with source domains, each card opens its `/v/:id` proof page, "Check a new claim" + Telegram bot buttons. Filters live in the URL, so a view can be shared. Infinite scroll with a Show more fallback, skeletons, light staggered entry, reduced motion respected, mobile first.
+- `GET /api/cards` (`backend/app/library.py`, `store.cards_page`): read only, public safe fields, keyset pages (a new card never repeats a row), relevance ranked search, `Cache-Control: public, max-age=30, s-maxage=60`. Each instance reads the cards once, then only new ones. No writes, no index, no model calls.
+- Firestore rules unchanged: clients still cannot list cards.
+- Tests: `tests/test_library.py` (listing, ranking, Hindi, typos, filters, pagination, incremental reads, malformed docs), `frontend/src/library.test.ts`.
+- Docs touched: CHANGELOG, ARCHITECTURE (endpoints), DECISIONS (D23).
+
 ## 2026-10-18 · v0.7.74 · p74-vertex-backoff-extract-lock
 Prod 17 Oct, rev 00075 (read only log review): 7 claims ended FAILED on Vertex 504 x6 + 429 x1 while a brief checked claims in parallel, and the process died once with SIGABRT (munmap_chunk) right after 3 parallel bls.gov fetches + extractions.
 - `backend/app/model.py`: grounded assess runs under a process wide cap (`PC_ASSESS_CONCURRENCY`, default 4) and gets one more round with jittered backoff (4 s base) on 429 / 5xx / timeout only; 4xx never retried. Prediction, live path untouched.

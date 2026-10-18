@@ -18,6 +18,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel
 
+from app.library import CardRow, row_from_dict
 from app.schemas import CardDoc, CheckDoc, ClaimDoc, FactBankDoc, SessionDoc
 
 
@@ -46,6 +47,7 @@ class Store(Protocol):
     def update_claim(self, session_id: str, claim_id: str, **changes: Any) -> None: ...
     def get_card(self, card_id: str) -> CardDoc | None: ...
     def put_card(self, card_id: str, doc: CardDoc) -> None: ...
+    def cards_page(self, after: Any, limit: int) -> tuple[list[CardRow], Any]: ...
     def add_check(self, doc: CheckDoc) -> None: ...
     def get_fact_bank(self, key: str) -> FactBankDoc | None: ...
     def put_fact_bank(self, doc: FactBankDoc) -> None: ...
@@ -145,6 +147,20 @@ class InMemoryStore:
             if card_id in self.cards:
                 raise ValueError("card ids are immutable")
             self.cards[card_id] = doc
+
+    def cards_page(self, after: Any, limit: int) -> tuple[list[CardRow], Any]:
+        with self._lock:
+            keyed = sorted(((d.created_at, cid), cid, d) for cid, d in self.cards.items())
+        rows = [
+            r
+            for key, cid, d in keyed
+            if after is None or key > after
+            if (r := row_from_dict(cid, d.model_dump(mode="json"))) is not None
+        ][:limit]
+        if not rows:
+            return [], after
+        last = rows[-1]
+        return rows, (last.created_at, last.id)
 
     def add_check(self, doc: CheckDoc) -> None:
         with self._lock:
@@ -274,6 +290,21 @@ class FirestoreStore:  # pragma: no cover - exercised against the emulator / pro
     def put_card(self, card_id: str, doc: CardDoc) -> None:
         # create() fails if the id exists: cards are immutable once issued.
         self.db.collection("cards").document(card_id).create(doc.model_dump(mode="json"))
+
+    def cards_page(self, after: Any, limit: int) -> tuple[list[CardRow], Any]:
+        """Oldest first after a document snapshot cursor; the field mask leaves out the big
+        Search suggestion HTML. Docs: https://cloud.google.com/firestore/docs/query-data/query-cursors"""
+        q = (
+            self.db.collection("cards")
+            .select(["claim", "verdict", "explanation", "sources", "support_score", "created_at"])
+            .order_by("created_at")
+            .limit(limit)
+        )
+        if after is not None:
+            q = q.start_after(after)
+        snaps = list(q.stream())
+        rows = [r for s in snaps if (r := row_from_dict(s.id, s.to_dict() or {})) is not None]
+        return rows, (snaps[-1] if snaps else after)
 
     def add_check(self, doc: CheckDoc) -> None:
         self.db.collection("checks").document(new_id()).create(doc.model_dump(mode="json"))

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-// Three routes, so a tiny router instead of a dependency (AGENTS.md §2).
+// A handful of routes, so a tiny router instead of a dependency (AGENTS.md §2).
 export function navigate(to: string): void {
   history.pushState(null, "", to);
   dispatchEvent(new PopStateEvent("popstate"));
