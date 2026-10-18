@@ -16,6 +16,8 @@ AI can fake a speech, an anchor or a headline in seconds. Proof Card checks what
 
 Google Cloud AI Builder Cup 2026 · Media, Content & Digital Experiences track.
 
+[![Proof Card home page](docs/screenshots/01-home.png)](https://proofcard.web.app)
+
 ![How to use Proof Card](docs/screenshots/02-how-to-use.png)
 
 ## What it does
@@ -62,6 +64,8 @@ All in `backend/app/telegram.py` (verdict replies in `send_claim_result`, number
 ## Proof Library: every card, one page ([proofcard.web.app/cards](https://proofcard.web.app/cards))
 
 Every card the product has issued, from the web, live streams and Telegram, lands in one public library. **943 claims verified as of 18 Oct 2026:**
+
+[![Proof Library](docs/screenshots/09-proof-library.png)](https://proofcard.web.app/cards)
 
 | Verdict | Cards |
 |---|---|
