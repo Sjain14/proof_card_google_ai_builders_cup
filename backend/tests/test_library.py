@@ -157,3 +157,65 @@ def test_malformed_docs_are_skipped() -> None:
     assert row is not None
     assert row.source_count == 0
     assert row.domains == ()
+
+
+def test_unknown_or_repeated_params_are_rejected_so_the_cdn_key_stays_clean(
+    client: TestClient, store: InMemoryStore
+) -> None:
+    _seed(store)
+    r = client.get("/api/cards", params={"cb": "123"})
+    assert r.status_code == 400
+    assert "cache-control" not in r.headers  # a 400 is never cached at the CDN
+    assert client.get("/api/cards?q=gdp&q=tax").status_code == 400
+    assert client.get("/api/cards", params={"q": "gdp", "_": "1"}).status_code == 400
+    ok = client.get(
+        "/api/cards",
+        params={
+            "q": "gdp",
+            "verdict": "true",
+            "since": "2026-10-01T00:00:00Z",
+            "until": "2026-10-30T00:00:00Z",
+        },
+    )
+    assert ok.status_code == 200
+
+
+def test_library_rate_limit_is_per_real_client_behind_firebase_hosting(
+    client: TestClient, store: InMemoryStore
+) -> None:
+    _seed(store)
+    client.app.state.library_limiter.rate_per_min = 2  # type: ignore[attr-defined]
+
+    # Firebase Hosting: the Google front end appends a Fastly edge, a different one per hit.
+    def hit(edge: str, who: str = "203.0.113.7") -> Any:
+        return client.get("/api/cards", headers={"x-forwarded-for": f"{who}, {edge}"})
+
+    assert hit("151.101.1.10").status_code == 200
+    assert hit("199.232.4.20").status_code == 200
+    r = hit("146.75.9.30")
+    assert r.status_code == 429
+    assert r.headers["retry-after"] == "30"
+    assert r.headers["cache-control"] == "no-store"
+    assert hit("151.101.1.10", who="198.51.100.9").status_code == 200  # someone else is fine
+    # A spoofed left entry can't dodge it: the real client is the hop before the edge.
+    assert (
+        client.get(
+            "/api/cards", headers={"x-forwarded-for": "10.9.9.9, 203.0.113.7, 151.101.1.10"}
+        ).status_code
+        == 429
+    )
+    # Direct to Cloud Run (no CDN hop): the rightmost entry is the client, as before.
+    assert (
+        client.get("/api/cards", headers={"x-forwarded-for": "1.2.3.4, 203.0.113.7"}).status_code
+        == 429
+    )
+
+
+def test_cdn_hop_detection() -> None:
+    from app.security import is_cdn_hop
+
+    assert is_cdn_hop("151.101.65.140")
+    assert is_cdn_hop("2a04:4e42::1")
+    assert not is_cdn_hop("203.0.113.7")
+    assert not is_cdn_hop("not-an-ip")
+    assert not is_cdn_hop("::1")

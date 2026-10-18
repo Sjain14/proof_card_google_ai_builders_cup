@@ -45,7 +45,7 @@ from app.clip import sentences as clip_sentences
 from app.config import Settings, get_settings
 from app.factcheck import FactCheckClient, FactCheckedModel
 from app.facts import VertexFactDesk
-from app.library import VERDICTS, Library
+from app.library import LIBRARY_PARAMS, VERDICTS, Library
 from app.live import (
     Alert,
     GeminiLiveTranscriber,
@@ -95,7 +95,7 @@ from app.schemas import (
     TgUpdate,
     VideoRequest,
 )
-from app.security import TokenBucket, sha256_hex, telegram_secret_ok
+from app.security import TokenBucket, is_cdn_hop, sha256_hex, telegram_secret_ok
 from app.store import FirestoreStore, InMemoryStore, Store
 from app.tasks import CloudTasksQueue, InlineQueue, OidcVerifier, TaskQueue, google_oidc_verifier
 from app.telegram import (
@@ -325,6 +325,7 @@ def create_app(
     app.state.limiter = TokenBucket(rate_per_min=settings.public_rate_per_min)
     app.state.prebunk_limiter = TokenBucket(rate_per_min=settings.prebunk_per_min)
     app.state.feed_limiter = TokenBucket(rate_per_min=settings.feed_rate_per_min)
+    app.state.library_limiter = TokenBucket(rate_per_min=settings.library_rate_per_min)
 
     # Clip uploads go straight to the Cloud Run URL (VITE_LIVE_ORIGIN) from our own pages:
     # only our configured origins, POST + Authorization, no cookies.
@@ -353,10 +354,15 @@ def create_app(
         return response
 
     def client_ip(request: Request) -> str:
-        # The Google front end APPENDS the real client IP to X-Forwarded-For, so the
-        # rightmost entry is trustworthy; leftmost entries can be spoofed by the caller.
-        fwd = request.headers.get("x-forwarded-for", "")
-        return fwd.split(",")[-1].strip() or (request.client.host if request.client else "?")
+        # The Google front end APPENDS the peer IP to X-Forwarded-For, so the rightmost
+        # entry is trustworthy; leftmost entries can be spoofed by the caller. Behind
+        # Firebase Hosting that peer is a Fastly edge (a different one per request), so
+        # skip trusted CDN hops from the right: the next entry is the real client.
+        hops = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",")]
+        hops = [h for h in hops if h]
+        while len(hops) > 1 and is_cdn_hop(hops[-1]):
+            hops.pop()
+        return hops[-1] if hops else (request.client.host if request.client else "?")
 
     def rate_limited(request: Request) -> None:
         if not app.state.limiter.allow(client_ip(request)):
@@ -812,8 +818,18 @@ def create_app(
         """Proof Library (/cards): every issued card, public safe fields only, 24 a page.
         Search ranks claim words first, typo tolerant, Hindi and English. Cached at the
         Hosting CDN for 60 s (https://firebase.google.com/docs/hosting/manage-cache)."""
-        if not app.state.feed_limiter.allow(client_ip(request)):
-            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="slow down")
+        # Only known params, once each: a cache buster (?cb=1) would make every hit a CDN
+        # miss and so fresh Firestore reads. 400 is not cached (no Cache-Control).
+        keys = [k for k, _ in request.query_params.multi_items()]
+        if set(keys) - LIBRARY_PARAMS or len(keys) != len(set(keys)):
+            raise HTTPException(status_code=400, detail="unknown or repeated parameter")
+        if not app.state.library_limiter.allow(client_ip(request)):
+            retry = max(1, -(-60 // app.state.library_limiter.rate_per_min))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="slow down",
+                headers={"Retry-After": str(retry), "Cache-Control": "no-store"},
+            )
         wanted = frozenset(v for v in verdict.upper().split(",") if v)
         if not wanted <= set(VERDICTS):
             raise HTTPException(status_code=422, detail="unknown verdict")

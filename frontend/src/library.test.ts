@@ -21,6 +21,12 @@ describe("proof library", () => {
       "/api/cards?q=gdp&verdict=FALSE%2CTRUE&cursor=abc",
     );
   });
+  it("only ever sends the params the API accepts (no cache busters)", () => {
+    const url = libraryUrl({ q: "gdp", verdicts: ["TRUE"], since: "2026-10-11T14:00:00.000Z" }, "c1");
+    const keys = [...new URL(url, "https://x").searchParams.keys()];
+    expect(keys.every((k) => ["q", "verdict", "since", "until", "cursor"].includes(k))).toBe(true);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
   it("marks query words in English and Hindi, safely", () => {
     expect(highlight("India GDP grew", "gdp").filter((p) => p.hit).map((p) => p.s)).toEqual(["GDP"]);
     expect(highlight("भारत में 22 भाषाएं", "भाषाएं").some((p) => p.hit && p.s === "भाषाएं")).toBe(true);

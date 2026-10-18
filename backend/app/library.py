@@ -36,6 +36,8 @@ MAX_QUERY_CHARS = 200
 MAX_QUERY_TOKENS = 12
 REFRESH_S = 30.0  # how stale the index may get before a request pulls the new cards
 VERDICTS = ("TRUE", "FALSE", "MISLEADING", "UNVERIFIABLE")
+# The only query params /api/cards takes (frontend libraryUrl sends a subset).
+LIBRARY_PARAMS = frozenset({"q", "verdict", "since", "until", "cursor"})
 EXCERPT = 220
 
 
