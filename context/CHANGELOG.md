@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-18 · v0.7.82 · p82-home-footer-report
+Team lead (VN, 18 Oct): a simple footer on the home page with Report an issue, the Telegram bot and the demo video, to show we collect user feedback; and the feature in the README.
+- Home page only (`frontend/src/main.tsx` `FootLinks`): three small icon links above the "Built with Gemini" line: Report an issue (`/v/report`), Telegram bot, demo video. English + Hindi strings. Other pages unchanged.
+- `GET/POST /v/report`: the same report form with nothing prefilled, same validation, same 5/min/IP limit, same Firestore `reports` store (`ReportDoc.card_id`, `claim`, `verdict` now optional, None on a general report). Declared before `/v/{name}`.
+- README: new "Report an issue" section.
+- Tests: `tests/test_report.py` (general report).
+- Docs touched: CHANGELOG, ARCHITECTURE (endpoints), README.
+
 ## 2026-10-18 · v0.7.81 · p81-report-card
 Team lead (VN, 18 Oct): AI can be wrong, so every card page needs a way to report it, prefilled with the card, issue required, email and source link optional, saved in the database.
 - `/v/:id` ends with a folded "Something wrong with this card? Report it" section: the card it is about (verdict, claim, id) shown read only, "What is wrong?" required (max 2000), source link optional (http/https only), email optional (to hear back). Zero JS, plain form post, same style as the page.

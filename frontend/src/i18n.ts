@@ -21,6 +21,10 @@ const en = {
   "brief.next": "Next: open the live page to check the video or stream.",
   "tile.tg": "Telegram",
   foot: "Built with Gemini on Vertex AI, Cloud Run, Firestore and Firebase. Proof that travels.",
+  "foot.report": "Report an issue",
+  "foot.telegram": "Telegram bot",
+  "foot.video": "Watch the demo",
+  "foot.linksLabel": "Feedback and links",
 
   "land.eyebrow": "Authenticity checker for what leaders say",
   "land.h1a": "Every claim, ",
@@ -246,6 +250,10 @@ const hi: Record<Key, string> = {
   "brief.next": "आगे: वीडियो या स्ट्रीम जाँचने के लिए लाइव पेज खोलिए।",
   "tile.tg": "Telegram",
   foot: "Vertex AI पर Gemini, Cloud Run, Firestore और Firebase से बना। सबूत जो साथ चलता है।",
+  "foot.report": "समस्या बताइए",
+  "foot.telegram": "Telegram बॉट",
+  "foot.video": "डेमो देखिए",
+  "foot.linksLabel": "सुझाव और लिंक",
 
   "land.eyebrow": "नेताओं के बयानों की सच्चाई जाँचने वाला",
   "land.h1a": "हर दावा, ",

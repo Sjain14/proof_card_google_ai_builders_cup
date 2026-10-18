@@ -229,9 +229,10 @@ class ReportDoc(Strict):
     Server write only (Admin SDK); clients have no Firestore access to reports."""
 
     schema_version: int = SCHEMA_VERSION
-    card_id: str
-    claim: str  # snapshot of what the reader saw, so a report reads on its own
-    verdict: Verdict
+    # None on a general report from the home footer (/v/report, p82): no card involved.
+    card_id: str | None = None
+    claim: str | None = None  # snapshot of what the reader saw, so a report reads on its own
+    verdict: Verdict | None = None
     issue: Annotated[str, Field(min_length=1, max_length=2000)]
     email: Annotated[str, Field(max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")] | None = (
         None

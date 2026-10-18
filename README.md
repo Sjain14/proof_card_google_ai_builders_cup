@@ -81,6 +81,15 @@ Every card the product has issued, from the web, live streams and Telegram, land
 - **Rich link previews:** each card link (`/v/<id>`) unfurls in WhatsApp and Telegram as that card's own image (verdict, claim, source passage, fingerprint, QR), and the site itself has a preview image (`frontend/public/og.png`). Card images carry immutable cache headers, so the Firebase Hosting CDN serves repeat previews without touching Cloud Run, and the site preview is a static file: previews cost close to nothing.
 - **Built to stay cheap and up under load:** cursor pagination, CDN cached answers, unknown query params rejected (no cache busting) and a per-visitor rate limit keyed on the real client IP behind Hosting (`backend/app/security.py`).
 
+## Report an issue: user feedback, stored server side
+
+AI can get a verdict wrong, so every reader can tell us, and every report is kept for review.
+
+- **Report this card:** every proof page (`/v/:id`) ends with "Something wrong with this card? Report it". The form shows the card it is about (verdict, claim, id) read only, so the report needs no extra context.
+- **Report an issue:** the home page footer links to a general form ([proofcard.web.app/v/report](https://proofcard.web.app/v/report)) for any bug, wrong verdict or suggestion, next to the Telegram bot and the demo video.
+- **Fields:** what is wrong is required; a link to the content and an email (to hear back when it is fixed) are optional. Bad input is refused with the form kept as typed; 5 reports a minute per IP.
+- **Storage:** one document per report in the Firestore `reports` collection (issue, email, source link, time, plus the card snapshot when there is one). Only the backend writes it (Admin SDK); Firestore rules deny every client read and write. No IP is stored, no model is called.
+
 ## Why not just ask Gemini?
 
 Gemini powers Proof Card: it spots checkable claims, searches with Google Search grounding, transcribes and embeds. What Proof Card adds is everything around the answer, so a verdict comes with **proof**: the exact passage that decides it, from a page we fetched ourselves, frozen under a hash, on a card anyone can re-check.

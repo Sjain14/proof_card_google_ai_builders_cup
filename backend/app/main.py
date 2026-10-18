@@ -946,6 +946,45 @@ def create_app(
             result=r.result, reason=r.reason, card_id=r.card_id, changed=r.changed
         )
 
+    # p82: the home footer's general "Report an issue" (no card). Declared before /v/{name}
+    # so "report" never reads as a card id; same validation, limiter and `reports` store.
+    @app.get("/v/report", include_in_schema=False)
+    def report_page() -> HTMLResponse:
+        csp = {"Content-Security-Policy": share_page.CSP, "Cache-Control": "no-store"}
+        return HTMLResponse(share_page.general_report_page(), headers=csp)
+
+    @app.post("/v/report", include_in_schema=False)
+    def general_report(
+        request: Request,
+        issue: Annotated[str, Form()] = "",
+        email: Annotated[str, Form()] = "",
+        source_url: Annotated[str, Form()] = "",
+    ) -> HTMLResponse:
+        csp = {"Content-Security-Policy": share_page.CSP, "Cache-Control": "no-store"}
+        form = {"issue": issue.strip(), "email": email.strip(), "source_url": source_url.strip()}
+
+        def page(msg: str, code: int, ok: bool = False) -> HTMLResponse:
+            state = share_page.ReportState(msg, ok, {} if ok else form)
+            return HTMLResponse(
+                share_page.general_report_page(state), status_code=code, headers=csp
+            )
+
+        if not app.state.report_limiter.allow(client_ip(request)):
+            return page("Too many reports from here. Try again in a minute.", 429)
+        error = share_page.report_error(form, general=True)
+        if error:
+            return page(error, 400)
+        try:
+            doc = ReportDoc(
+                issue=form["issue"],
+                email=form["email"] or None,
+                source_url=form["source_url"] or None,
+            )
+        except ValidationError:
+            return page("Please check the fields and try again.", 400)
+        app.state.store.add_report(doc)
+        return page("Thanks, your report is in. We review every report.", 200, ok=True)
+
     @app.get("/v/{name}", include_in_schema=False)
     async def share(name: str) -> Response:
         card_id, _, ext = name.partition(".")

@@ -131,3 +131,55 @@ def test_report_form_escapes_input(store: InMemoryStore) -> None:
 def test_report_error_accepts_good_input() -> None:
     ok = {"issue": "wrong", "email": "a@b.in", "source_url": "http://pib.gov.in/a"}
     assert report_error(ok) == ""
+
+
+# p82: general "Report an issue" from the home footer (/v/report, no card).
+
+
+def test_general_report_page_renders(client: TestClient) -> None:
+    r = client.get("/v/report")
+    assert r.status_code == 200
+    assert "<h1>Report an issue</h1>" in r.text
+    assert 'action="/v/report#report"' in r.text
+    assert 'name="issue" rows="5" required' in r.text
+    assert "You are reporting" not in r.text  # nothing prefilled
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_general_report_is_stored_without_card(client: TestClient, store: InMemoryStore) -> None:
+    data = {"issue": " add a share button ", "email": "a@b.co", "source_url": "https://x.in/a"}
+    r = client.post("/v/report", data=data)
+    assert r.status_code == 200
+    assert "your report is in" in r.text
+    doc = store.reports[-1]
+    assert (doc.card_id, doc.claim, doc.verdict) == (None, None, None)
+    assert doc.issue == "add a share button"
+    assert doc.email == "a@b.co"
+
+
+@pytest.mark.parametrize(
+    ("data", "words"),
+    [
+        ({"issue": ""}, "required"),
+        ({"issue": "x", "email": "nope"}, "email does not look right"),
+        ({"issue": "x", "source_url": "javascript:alert(1)"}, "full web address"),
+    ],
+)
+def test_general_report_bad_input_is_400(
+    client: TestClient, store: InMemoryStore, data: dict[str, str], words: str
+) -> None:
+    r = client.post("/v/report", data=data)
+    assert r.status_code == 400
+    assert words in r.text
+    assert store.reports == []
+
+
+def test_general_report_shares_the_rate_limit(client: TestClient, store: InMemoryStore) -> None:
+    codes = [client.post("/v/report", data={"issue": "x"}).status_code for _ in range(6)]
+    assert codes == [200] * 5 + [429]
+
+
+def test_general_report_escapes_input(client: TestClient) -> None:
+    r = client.post("/v/report", data={"issue": "</textarea><script>x</script>", "email": "bad"})
+    assert "<script>x</script>" not in r.text
+    assert "&lt;/textarea&gt;" in r.text

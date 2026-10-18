@@ -78,11 +78,12 @@ class ReportState:
     form: dict[str, str] = field(default_factory=dict)
 
 
-def report_error(form: dict[str, str]) -> str:
+def report_error(form: dict[str, str], general: bool = False) -> str:
     """The first problem with a report, in words a reader understands; "" when fine."""
     issue, email, src = form.get("issue", ""), form.get("email", ""), form.get("source_url", "")
     if not issue:
-        return "Tell us what is wrong with this card. That field is required."
+        what = "the issue or suggestion" if general else "what is wrong with this card"
+        return f"Tell us {what}. That field is required."
     if len(issue) > ISSUE_MAX:
         return f"Please keep it under {ISSUE_MAX} characters."
     if email and (len(email) > 254 or not EMAIL_RE.match(email)):
@@ -283,6 +284,43 @@ def _actions(card: CardDoc, card_id: str, url: str, bot: str) -> str:
             for c, h, label in links
         )
         + "</div>"
+    )
+
+
+def general_report_page(state: ReportState | None = None) -> str:
+    """/v/report (p82): the home footer's "Report an issue". Same form as the card report,
+    nothing prefilled: any issue, feedback or suggestion. Zero JS, plain form post."""
+    st = state or ReportState()
+    body = ['<section class="rep" id="report"><h1>Report an issue</h1>']
+    if st.msg:
+        body.append(
+            f'<div class="r {"ok" if st.ok else "err"}" role="status">{escape(st.msg)}</div>'
+        )
+    if st.ok:
+        body.append('<p class="why"><a href="/">Back to Proof Card</a></p></section>')
+    else:
+        v = {k: escape(st.form.get(k, "")) for k in ("issue", "email", "source_url")}
+        body.append(
+            '<p class="meta">A wrong verdict, a bug, or an idea to make Proof Card better. '
+            "Tell us and we will look at it. Reporting one card? Use the link at the bottom "
+            "of that card.</p>"
+            '<form method="post" action="/v/report#report">'
+            '<label for="r-issue">What is the issue or suggestion? <span>(required)</span>'
+            "</label>"
+            f'<textarea id="r-issue" name="issue" rows="5" required maxlength="{ISSUE_MAX}" '
+            'placeholder="e.g. a card cites the wrong year, or an idea for a feature">'
+            f"{v['issue']}</textarea>"
+            '<label for="r-src">Link to the content <span>(optional)</span></label>'
+            f'<input id="r-src" name="source_url" type="url" maxlength="2000" '
+            f'placeholder="https://..." value="{v["source_url"]}">'
+            '<label for="r-email">Your email, to hear back when it is fixed <span>(optional)</span>'
+            "</label>"
+            f'<input id="r-email" name="email" type="email" maxlength="254" autocomplete="email" '
+            f'placeholder="you@example.com" value="{v["email"]}">'
+            "<button>Send report</button></form></section>"
+        )
+    return _page(
+        "Report an issue | Proof Card", "Report an issue or suggest a fix.", "", "".join(body)
     )
 
 
