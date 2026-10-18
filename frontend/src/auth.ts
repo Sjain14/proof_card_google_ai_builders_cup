@@ -16,10 +16,28 @@ import {
 const env = import.meta.env;
 let auth: Auth | null = null;
 
+// Sign in must finish on the same origin the app is served from. With authDomain on
+// another host (aibuilderscup.firebaseapp.com while the page is proofcard.web.app) the
+// auth iframe is a third party, browsers partition its storage, and the popup result
+// never reaches the app: the popup closes and the user stays signed out. Every Firebase
+// Hosting site serves /__/auth/handler itself, so on our hosting sites we use the page's
+// own host. Each one needs its /__/auth/handler in the OAuth client's redirect URIs.
+const HOSTED_AUTH_DOMAINS = new Set([
+  "proofcard.web.app",
+  "proofcard.firebaseapp.com",
+  "aibuilderscup.web.app",
+  "aibuilderscup.firebaseapp.com",
+]);
+
+function authDomain(): string | undefined {
+  const host = typeof window !== "undefined" ? window.location.hostname : "";
+  return HOSTED_AUTH_DOMAINS.has(host) ? host : env.VITE_FIREBASE_AUTH_DOMAIN;
+}
+
 if (env.VITE_FIREBASE_API_KEY) {
   const app = initializeApp({
     apiKey: env.VITE_FIREBASE_API_KEY,
-    authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
+    authDomain: authDomain(),
     projectId: env.VITE_FIREBASE_PROJECT_ID,
     appId: env.VITE_FIREBASE_APP_ID,
   });
@@ -53,7 +71,16 @@ export function watchUser(cb: (u: SignedIn | null) => void): () => void {
 }
 
 export async function signIn(): Promise<void> {
-  if (auth) await signInWithPopup(auth, new GoogleAuthProvider());
+  if (!auth) return;
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (e) {
+    const code = (e as { code?: string }).code ?? String(e);
+    console.error("sign in failed:", code);
+    if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
+      window.alert(`Sign in failed (${code}). Please try again.`);
+    }
+  }
 }
 
 export async function signInGuest(): Promise<void> {

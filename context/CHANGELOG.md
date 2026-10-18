@@ -2,6 +2,14 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-18 · v0.7.73 · p73-same-origin-sign-in
+Google sign in on proofcard.web.app opened the popup and finished consent, then the popup closed and the app stayed signed out (Mac Chrome 155, 18 Oct).
+- Cause: authDomain was aibuilderscup.firebaseapp.com on every site. On any other host its auth iframe is third party and Chrome partitions its storage (checked: the iframe could not read storage set by the same host as a top level page), so the popup result never reaches the app.
+- `frontend/src/auth.ts`: on our Hosting sites (proofcard / aibuilderscup, web.app + firebaseapp.com) authDomain = the page's own host; every Hosting site serves /__/auth/handler. Other hosts keep VITE_FIREBASE_AUTH_DOMAIN.
+- Sign in errors are no longer swallowed: logged, and shown unless the user closed the popup.
+- Outside the repo (Owner, console, done 18 Oct): the Web OAuth client lists each site's https origin and /__/auth/handler as redirect URIs.
+- Docs touched: CHANGELOG.
+
 ## 2026-10-18 · v0.7.70 · p70-proofcard-alt-site
 proofcard.web.app = alternate URL for the same app (Team lead, 17 Oct).
 - firebase.json hosting is now two sites with the same config: `aibuilderscup` (main) and `proofcard`.
