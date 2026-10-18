@@ -183,3 +183,11 @@ def test_general_report_escapes_input(client: TestClient) -> None:
     r = client.post("/v/report", data={"issue": "</textarea><script>x</script>", "email": "bad"})
     assert "<script>x</script>" not in r.text
     assert "&lt;/textarea&gt;" in r.text
+
+
+def test_server_pages_carry_the_favicon(client: TestClient, store: InMemoryStore) -> None:
+    """p83: card, report and 404 pages show the Proof Card icon, not the browser globe."""
+    cid, _card = first(store)
+    icon = '<link rel="icon" href="/favicon.svg" type="image/svg+xml">'
+    for path in (f"/v/{cid}", "/v/report", "/v/zzzzzzzzzzzz"):
+        assert icon in client.get(path).text, path

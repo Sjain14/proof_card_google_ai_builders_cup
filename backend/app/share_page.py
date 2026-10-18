@@ -110,6 +110,7 @@ def _page(title: str, desc: str, url: str, body: str) -> str:
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<link rel="icon" href="/favicon.svg" type="image/svg+xml">'
         f'<title>{t}</title><meta name="description" content="{d}">{og}'
         f'<meta name="robots" content="noindex"><style>{CSS}</style></head><body><main>'
         '<div class="top"><a class="brand" href="/">PROOF CARD</a></div>'
