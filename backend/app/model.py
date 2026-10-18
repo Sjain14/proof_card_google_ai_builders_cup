@@ -16,7 +16,12 @@ verdict the fetched evidence doesn't support.
 from __future__ import annotations
 
 import json
+import os
+import random
 import re
+import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -67,6 +72,52 @@ def vertex_client(
             retry_options=types.HttpRetryOptions(attempts=attempts),
         ),
     )
+
+
+# Grounded assess burst control (prod 17 Oct 2026, rev 00075: 6 x 504 + 1 x 429 inside
+# 40 min while a brief ran its claims in parallel; the SDK's own 3 attempts all failed and
+# the claims ended FAILED). Two guards, both outside the SDK retry:
+# * a process wide cap on concurrent grounded calls, so one brief can't burst the quota;
+# * one more round of attempts with a longer, jittered backoff for transient errors only.
+# A 4xx other than 429 is never retried.
+ASSESS_CONCURRENCY = max(1, int(os.environ.get("PC_ASSESS_CONCURRENCY", "4")))
+ASSESS_ATTEMPTS = 2  # outer rounds; each round is the SDK's own attempts
+ASSESS_BACKOFF_S = 4.0
+TRANSIENT_CODES = frozenset({429, 500, 502, 503, 504})
+_ASSESS_SLOTS = threading.BoundedSemaphore(ASSESS_CONCURRENCY)
+
+
+def is_transient(exc: BaseException) -> bool:
+    """429 / 5xx from Vertex (google.genai.errors.APIError carries .code), or a timeout."""
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code in TRANSIENT_CODES
+    return isinstance(exc, TimeoutError) or type(exc).__name__ in {
+        "ReadTimeout",
+        "ConnectTimeout",
+        "TimeoutException",
+    }
+
+
+def with_backoff[T](
+    fn: Callable[[], T],
+    attempts: int = ASSESS_ATTEMPTS,
+    base_s: float = ASSESS_BACKOFF_S,
+    sleep: Callable[[float], None] = time.sleep,
+    slots: threading.BoundedSemaphore | None = None,
+) -> T:
+    """Run fn under the concurrency cap; retry transient errors with jittered backoff.
+    The slot is released while sleeping so a waiting call never blocks the others."""
+    sem = slots if slots is not None else _ASSESS_SLOTS
+    for n in range(attempts):
+        with sem:
+            try:
+                return fn()
+            except Exception as exc:
+                if n + 1 >= attempts or not is_transient(exc):
+                    raise
+        sleep(base_s * (2**n) * (0.5 + random.random()))  # noqa: S311 - jitter, not crypto
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 SUGGESTION_MAX = 50_000  # chars; never truncate (that would modify it), drop if larger
@@ -256,13 +307,15 @@ class VertexModel:  # pragma: no cover - needs a GCP project; covered by the par
     def assess(self, claim: str, hint: str = "") -> Assessment:
         from google.genai import types
 
-        resp = self.client.models.generate_content(
-            model=self.model,
-            contents=ASSESS_PROMPT.format(claim=claim) + (f"\n{hint}\n" if hint else ""),
-            config=types.GenerateContentConfig(
-                temperature=0.0,
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-            ),
+        resp = with_backoff(
+            lambda: self.client.models.generate_content(
+                model=self.model,
+                contents=ASSESS_PROMPT.format(claim=claim) + (f"\n{hint}\n" if hint else ""),
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                ),
+            )
         )
         raw = resp.text or ""
         verdict, explanation = parse_assessment_text(raw)

@@ -2,6 +2,13 @@
 
 Every PR adds one entry on top: date (IST), PR link, what changed, which context docs it touched.
 
+## 2026-10-18 · v0.7.74 · p74-vertex-backoff-extract-lock
+Prod 17 Oct, rev 00075 (read only log review): 7 claims ended FAILED on Vertex 504 x6 + 429 x1 while a brief checked claims in parallel, and the process died once with SIGABRT (munmap_chunk) right after 3 parallel bls.gov fetches + extractions.
+- `backend/app/model.py`: grounded assess runs under a process wide cap (`PC_ASSESS_CONCURRENCY`, default 4) and gets one more round with jittered backoff (4 s base) on 429 / 5xx / timeout only; 4xx never retried. Prediction, live path untouched.
+- `backend/app/proof.py`: trafilatura (lxml) extraction behind one lock; parallel fetches of the same URL share one request (nothing cached after it ends).
+- Tests: `tests/test_p74_resilience.py`, all mocked, zero Vertex calls.
+- Docs touched: CHANGELOG.
+
 ## 2026-10-18 · v0.7.73 · p73-same-origin-sign-in
 Google sign in on proofcard.web.app opened the popup and finished consent, then the popup closed and the app stayed signed out (Mac Chrome 155, 18 Oct).
 - Cause: authDomain was aibuilderscup.firebaseapp.com on every site. On any other host its auth iframe is third party and Chrome partitions its storage (checked: the iframe could not read storage set by the same host as a top level page), so the popup result never reaches the app.

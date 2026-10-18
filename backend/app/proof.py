@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import io
 import re
+import threading
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -81,6 +82,15 @@ MAX_PDF_BYTES = 10_000_000  # official statistics (MoSPI, RBI, PIB) are mostly P
 MAX_PDF_PAGES = 60
 
 
+class _Flight:
+    """One in-flight fetch that concurrent callers of the same URL wait on."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.result: Fetched | None = None
+        self.error: BaseException | None = None
+
+
 class HttpFetcher:
     """Real fetcher. Redirects are followed manually so each hop is re-vetted.
 
@@ -99,7 +109,37 @@ class HttpFetcher:
         self.timeout = timeout
         self.transport = transport  # tests inject httpx.MockTransport
 
+    # Single flight: callers asking for the same URL at the same moment share one fetch
+    # (prod 17 Oct 2026: 3 parallel bls.gov fetches, then a native crash). Nothing is
+    # cached after the fetch ends, so a later call always gets a fresh page.
+    _inflight: ClassVar[dict[str, _Flight]] = {}
+    _inflight_lock: ClassVar[threading.Lock] = threading.Lock()
+
     def fetch(self, url: str) -> Fetched:
+        with self._inflight_lock:
+            flight = self._inflight.get(url)
+            leader = flight is None
+            if flight is None:
+                flight = self._inflight[url] = _Flight()
+        if not leader:
+            flight.done.wait()
+            if flight.error is not None:
+                raise FetchError(str(flight.error)) from flight.error
+            if flight.result is None:  # pragma: no cover - the leader sets one or the other
+                raise FetchError("fetch ended without a result")
+            return flight.result
+        try:
+            flight.result = self._fetch_once(url)
+            return flight.result
+        except BaseException as exc:
+            flight.error = exc
+            raise
+        finally:
+            with self._inflight_lock:
+                self._inflight.pop(url, None)
+            flight.done.set()
+
+    def _fetch_once(self, url: str) -> Fetched:
         try:
             return self._fetch(url)
         except httpx.HTTPError as exc:
@@ -187,9 +227,13 @@ def _pdf_text(body: bytes) -> str:
 def _html_text(raw: str) -> str:
     # Main content only (no menus, footers, "1 · 2 · 3" pagers): trafilatura, the extractor
     # picked in 08_Reuse_Map C2. Docs: https://trafilatura.readthedocs.io/en/latest/corefunctions.html
-    main = trafilatura.extract(
-        raw, include_comments=False, include_tables=True, favor_recall=True, deduplicate=True
-    )
+    # lxml under trafilatura is not safe to drive from many threads at once: prod 17 Oct
+    # 2026 died with SIGABRT (munmap_chunk) right after 3 parallel extractions. One at a
+    # time; extraction is CPU bound under the GIL anyway, so throughput barely changes.
+    with _EXTRACT_LOCK:
+        main = trafilatura.extract(
+            raw, include_comments=False, include_tables=True, favor_recall=True, deduplicate=True
+        )
     if main and len(main) >= MIN_MAIN_TEXT:
         return main
     p = _TextExtractor()
@@ -198,6 +242,7 @@ def _html_text(raw: str) -> str:
 
 
 MIN_MAIN_TEXT = 200
+_EXTRACT_LOCK = threading.Lock()
 
 
 def extract_text(body: bytes, content_type: str = "text/html") -> str:
